@@ -11,6 +11,8 @@ interface Props {
   id?: number
   emailConfigOptions: { label: string; value: number }[]
   recipientOptions: { label: string; value: number }[]
+  wecomAppOptions: { label: string; value: number }[]
+  wecomBotOptions: { label: string; value: number }[]
 }
 
 const props = defineProps<Props>()
@@ -35,8 +37,12 @@ const form = ref<TaskConfig>({
   recipientIds: '',
   recipientGroupIds: '',
   status: 'ENABLE',
+  fileNamePattern: '',
   emailSubject: '定时报表',
   emailBody: '请查收附件报表。',
+  weComAppConfigId: undefined,
+  weComBotConfigId: undefined,
+  weComToUser: '',
 })
 
 const sqlOptions = ref<TaskSqlConfig[]>([])
@@ -62,6 +68,27 @@ const selectedSqlList = computed(() => {
     .filter((sql): sql is TaskSqlConfig => !!sql)
 })
 
+const groupedSqlOptions = computed(() => {
+  const groups = new Map<string, TaskSqlConfig[]>()
+  const noGroup: TaskSqlConfig[] = []
+  sqlOptions.value.forEach((sql) => {
+    if (sql.groupName) {
+      if (!groups.has(sql.groupName)) {
+        groups.set(sql.groupName, [])
+      }
+      groups.get(sql.groupName)!.push(sql)
+    } else {
+      noGroup.push(sql)
+    }
+  })
+  const result: { label: string; options: TaskSqlConfig[] }[] = []
+  groups.forEach((options, label) => result.push({ label, options }))
+  if (noGroup.length > 0) {
+    result.push({ label: '未分组', options: noGroup })
+  }
+  return result
+})
+
 const loadOptions = async () => {
   const [sqlRes, groupRes] = await Promise.all([
     listTaskSql().catch(() => []),
@@ -84,8 +111,12 @@ const resetForm = () => {
     recipientIds: '',
     recipientGroupIds: '',
     status: 'ENABLE',
+    fileNamePattern: '',
     emailSubject: '定时报表',
     emailBody: '请查收附件报表。',
+    weComAppConfigId: undefined,
+    weComBotConfigId: undefined,
+    weComToUser: '',
   }
   selectedRecipients.value = []
   selectedGroups.value = []
@@ -106,8 +137,12 @@ const loadDetail = async () => {
       recipientIds: '',
       recipientGroupIds: '',
       status: 'ENABLE',
+      fileNamePattern: '',
       emailSubject: '定时报表',
       emailBody: '请查收附件报表。',
+      wecomAppConfigId: undefined,
+      wecomBotConfigId: undefined,
+      wecomToUser: '',
     }
     selectedRecipients.value = form.value.recipientIds
       ? form.value.recipientIds.split(',').map((id) => Number(id.trim())).filter(Boolean)
@@ -263,12 +298,18 @@ onMounted(() => {
           placeholder="请选择要执行的 SQL"
           style="width: 100%"
         >
-          <el-option
-            v-for="item in sqlOptions"
-            :key="item.id"
-            :label="item.sqlName"
-            :value="item.id!"
-          />
+          <el-option-group
+            v-for="group in groupedSqlOptions"
+            :key="group.label"
+            :label="group.label"
+          >
+            <el-option
+              v-for="item in group.options"
+              :key="item.id"
+              :label="`${item.sqlName} (${item.sqlCode})`"
+              :value="item.id!"
+            />
+          </el-option-group>
         </el-select>
       </el-form-item>
 
@@ -277,6 +318,7 @@ onMounted(() => {
           <el-table-column type="index" label="序号" width="60" align="center" />
           <el-table-column prop="sqlName" label="SQL 名称" min-width="160" show-overflow-tooltip />
           <el-table-column prop="sqlCode" label="SQL 编码" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="groupName" label="分组" min-width="120" show-overflow-tooltip />
           <el-table-column label="模板" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
               {{ row.templateId ? '有' : '无' }}
@@ -343,14 +385,65 @@ onMounted(() => {
         </el-select>
       </el-form-item>
 
-      <!-- 文件名格式已移除，改在 SQL 管理中配置 -->
+      <el-form-item label="文件名格式">
+        <el-input
+          v-model="form.fileNamePattern"
+          placeholder="模板链输出文件名，支持 {lastMonth}、{yyyyMMdd} 等变量；单 SQL 输出时可在 SQL 配置中设置"
+        />
+      </el-form-item>
 
       <el-form-item label="邮件主题">
-        <el-input v-model="form.emailSubject" placeholder="邮件主题" />
+        <el-input v-model="form.emailSubject" placeholder="支持 {lastMonth}、{lastMonth:yyyyMM}、{yyyyMMdd} 等变量" />
       </el-form-item>
 
       <el-form-item label="邮件正文">
-        <el-input v-model="form.emailBody" type="textarea" :rows="3" placeholder="邮件正文" />
+        <el-input v-model="form.emailBody" type="textarea" :rows="3" placeholder="支持 {lastMonth}、{lastMonth:yyyyMM}、{yyyyMMdd} 等变量" />
+      </el-form-item>
+
+      <el-divider content-position="left">企业微信通知</el-divider>
+
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="企业微信应用">
+            <el-select
+              v-model="form.weComAppConfigId"
+              clearable
+              placeholder="请选择企业微信应用"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in wecomAppOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="群机器人">
+            <el-select
+              v-model="form.weComBotConfigId"
+              clearable
+              placeholder="请选择群机器人"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in wecomBotOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <el-form-item label="应用接收人">
+        <el-input
+          v-model="form.weComToUser"
+          placeholder="应用消息接收人，多个用逗号分隔，为空则 @all"
+        />
       </el-form-item>
     </el-form>
 

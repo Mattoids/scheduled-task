@@ -22,6 +22,8 @@ public class SpaController {
             "/email-recipient/**",
             "/template",
             "/template/**",
+            "/wecom",
+            "/wecom/**",
             "/system",
             "/system/**"
     })

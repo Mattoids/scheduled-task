@@ -42,4 +42,34 @@ public class TaskConfig extends BaseEntity {
     private String emailSubject;
 
     private String emailBody;
+
+    private Long weComAppConfigId;
+
+    private Long weComBotConfigId;
+
+    private String weComToUser;
+
+    public Long getWeComAppConfigId() {
+        return weComAppConfigId;
+    }
+
+    public void setWeComAppConfigId(Long weComAppConfigId) {
+        this.weComAppConfigId = weComAppConfigId;
+    }
+
+    public Long getWeComBotConfigId() {
+        return weComBotConfigId;
+    }
+
+    public void setWeComBotConfigId(Long weComBotConfigId) {
+        this.weComBotConfigId = weComBotConfigId;
+    }
+
+    public String getWeComToUser() {
+        return weComToUser;
+    }
+
+    public void setWeComToUser(String weComToUser) {
+        this.weComToUser = weComToUser;
+    }
 }

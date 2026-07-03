@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
@@ -8,6 +9,7 @@ import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.service.TaskSqlConfigService;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,8 +26,16 @@ public class TaskSqlConfigController {
 
     @PreAuthorize("hasAuthority('task:view')")
     @GetMapping("/page")
-    public Result<PageResult<TaskSqlConfig>> page(PageQuery query) {
-        Page<TaskSqlConfig> page = taskSqlConfigService.page(new Page<>(query.getCurrent(), query.getSize()));
+    public Result<PageResult<TaskSqlConfig>> page(PageQuery query,
+                                                  @RequestParam(required = false) String sqlName,
+                                                  @RequestParam(required = false) String sqlCode,
+                                                  @RequestParam(required = false) String groupName) {
+        LambdaQueryWrapper<TaskSqlConfig> wrapper = new LambdaQueryWrapper<>();
+        wrapper.like(StringUtils.hasText(sqlName), TaskSqlConfig::getSqlName, sqlName)
+                .like(StringUtils.hasText(sqlCode), TaskSqlConfig::getSqlCode, sqlCode)
+                .eq(StringUtils.hasText(groupName), TaskSqlConfig::getGroupName, groupName)
+                .orderByDesc(TaskSqlConfig::getCreateTime);
+        Page<TaskSqlConfig> page = taskSqlConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         return Result.ok(PageUtil.convert(page));
     }
 

@@ -1,0 +1,28 @@
+-- 企业微信集成
+CREATE TABLE IF NOT EXISTS wecom_app_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    config_name VARCHAR(255) NOT NULL,
+    corp_id VARCHAR(255) NOT NULL,
+    agent_id INT NOT NULL,
+    secret VARCHAR(512) NOT NULL,
+    token VARCHAR(255),
+    aes_key VARCHAR(512),
+    status TINYINT DEFAULT 1,
+    menu_json TEXT,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wecom_bot_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    config_name VARCHAR(255) NOT NULL,
+    webhook_key VARCHAR(255) NOT NULL,
+    status TINYINT DEFAULT 1,
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+ALTER TABLE task_config
+    ADD COLUMN we_com_app_config_id BIGINT NULL,
+    ADD COLUMN we_com_bot_config_id BIGINT NULL,
+    ADD COLUMN we_com_to_user VARCHAR(500) NULL COMMENT '应用消息接收人，逗号分隔';

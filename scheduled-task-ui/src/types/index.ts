@@ -54,3 +54,13 @@ export interface TestConnectionResult {
   message?: string
   stages?: StageResult[]
 }
+
+export interface DashboardStats {
+  taskCount: number
+  datasourceCount: number
+  emailConfigCount: number
+  templateCount: number
+  todayLogCount: number
+  successLogCount: number
+  failedLogCount: number
+}

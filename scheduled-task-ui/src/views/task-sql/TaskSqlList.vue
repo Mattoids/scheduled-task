@@ -18,6 +18,7 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const queryForm = reactive({
   sqlName: '',
   sqlCode: '',
+  groupName: '',
 })
 
 const loading = ref(false)
@@ -26,6 +27,7 @@ const formId = ref<number | undefined>(undefined)
 
 const datasourceOptions = ref<{ label: string; value: number }[]>([])
 const templateOptions = ref<{ label: string; value: number }[]>([])
+const groupOptions = ref<{ label: string; value: string }[]>([])
 
 const loadOptions = async () => {
   const [ds, tpl] = await Promise.all([
@@ -42,11 +44,22 @@ const loadOptions = async () => {
   }))
 }
 
+const refreshGroupOptions = () => {
+  const groups = new Set<string>()
+  records.value.forEach((item: TaskSqlConfig) => {
+    if (item.groupName) {
+      groups.add(item.groupName)
+    }
+  })
+  groupOptions.value = Array.from(groups).map((g) => ({ label: g, value: g }))
+}
+
 const loadPage = async () => {
   loading.value = true
   try {
     const res = await pageTaskSql(buildQuery(queryForm))
     setPageResult(res)
+    refreshGroupOptions()
   } finally {
     loading.value = false
   }
@@ -60,6 +73,7 @@ const handleSearch = () => {
 const handleReset = () => {
   queryForm.sqlName = ''
   queryForm.sqlCode = ''
+  queryForm.groupName = ''
   reset()
   loadPage()
 }
@@ -107,6 +121,16 @@ onMounted(() => {
       <el-form-item label="SQL 编码">
         <el-input v-model="queryForm.sqlCode" placeholder="SQL 编码" clearable />
       </el-form-item>
+      <el-form-item label="分组">
+        <el-select v-model="queryForm.groupName" placeholder="全部分组" clearable style="width: 160px">
+          <el-option
+            v-for="item in groupOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </el-select>
+      </el-form-item>
     </BaseSearchForm>
 
     <div class="table-toolbar">
@@ -117,6 +141,7 @@ onMounted(() => {
     <el-table v-loading="loading" :data="records" border stripe>
       <el-table-column prop="sqlName" label="SQL 名称" min-width="160" show-overflow-tooltip />
       <el-table-column prop="sqlCode" label="SQL 编码" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="groupName" label="分组" min-width="120" show-overflow-tooltip />
       <el-table-column label="数据源" min-width="140">
         <template #default="{ row }">
           {{ datasourceOptions.find((d) => d.value === row.datasourceId)?.label || row.datasourceId }}

@@ -12,6 +12,9 @@ export interface TaskConfig {
   fileNamePattern?: string
   emailSubject?: string
   emailBody?: string
+  weComAppConfigId?: number
+  weComBotConfigId?: number
+  weComToUser?: string
   createTime?: string
   updateTime?: string
 }
@@ -26,6 +29,7 @@ export interface TaskSqlConfig {
   outputFormat?: string
   fileSuffix?: string
   fileNamePattern?: string
+  groupName?: string
   description?: string
   status?: number
   sortOrder?: number
@@ -120,6 +124,29 @@ export interface ReportTemplate {
   description?: string
   status?: number
   createTime?: string
+}
+
+export interface WeComAppConfig {
+  id?: number
+  configName: string
+  corpId: string
+  agentId: number
+  secret?: string
+  token?: string
+  aesKey?: string
+  status?: number
+  menuJson?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface WeComBotConfig {
+  id?: number
+  configName: string
+  webhookKey: string
+  status?: number
+  createTime?: string
+  updateTime?: string
 }
 
 export interface SysUser {

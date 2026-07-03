@@ -24,6 +24,7 @@
         <poi.version>5.2.5</poi.version>
         <jwt.version>0.12.5</jwt.version>
         <commons-csv.version>1.10.0</commons-csv.version>
+        <weixin-java-cp.version>4.6.0</weixin-java-cp.version>
     </properties>
 
     <dependencies>
@@ -129,6 +130,13 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <!-- WeCom SDK -->
+        <dependency>
+            <groupId>com.github.binarywang</groupId>
+            <artifactId>weixin-java-cp</artifactId>
+            <version>${weixin-java-cp.version}</version>
         </dependency>
 
         <!-- Test -->

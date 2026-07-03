@@ -28,6 +28,8 @@ public class TaskSqlConfig extends BaseEntity {
 
     private String fileNamePattern;
 
+    private String groupName;
+
     private String description;
 
     private Integer status;

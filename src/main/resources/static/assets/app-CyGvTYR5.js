@@ -1,0 +1,1 @@
+import{V as e,v as t}from"./index-DhLG89no.js";var n=t(`app`,()=>{let t=e(!1),n=e([]);return{sidebarCollapsed:t,breadcrumb:n,toggleSidebar:()=>{t.value=!t.value},setBreadcrumb:e=>{n.value=e}}});export{n as t};

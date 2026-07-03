@@ -38,9 +38,6 @@ const toggleSidebar = () => {
         :collapse="appStore.sidebarCollapsed"
         :collapse-transition="false"
         router
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409eff"
       >
         <template v-for="menu in visibleMenuRoutes" :key="menu.path">
           <el-sub-menu v-if="menu.children && menu.children.length" :index="menu.path">

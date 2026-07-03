@@ -5,6 +5,8 @@ import { usePagination } from '@/composables/usePagination'
 import { pageTask, deleteTask, updateTaskStatus, triggerTask } from '@/api/task'
 import { listEmailConfig } from '@/api/emailConfig'
 import { listRecipient, listGroup } from '@/api/emailRecipient'
+import { listWeComAppConfig } from '@/api/weComAppConfig'
+import { listWeComBotConfig } from '@/api/weComBotConfig'
 import TaskForm from './TaskForm.vue'
 import TaskLogDrawer from './TaskLogDrawer.vue'
 import type { TaskConfig } from '@/types/entity'
@@ -30,12 +32,16 @@ const logTaskId = ref<number | undefined>(undefined)
 const emailConfigOptions = ref<{ label: string; value: number }[]>([])
 const recipientOptions = ref<{ label: string; value: number }[]>([])
 const groupOptions = ref<{ label: string; value: number }[]>([])
+const wecomAppOptions = ref<{ label: string; value: number }[]>([])
+const wecomBotOptions = ref<{ label: string; value: number }[]>([])
 
 const loadOptions = async () => {
-  const [ec, rec, grp] = await Promise.all([
+  const [ec, rec, grp, wca, wcb] = await Promise.all([
     listEmailConfig({ size: 1000 }).catch(() => ({ records: [] })),
     listRecipient().catch(() => []),
     listGroup().catch(() => []),
+    listWeComAppConfig().catch(() => ({ records: [] })),
+    listWeComBotConfig().catch(() => ({ records: [] })),
   ])
   emailConfigOptions.value = (ec.records || []).map((item: any) => ({
     label: item.configName,
@@ -47,6 +53,14 @@ const loadOptions = async () => {
   }))
   groupOptions.value = (grp || []).map((item: any) => ({
     label: item.groupName,
+    value: item.id,
+  }))
+  wecomAppOptions.value = (wca.records || []).map((item: any) => ({
+    label: item.configName,
+    value: item.id,
+  }))
+  wecomBotOptions.value = (wcb.records || []).map((item: any) => ({
+    label: item.configName,
     value: item.id,
   }))
 }
@@ -189,7 +203,7 @@ onMounted(() => {
         <template #default="{ row }">
           <el-switch
             v-permission="'task:edit'"
-            v-model="row.status"
+            :model-value="row.status"
             active-value="ENABLE"
             inactive-value="DISABLE"
             @change="handleStatusChange(row)"
@@ -226,6 +240,8 @@ onMounted(() => {
       :id="formId"
       :email-config-options="emailConfigOptions"
       :recipient-options="recipientOptions"
+      :wecom-app-options="wecomAppOptions"
+      :wecom-bot-options="wecomBotOptions"
       @success="onFormSuccess"
     />
 

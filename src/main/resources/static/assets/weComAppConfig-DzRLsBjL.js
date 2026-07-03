@@ -1,0 +1,1 @@
+import{r as e}from"./index-DhLG89no.js";var t=t=>e.get(`/wecom-app-config/page`,{params:t}),n=e=>t({...e,current:1,size:1e3}),r=t=>e.get(`/wecom-app-config/${t}`),i=t=>e.post(`/wecom-app-config`,t),a=(t,n)=>e.put(`/wecom-app-config/${t}`,n),o=t=>e.delete(`/wecom-app-config/${t}`),s=t=>e.post(`/wecom-app-config/test`,t);export{t as a,n as i,o as n,s as o,r,a as s,i as t};

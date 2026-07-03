@@ -33,6 +33,7 @@ const form = ref<TaskSqlConfig>({
   outputFormat: 'CSV',
   fileSuffix: '',
   fileNamePattern: '',
+  groupName: '',
   description: '',
   status: 1,
 })
@@ -65,6 +66,7 @@ const resetForm = () => {
     outputFormat: 'CSV',
     fileSuffix: '',
     fileNamePattern: '',
+    groupName: '',
     description: '',
     status: 1,
   }
@@ -197,6 +199,10 @@ const handleClose = () => {
           </el-form-item>
         </el-col>
       </el-row>
+
+      <el-form-item label="分组名称">
+        <el-input v-model="form.groupName" placeholder="如 门店报表、财务日报（可选，用于任务选择时分组展示）" />
+      </el-form-item>
 
       <el-form-item label="描述">
         <el-input v-model="form.description" type="textarea" :rows="2" placeholder="描述（可选）" />

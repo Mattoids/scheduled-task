@@ -14,15 +14,15 @@ class TaskExecutionServiceFileNameTest {
     @Test
     void buildFileNameSupportsLastMonthPlaceholder() throws Exception {
         TaskExecutionService service = new TaskExecutionService(
-                null, null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null
         );
-        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class);
+        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class, boolean.class);
         method.setAccessible(true);
 
         TaskConfig task = new TaskConfig();
         task.setFileNamePattern("report_{lastMonth}.xlsx");
 
-        String result = (String) method.invoke(service, task, null);
+        String result = (String) method.invoke(service, task, null, false);
         YearMonth expected = YearMonth.now().minusMonths(1);
         assertEquals("report_" + expected.format(java.time.format.DateTimeFormatter.ofPattern("MM")) + ".xlsx", result);
     }
@@ -30,15 +30,15 @@ class TaskExecutionServiceFileNameTest {
     @Test
     void buildFileNameSupportsLastMonthWithCustomPattern() throws Exception {
         TaskExecutionService service = new TaskExecutionService(
-                null, null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null
         );
-        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class);
+        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class, boolean.class);
         method.setAccessible(true);
 
         TaskConfig task = new TaskConfig();
         task.setFileNamePattern("report_{lastMonth:yyyy-MM}.xlsx");
 
-        String result = (String) method.invoke(service, task, null);
+        String result = (String) method.invoke(service, task, null, false);
         YearMonth expected = YearMonth.now().minusMonths(1);
         assertEquals("report_" + expected.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")) + ".xlsx", result);
     }
@@ -46,15 +46,15 @@ class TaskExecutionServiceFileNameTest {
     @Test
     void buildFileNameSupportsNextMonthPlaceholder() throws Exception {
         TaskExecutionService service = new TaskExecutionService(
-                null, null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null
         );
-        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class);
+        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class, boolean.class);
         method.setAccessible(true);
 
         TaskConfig task = new TaskConfig();
         task.setFileNamePattern("report_{nextMonth}.xlsx");
 
-        String result = (String) method.invoke(service, task, null);
+        String result = (String) method.invoke(service, task, null, false);
         YearMonth expected = YearMonth.now().plusMonths(1);
         assertEquals("report_" + expected.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMM")) + ".xlsx", result);
     }
@@ -62,15 +62,15 @@ class TaskExecutionServiceFileNameTest {
     @Test
     void buildFileNameStillSupportsStandardDatePattern() throws Exception {
         TaskExecutionService service = new TaskExecutionService(
-                null, null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null
         );
-        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class);
+        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class, boolean.class);
         method.setAccessible(true);
 
         TaskConfig task = new TaskConfig();
         task.setFileNamePattern("report_{yyyyMMdd}.xlsx");
 
-        String result = (String) method.invoke(service, task, null);
+        String result = (String) method.invoke(service, task, null, false);
         assertTrue(result.startsWith("report_"));
         assertTrue(result.endsWith(".xlsx"));
     }
@@ -78,15 +78,15 @@ class TaskExecutionServiceFileNameTest {
     @Test
     void buildFileNameSupportsChinesePatternWithLastMonth() throws Exception {
         TaskExecutionService service = new TaskExecutionService(
-                null, null, null, null, null, null, null, null, null, null
+                null, null, null, null, null, null, null, null, null, null, null, null, null, null
         );
-        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class);
+        Method method = TaskExecutionService.class.getDeclaredMethod("buildFileName", TaskConfig.class, TaskSqlConfig.class, boolean.class);
         method.setAccessible(true);
 
         TaskConfig task = new TaskConfig();
         task.setFileNamePattern("羽道同行{lastMonth:yyyy}年{lastMonth:M}月月报");
 
-        String result = (String) method.invoke(service, task, null);
+        String result = (String) method.invoke(service, task, null, false);
         YearMonth expected = YearMonth.now().minusMonths(1);
         String expectedYear = expected.format(java.time.format.DateTimeFormatter.ofPattern("yyyy"));
         String expectedMonth = expected.format(java.time.format.DateTimeFormatter.ofPattern("M"));

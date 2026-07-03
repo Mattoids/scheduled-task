@@ -4,6 +4,8 @@ import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.task.SqlExecutor;
+import com.mattoid.scheduled.service.wecom.WeComAppManager;
+import com.mattoid.scheduled.service.wecom.WeComBotClient;
 import com.mattoid.scheduled.template.TemplateProcessor;
 import com.mattoid.scheduled.template.TemplateProcessorFactory;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +34,7 @@ import java.util.stream.Collectors;
 @Service
 public class TaskExecutionService {
 
-    private static final Pattern FILENAME_PLACEHOLDER_PATTERN = Pattern.compile("\\{([^}]+)\\}");
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{([^}]+)\\}");
     private static final Pattern UNSAFE_FILENAME_CHAR_PATTERN = Pattern.compile("[\\\\/:*?\"<>|]");
 
     @Value("${report.upload.path}")
@@ -48,6 +50,10 @@ public class TaskExecutionService {
     private final TaskSqlConfigService taskSqlConfigService;
     private final TemplateProcessorFactory templateProcessorFactory;
     private final EmailSenderService emailSenderService;
+    private final WeComAppConfigService weComAppConfigService;
+    private final WeComBotConfigService weComBotConfigService;
+    private final WeComAppManager weComAppManager;
+    private final WeComBotClient weComBotClient;
 
     public TaskExecutionService(TaskConfigMapper taskConfigMapper,
                                 TaskLogMapper taskLogMapper,
@@ -58,7 +64,11 @@ public class TaskExecutionService {
                                 ReportTemplateService reportTemplateService,
                                 TaskSqlConfigService taskSqlConfigService,
                                 TemplateProcessorFactory templateProcessorFactory,
-                                EmailSenderService emailSenderService) {
+                                EmailSenderService emailSenderService,
+                                WeComAppConfigService weComAppConfigService,
+                                WeComBotConfigService weComBotConfigService,
+                                WeComAppManager weComAppManager,
+                                WeComBotClient weComBotClient) {
         this.taskConfigMapper = taskConfigMapper;
         this.taskLogMapper = taskLogMapper;
         this.sqlExecutor = sqlExecutor;
@@ -69,6 +79,10 @@ public class TaskExecutionService {
         this.taskSqlConfigService = taskSqlConfigService;
         this.templateProcessorFactory = templateProcessorFactory;
         this.emailSenderService = emailSenderService;
+        this.weComAppConfigService = weComAppConfigService;
+        this.weComBotConfigService = weComBotConfigService;
+        this.weComAppManager = weComAppManager;
+        this.weComBotClient = weComBotClient;
     }
 
     public void executeTask(Long taskId, String triggerMode) {
@@ -85,13 +99,14 @@ public class TaskExecutionService {
         logEntity.setStatus("RUNNING");
         taskLogMapper.insert(logEntity);
 
+        List<File> reportFiles = new ArrayList<>();
         try {
             List<TaskSqlConfig> sqlConfigs = taskSqlConfigService.listByTaskId(taskId);
             if (sqlConfigs.isEmpty()) {
                 throw new IllegalArgumentException("任务未配置 SQL 模块");
             }
 
-            List<File> reportFiles = executeSqlConfigs(task, sqlConfigs);
+            reportFiles = executeSqlConfigs(task, sqlConfigs);
             logEntity.setResultMessage("生成 " + reportFiles.size() + " 个报表文件");
 
             if (!reportFiles.isEmpty()) {
@@ -110,6 +125,7 @@ public class TaskExecutionService {
         } finally {
             logEntity.setEndTime(LocalDateTime.now());
             taskLogMapper.updateById(logEntity);
+            sendWeComNotification(task, logEntity, reportFiles);
         }
     }
 
@@ -151,7 +167,7 @@ public class TaskExecutionService {
         TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
         File templateFile = new File(template.getFilePath());
         String extension = resolveExtension(templateType, sqlConfigs.get(0).getFileSuffix());
-        String outputFileName = buildOutputPath(task, sqlConfigs.get(0), extension);
+        String outputFileName = buildOutputPath(task, sqlConfigs.get(0), extension, true);
 
         File currentFile = templateFile;
         File previousTempFile = null;
@@ -274,11 +290,15 @@ public class TaskExecutionService {
     }
 
     private String buildOutputPath(TaskConfig task, TaskSqlConfig sqlConfig, String extension) throws Exception {
+        return buildOutputPath(task, sqlConfig, extension, false);
+    }
+
+    private String buildOutputPath(TaskConfig task, TaskSqlConfig sqlConfig, String extension, boolean preferTaskPattern) throws Exception {
         Path outputDir = Paths.get(uploadPath, "reports", String.valueOf(task.getId()));
         if (!Files.exists(outputDir)) {
             Files.createDirectories(outputDir);
         }
-        String fileName = buildFileName(task, sqlConfig);
+        String fileName = buildFileName(task, sqlConfig, preferTaskPattern);
         fileName = ensureExtension(fileName, extension);
         return outputDir.resolve(fileName).toString();
     }
@@ -293,17 +313,30 @@ public class TaskExecutionService {
         return outputDir.resolve(name).toString();
     }
 
-    private String buildFileName(TaskConfig task, TaskSqlConfig sqlConfig) {
-        String pattern = sqlConfig != null && StringUtils.hasText(sqlConfig.getFileNamePattern())
-                ? sqlConfig.getFileNamePattern()
-                : task.getFileNamePattern();
-        if (!StringUtils.hasText(pattern)) {
+    private String buildFileName(TaskConfig task, TaskSqlConfig sqlConfig, boolean preferTaskPattern) {
+        String pattern;
+        if (preferTaskPattern && StringUtils.hasText(task.getFileNamePattern())) {
+            pattern = task.getFileNamePattern();
+        } else if (sqlConfig != null && StringUtils.hasText(sqlConfig.getFileNamePattern())) {
+            pattern = sqlConfig.getFileNamePattern();
+        } else if (StringUtils.hasText(task.getFileNamePattern())) {
+            pattern = task.getFileNamePattern();
+        } else {
             pattern = "report_{yyyyMMddHHmmss}";
+        }
+        String fileName = replacePlaceholders(pattern);
+        // 只替换文件系统保留字符，保留中文、空格等
+        return UNSAFE_FILENAME_CHAR_PATTERN.matcher(fileName).replaceAll("_");
+    }
+
+    private String replacePlaceholders(String pattern) {
+        if (!StringUtils.hasText(pattern)) {
+            return pattern;
         }
         LocalDateTime now = LocalDateTime.now();
         YearMonth lastMonth = YearMonth.now().minusMonths(1);
         YearMonth nextMonth = YearMonth.now().plusMonths(1);
-        Matcher matcher = FILENAME_PLACEHOLDER_PATTERN.matcher(pattern);
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(pattern);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String placeholder = matcher.group(1);
@@ -329,8 +362,7 @@ public class TaskExecutionService {
             matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
         matcher.appendTail(sb);
-        // 只替换文件系统保留字符，保留中文、空格等
-        return UNSAFE_FILENAME_CHAR_PATTERN.matcher(sb.toString()).replaceAll("_");
+        return sb.toString();
     }
 
     private String ensureExtension(String fileName, String extension) {
@@ -341,6 +373,67 @@ public class TaskExecutionService {
         }
         // 如果文件名已经有其他扩展名，追加新扩展名
         return fileName + dotExt;
+    }
+
+    private void sendWeComNotification(TaskConfig task, TaskLog logEntity, List<File> reportFiles) {
+        if (task.getWeComAppConfigId() == null && task.getWeComBotConfigId() == null) {
+            return;
+        }
+        String summary = buildWeComSummary(task, logEntity);
+
+        if (task.getWeComAppConfigId() != null) {
+            WeComAppConfig appConfig = weComAppConfigService.getById(task.getWeComAppConfigId());
+            if (appConfig == null || appConfig.getStatus() == null || appConfig.getStatus() != 1) {
+                log.warn("企业微信应用配置不可用: {}", task.getWeComAppConfigId());
+            } else {
+                String toUser = StringUtils.hasText(task.getWeComToUser()) ? task.getWeComToUser() : "@all";
+                try {
+                    weComAppManager.sendText(task.getWeComAppConfigId(), toUser, summary);
+                    for (File file : reportFiles) {
+                        weComAppManager.sendFile(task.getWeComAppConfigId(), toUser, file);
+                    }
+                } catch (Exception e) {
+                    log.error("企业微信应用通知发送失败: taskId={}", task.getId(), e);
+                }
+            }
+        }
+
+        if (task.getWeComBotConfigId() != null) {
+            WeComBotConfig botConfig = weComBotConfigService.getById(task.getWeComBotConfigId());
+            if (botConfig == null || botConfig.getStatus() == null || botConfig.getStatus() != 1) {
+                log.warn("企业微信群机器人配置不可用: {}", task.getWeComBotConfigId());
+            } else {
+                try {
+                    weComBotClient.sendText(botConfig.getWebhookKey(), summary);
+                    for (File file : reportFiles) {
+                        weComBotClient.sendFile(botConfig.getWebhookKey(), file);
+                    }
+                } catch (Exception e) {
+                    log.error("企业微信群机器人通知发送失败: taskId={}", task.getId(), e);
+                }
+            }
+        }
+    }
+
+    private String buildWeComSummary(TaskConfig task, TaskLog logEntity) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("任务执行通知\n");
+        sb.append("任务: ").append(task.getTaskName()).append("\n");
+        sb.append("状态: ").append(logEntity.getStatus()).append("\n");
+        if (logEntity.getStartTime() != null && logEntity.getEndTime() != null) {
+            long seconds = java.time.Duration.between(logEntity.getStartTime(), logEntity.getEndTime()).getSeconds();
+            sb.append("耗时: ").append(seconds).append("s\n");
+        }
+        if (StringUtils.hasText(logEntity.getResultMessage())) {
+            sb.append("结果: ").append(logEntity.getResultMessage()).append("\n");
+        }
+        if (StringUtils.hasText(logEntity.getErrorMessage())) {
+            sb.append("错误: ").append(logEntity.getErrorMessage()).append("\n");
+        }
+        if (StringUtils.hasText(logEntity.getFilePath())) {
+            sb.append("文件: ").append(logEntity.getFilePath());
+        }
+        return sb.toString();
     }
 
     private void sendReportEmail(TaskConfig task, List<File> reportFiles) throws Exception {
@@ -354,8 +447,8 @@ public class TaskExecutionService {
             throw new IllegalArgumentException("收件人列表为空");
         }
 
-        String subject = task.getEmailSubject() != null ? task.getEmailSubject() : "定时报表";
-        String body = task.getEmailBody() != null ? task.getEmailBody() : "请查收附件报表。";
+        String subject = task.getEmailSubject() != null ? replacePlaceholders(task.getEmailSubject()) : "定时报表";
+        String body = task.getEmailBody() != null ? replacePlaceholders(task.getEmailBody()) : "请查收附件报表。";
         emailSenderService.sendEmail(emailConfig, toList, subject, body, reportFiles);
     }
 

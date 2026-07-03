@@ -88,7 +88,15 @@ public class InitDataRunner implements CommandLineRunner {
                 createPermission(17L, "template:delete", "模板删除", "BUTTON", 14L, 33),
                 createPermission(18L, "log:view", "日志查看", "MENU", 0L, 40),
                 createPermission(19L, "system:user", "用户管理", "MENU", 0L, 50),
-                createPermission(20L, "system:role", "角色管理", "MENU", 0L, 51)
+                createPermission(20L, "system:role", "角色管理", "MENU", 0L, 51),
+                createPermission(21L, "wecomApp:view", "企业微信应用查看", "MENU", 0L, 60),
+                createPermission(22L, "wecomApp:create", "企业微信应用创建", "BUTTON", 21L, 61),
+                createPermission(23L, "wecomApp:edit", "企业微信应用编辑", "BUTTON", 21L, 62),
+                createPermission(24L, "wecomApp:delete", "企业微信应用删除", "BUTTON", 21L, 63),
+                createPermission(25L, "wecomBot:view", "企业微信群机器人查看", "MENU", 0L, 70),
+                createPermission(26L, "wecomBot:create", "企业微信群机器人创建", "BUTTON", 25L, 71),
+                createPermission(27L, "wecomBot:edit", "企业微信群机器人编辑", "BUTTON", 25L, 72),
+                createPermission(28L, "wecomBot:delete", "企业微信群机器人删除", "BUTTON", 25L, 73)
         );
         for (SysPermission permission : permissions) {
             if (sysPermissionMapper.selectById(permission.getId()) == null) {

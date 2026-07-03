@@ -69,6 +69,26 @@ export const menuRoutes: RouteRecordRaw[] = [
       },
     ],
   },
+  {
+    path: '/wecom',
+    name: 'WeCom',
+    redirect: '/wecom/app-config',
+    meta: { title: '企业微信', icon: 'ChatDotRound', permission: null },
+    children: [
+      {
+        path: '/wecom/app-config',
+        name: 'WeComAppConfig',
+        component: () => import('@/views/wecom-config/WeComAppConfigList.vue'),
+        meta: { title: '应用配置', permission: 'wecomApp:view' },
+      },
+      {
+        path: '/wecom/bot-config',
+        name: 'WeComBotConfig',
+        component: () => import('@/views/wecom-config/WeComBotConfigList.vue'),
+        meta: { title: '群机器人配置', permission: 'wecomBot:view' },
+      },
+    ],
+  },
 ]
 
 const routes: RouteRecordRaw[] = [
