@@ -131,6 +131,6 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         if (task == null) {
             throw new IllegalArgumentException("任务不存在");
         }
-        taskExecutionService.executeTask(taskId, "MANUAL");
+        taskExecutionService.executeTaskAsync(taskId, "MANUAL");
     }
 }

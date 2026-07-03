@@ -7,12 +7,16 @@ import com.mattoid.scheduled.task.SqlExecutor;
 import com.mattoid.scheduled.template.TemplateProcessor;
 import com.mattoid.scheduled.template.TemplateProcessorFactory;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -109,6 +113,11 @@ public class TaskExecutionService {
         }
     }
 
+    @Async
+    public void executeTaskAsync(Long taskId, String triggerMode) {
+        executeTask(taskId, triggerMode);
+    }
+
     private List<File> executeSqlConfigs(TaskConfig task, List<TaskSqlConfig> sqlConfigs) throws Exception {
         // 按 template_id 分组，保持原始顺序
         Map<Object, List<TaskSqlConfig>> groups = new LinkedHashMap<>();
@@ -164,22 +173,63 @@ public class TaskExecutionService {
     private File generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {
         String outputFormat = StringUtils.hasText(sqlConfig.getOutputFormat()) ? sqlConfig.getOutputFormat() : "CSV";
         String upperFormat = outputFormat.toUpperCase();
-        // 无模板时 POI 格式无法生成有效文件，回退为 CSV
-        if ("EXCEL".equals(upperFormat) || "WORD".equals(upperFormat) || "PPT".equals(upperFormat)) {
-            upperFormat = "CSV";
-        }
         String extension = resolveExtension(upperFormat, sqlConfig.getFileSuffix());
         String outputPath = buildOutputPath(task, sqlConfig, extension);
 
-        if ("CSV".equals(upperFormat)) {
-            return templateProcessorFactory.getProcessor("CSV")
+        return switch (upperFormat) {
+            case "CSV" -> templateProcessorFactory.getProcessor("CSV")
                     .process(createTempCsvTemplate(data), data, outputPath);
-        }
+            case "EXCEL" -> generateExcelFromData(data, outputPath);
+            case "TXT" -> {
+                File templateFile = createTempTemplate(upperFormat, data);
+                yield templateProcessorFactory.getProcessor(upperFormat)
+                        .process(templateFile, data, outputPath, true);
+            }
+            default -> {
+                // WORD/PPT 无模板时无法生成有效文件，回退为 CSV
+                String csvPath = buildOutputPath(task, sqlConfig, resolveExtension("CSV", null));
+                yield templateProcessorFactory.getProcessor("CSV")
+                        .process(createTempCsvTemplate(data), data, csvPath);
+            }
+        };
+    }
 
-        // TXT 格式：构造一个带占位符的临时模板
-        File templateFile = createTempTemplate(upperFormat, data);
-        return templateProcessorFactory.getProcessor(upperFormat)
-                .process(templateFile, data, outputPath, true);
+    private File generateExcelFromData(List<Map<String, Object>> data, String outputPath) throws Exception {
+        File output = new File(outputPath);
+        try (Workbook workbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(output)) {
+            Sheet sheet = workbook.createSheet("Sheet1");
+            if (!data.isEmpty()) {
+                List<String> headers = new ArrayList<>(data.get(0).keySet());
+                Row headerRow = sheet.createRow(0);
+                for (int i = 0; i < headers.size(); i++) {
+                    Cell cell = headerRow.createCell(i);
+                    cell.setCellValue(headers.get(i));
+                }
+                for (int i = 0; i < data.size(); i++) {
+                    Row row = sheet.createRow(i + 1);
+                    Map<String, Object> rowData = data.get(i);
+                    for (int c = 0; c < headers.size(); c++) {
+                        Object value = rowData.get(headers.get(c));
+                        setExcelCellValue(row.createCell(c), value);
+                    }
+                }
+            }
+            workbook.write(fos);
+        }
+        return output;
+    }
+
+    private void setExcelCellValue(Cell cell, Object value) {
+        if (value == null) {
+            cell.setBlank();
+        } else if (value instanceof Number number) {
+            cell.setCellValue(number.doubleValue());
+        } else if (value instanceof Boolean b) {
+            cell.setCellValue(b);
+        } else {
+            cell.setCellValue(value.toString());
+        }
     }
 
     private File createTempCsvTemplate(List<Map<String, Object>> data) throws Exception {
@@ -196,9 +246,6 @@ public class TaskExecutionService {
         String header = data.isEmpty() ? "" : String.join(",", data.get(0).keySet());
         switch (outputFormat.toUpperCase()) {
             case "TXT" -> Files.writeString(temp, "${" + header.replace(",", "} ${") + "}");
-            case "EXCEL", "WORD", "PPT" -> {
-                // POI 格式无法简单构造空模板，这里创建一个空文件，处理器需要能够处理
-            }
             default -> Files.writeString(temp, header);
         }
         return temp.toFile();

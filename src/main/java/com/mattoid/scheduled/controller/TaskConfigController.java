@@ -86,7 +86,7 @@ public class TaskConfigController {
     @PostMapping("/{id}/trigger")
     public Result<String> trigger(@PathVariable Long id) {
         taskConfigService.triggerTask(id);
-        return Result.ok("任务已触发");
+        return Result.ok("任务已提交执行");
     }
 
     @PreAuthorize("hasAuthority('log:view')")
