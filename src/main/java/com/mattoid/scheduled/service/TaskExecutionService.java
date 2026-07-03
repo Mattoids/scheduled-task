@@ -19,11 +19,16 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class TaskExecutionService {
+
+    private static final Pattern FILENAME_PLACEHOLDER_PATTERN = Pattern.compile("\\{([^}]+)\\}");
+    private static final Pattern UNSAFE_FILENAME_CHAR_PATTERN = Pattern.compile("[\\\\/:*?\"<>|]");
 
     @Value("${report.upload.path}")
     private String uploadPath;
@@ -240,12 +245,22 @@ public class TaskExecutionService {
             pattern = "report_{yyyyMMddHHmmss}";
         }
         LocalDateTime now = LocalDateTime.now();
-        String name = pattern
-                .replace("{yyyyMMddHHmmss}", now.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")))
-                .replace("{yyyyMMdd}", now.format(DateTimeFormatter.ofPattern("yyyyMMdd")))
-                .replace("{yyyy-MM-dd}", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")))
-                .replace("{HHmmss}", now.format(DateTimeFormatter.ofPattern("HHmmss")));
-        return name.replaceAll("[^a-zA-Z0-9_\\-\\.\\{\\}]", "_");
+        Matcher matcher = FILENAME_PLACEHOLDER_PATTERN.matcher(pattern);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String format = matcher.group(1);
+            String replacement;
+            try {
+                replacement = now.format(DateTimeFormatter.ofPattern(format));
+            } catch (IllegalArgumentException e) {
+                // 不是合法日期格式则保留原占位符
+                replacement = matcher.group(0);
+            }
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        // 只替换文件系统保留字符，保留中文、空格等
+        return UNSAFE_FILENAME_CHAR_PATTERN.matcher(sb.toString()).replaceAll("_");
     }
 
     private String ensureExtension(String fileName, String extension) {
