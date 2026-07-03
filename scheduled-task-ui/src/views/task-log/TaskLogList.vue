@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { usePagination } from '@/composables/usePagination'
 import { pageTaskLog } from '@/api/task'
 import { useAppStore } from '@/stores/app'
@@ -12,6 +13,38 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const loading = ref(false)
 const queryForm = reactive({
   status: '',
+})
+
+const refreshInterval = ref(5)
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  refreshTimer = setInterval(() => {
+    loadPage()
+  }, refreshInterval.value * 1000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+const handleIntervalChange = (seconds: number) => {
+  refreshInterval.value = seconds
+  if (seconds > 0) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const intervalLabel = computed(() => {
+  if (refreshInterval.value <= 0) return '停止刷新'
+  if (refreshInterval.value < 60) return `${refreshInterval.value}秒`
+  return `${Math.floor(refreshInterval.value / 60)}分钟`
 })
 
 const loadPage = async () => {
@@ -54,7 +87,12 @@ const handlePageChange = (c: number, s: number) => {
   loadPage()
 }
 
-onMounted(loadPage)
+onMounted(() => {
+  loadPage()
+  startAutoRefresh()
+})
+
+onUnmounted(stopAutoRefresh)
 </script>
 
 <template>
@@ -66,10 +104,28 @@ onMounted(loadPage)
           >
           <el-option label="成功" value="SUCCESS" />
           <el-option label="失败" value="FAILED" />
-          <el-option label="运行中" value="RUNNING" />
+          <el-option label="执行中" value="RUNNING" />
         </el-select>
       </el-form-item>
     </BaseSearchForm>
+
+    <div class="table-toolbar">
+      <el-dropdown trigger="hover" @command="handleIntervalChange"
+      >
+        <el-button :icon="Refresh" @click="loadPage"
+          >刷新<span v-if="refreshInterval > 0" style="margin-left: 4px; color: #909399;">({{ intervalLabel }})</span></el-button
+        >
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item :command="5">5秒</el-dropdown-item>
+            <el-dropdown-item :command="10">10秒</el-dropdown-item>
+            <el-dropdown-item :command="30">30秒</el-dropdown-item>
+            <el-dropdown-item :command="60">1分钟</el-dropdown-item>
+            <el-dropdown-item :command="0">停止刷新</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
 
     <el-table v-loading="loading" :data="records" border stripe
       >
@@ -87,7 +143,7 @@ onMounted(loadPage)
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)"
             >
-            {{ row.status === 'SUCCESS' ? '成功' : row.status === 'FAILED' ? '失败' : '运行中' }}
+            {{ row.status === 'SUCCESS' ? '成功' : row.status === 'FAILED' ? '失败' : '执行中' }}
           </el-tag>
         </template>
       </el-table-column>

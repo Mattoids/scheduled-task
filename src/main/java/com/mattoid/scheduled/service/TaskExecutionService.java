@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -70,7 +71,6 @@ public class TaskExecutionService {
         this.emailSenderService = emailSenderService;
     }
 
-    @Transactional(rollbackFor = Exception.class)
     public void executeTask(Long taskId, String triggerMode) {
         TaskConfig task = taskConfigMapper.selectById(taskId);
         if (task == null) {
@@ -194,6 +194,14 @@ public class TaskExecutionService {
         };
     }
 
+    private boolean isSequenceHeader(String header) {
+        if (header == null) {
+            return false;
+        }
+        String trimmed = header.trim();
+        return "序号".equals(trimmed) || "seq".equalsIgnoreCase(trimmed);
+    }
+
     private File generateExcelFromData(List<Map<String, Object>> data, String outputPath) throws Exception {
         File output = new File(outputPath);
         try (Workbook workbook = new XSSFWorkbook();
@@ -210,7 +218,8 @@ public class TaskExecutionService {
                     Row row = sheet.createRow(i + 1);
                     Map<String, Object> rowData = data.get(i);
                     for (int c = 0; c < headers.size(); c++) {
-                        Object value = rowData.get(headers.get(c));
+                        String header = headers.get(c);
+                        Object value = isSequenceHeader(header) ? i + 1 : rowData.get(header);
                         setExcelCellValue(row.createCell(c), value);
                     }
                 }
@@ -292,16 +301,30 @@ public class TaskExecutionService {
             pattern = "report_{yyyyMMddHHmmss}";
         }
         LocalDateTime now = LocalDateTime.now();
+        YearMonth lastMonth = YearMonth.now().minusMonths(1);
+        YearMonth nextMonth = YearMonth.now().plusMonths(1);
         Matcher matcher = FILENAME_PLACEHOLDER_PATTERN.matcher(pattern);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
-            String format = matcher.group(1);
+            String placeholder = matcher.group(1);
             String replacement;
-            try {
-                replacement = now.format(DateTimeFormatter.ofPattern(format));
-            } catch (IllegalArgumentException e) {
-                // 不是合法日期格式则保留原占位符
-                replacement = matcher.group(0);
+            if ("lastMonth".equals(placeholder)) {
+                replacement = lastMonth.format(DateTimeFormatter.ofPattern("MM"));
+            } else if (placeholder.startsWith("lastMonth:")) {
+                String format = placeholder.substring("lastMonth:".length());
+                replacement = lastMonth.format(DateTimeFormatter.ofPattern(format));
+            } else if ("nextMonth".equals(placeholder)) {
+                replacement = nextMonth.format(DateTimeFormatter.ofPattern("yyyyMM"));
+            } else if (placeholder.startsWith("nextMonth:")) {
+                String format = placeholder.substring("nextMonth:".length());
+                replacement = nextMonth.format(DateTimeFormatter.ofPattern(format));
+            } else {
+                try {
+                    replacement = now.format(DateTimeFormatter.ofPattern(placeholder));
+                } catch (IllegalArgumentException e) {
+                    // 不是合法日期格式则保留原占位符
+                    replacement = matcher.group(0);
+                }
             }
             matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }

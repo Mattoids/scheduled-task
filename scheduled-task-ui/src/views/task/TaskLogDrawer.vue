@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { usePagination } from '@/composables/usePagination'
 import { listTaskLogs, pageTaskLog } from '@/api/task'
 
@@ -42,6 +43,9 @@ watch(
     if (val) {
       current.value = 1
       loadPage()
+      startAutoRefresh()
+    } else {
+      stopAutoRefresh()
     }
   }
 )
@@ -51,6 +55,38 @@ const handlePageChange = (c: number, s: number) => {
   size.value = s
   loadPage()
 }
+
+const refreshInterval = ref(5)
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  refreshTimer = setInterval(() => {
+    loadPage()
+  }, refreshInterval.value * 1000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+const handleIntervalChange = (seconds: number) => {
+  refreshInterval.value = seconds
+  if (seconds > 0) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const intervalLabel = computed(() => {
+  if (refreshInterval.value <= 0) return '停止刷新'
+  if (refreshInterval.value < 60) return `${refreshInterval.value}秒`
+  return `${Math.floor(refreshInterval.value / 60)}分钟`
+})
 
 const statusType = (status?: string) => {
   switch (status) {
@@ -69,6 +105,26 @@ const statusType = (status?: string) => {
 <template>
   <el-drawer v-model="drawerVisible" title="任务执行日志" size="60%"
     >
+    <div class="table-toolbar"
+    >
+      <el-dropdown trigger="hover" @command="handleIntervalChange"
+      >
+        <el-button :icon="Refresh" @click="loadPage"
+          >刷新<span v-if="refreshInterval > 0" style="margin-left: 4px; color: #909399;"
+          >({{ intervalLabel }})</span></el-button
+        >
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item :command="5">5秒</el-dropdown-item>
+            <el-dropdown-item :command="10">10秒</el-dropdown-item>
+            <el-dropdown-item :command="30">30秒</el-dropdown-item>
+            <el-dropdown-item :command="60">1分钟</el-dropdown-item>
+            <el-dropdown-item :command="0">停止刷新</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+    </div>
+
     <el-table v-loading="loading" :data="records" border stripe
       >
       <el-table-column prop="id" label="ID" width="70" />
@@ -84,7 +140,7 @@ const statusType = (status?: string) => {
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)"
             >
-            {{ row.status === 'SUCCESS' ? '成功' : row.status === 'FAILED' ? '失败' : '运行中' }}
+            {{ row.status === 'SUCCESS' ? '成功' : row.status === 'FAILED' ? '失败' : '执行中' }}
           </el-tag>
         </template>
       </el-table-column>

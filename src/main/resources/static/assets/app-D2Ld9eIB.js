@@ -1,0 +1,1 @@
+import{j as e,l as t}from"./index-CFu08Nqt.js";var n=t(`app`,()=>{let t=e(!1),n=e([]);return{sidebarCollapsed:t,breadcrumb:n,toggleSidebar:()=>{t.value=!t.value},setBreadcrumb:e=>{n.value=e}}});export{n as t};

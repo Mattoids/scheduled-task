@@ -99,7 +99,7 @@ const handleStatusChange = async (row: TaskConfig) => {
 
 const handleTrigger = async (row: TaskConfig) => {
   await triggerTask(row.id!)
-  ElMessage.success('任务已触发')
+  ElMessage.success('任务已开始执行')
 }
 
 const handleLogs = (row: TaskConfig) => {
@@ -169,14 +169,14 @@ onMounted(() => {
           <el-tag v-else type="info">单次</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="triggerConfig" label="触发配置" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="triggerConfig" label="触发配置" min-width="140" show-overflow-tooltip />
       <el-table-column label="邮箱配置" min-width="140"
       >
         <template #default="{ row }">
           {{ emailConfigOptions.find((e) => e.value === row.emailConfigId)?.label || row.emailConfigId }}
         </template>
       </el-table-column>
-      <el-table-column label="个人收件人" min-width="160" show-overflow-tooltip
+      <el-table-column label="收件人" min-width="160" show-overflow-tooltip
       >
         <template #default="{ row }">{{ formatRecipientIds(row.recipientIds) }}</template>
       </el-table-column>
@@ -184,7 +184,7 @@ onMounted(() => {
       >
         <template #default="{ row }">{{ formatGroupIds(row.recipientGroupIds) }}</template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="90"
+      <el-table-column prop="status" label="状态" width="150"
       >
         <template #default="{ row }">
           <el-switch
@@ -199,13 +199,13 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="170" />
-      <el-table-column label="操作" width="220" fixed="right"
+      <el-table-column label="操作" width="300" fixed="right"
       >
         <template #default="{ row }">
           <el-button link type="primary" v-permission="'task:edit'" @click="handleEdit(row)"
             >编辑</el-button>
           <el-button link type="success" v-permission="'task:trigger'" @click="handleTrigger(row)"
-            >触发</el-button>
+            >立即执行</el-button>
           <el-button link type="primary" v-permission="'log:view'" @click="handleLogs(row)"
             >日志</el-button>
           <el-button link type="danger" v-permission="'task:delete'" @click="handleDelete(row)"

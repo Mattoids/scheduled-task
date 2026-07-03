@@ -45,7 +45,8 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
                     Map<String, Object> rowData = data.get(i);
                     for (int c = 0; c < headers.length; c++) {
                         Cell cell = row.createCell(c);
-                        Object value = headers[c] != null ? rowData.get(headers[c]) : null;
+                        String header = headers[c];
+                        Object value = isSequenceHeader(header) ? i + 1 : rowData.get(header);
                         setCellValue(cell, value);
                         copyCellStyle(sheet, startRow, c, cell);
                     }

@@ -115,6 +115,10 @@ const loadDetail = async () => {
     selectedGroups.value = form.value.recipientGroupIds
       ? form.value.recipientGroupIds.split(',').map((id) => Number(id.trim())).filter(Boolean)
       : []
+    // 收件人与收件人群组互斥，若都存在则优先保留收件人
+    if (selectedRecipients.value.length > 0 && selectedGroups.value.length > 0) {
+      selectedGroups.value = []
+    }
     selectedSqlIds.value = res.sqlIds || []
   } finally {
     loading.value = false
@@ -137,6 +141,9 @@ watch(
   () => selectedRecipients.value,
   (val) => {
     form.value.recipientIds = val.join(',')
+    if (val.length > 0) {
+      selectedGroups.value = []
+    }
   }
 )
 
@@ -144,6 +151,9 @@ watch(
   () => selectedGroups.value,
   (val) => {
     form.value.recipientGroupIds = val.join(',')
+    if (val.length > 0) {
+      selectedRecipients.value = []
+    }
   }
 )
 
@@ -299,12 +309,12 @@ onMounted(() => {
         </el-col>
       </el-row>
 
-      <el-form-item label="个人收件人">
+      <el-form-item label="收件人">
         <el-select
           v-model="selectedRecipients"
           multiple
           collapse-tags
-          placeholder="请选择个人收件人"
+          placeholder="请选择收件人"
           style="width: 100%"
         >
           <el-option

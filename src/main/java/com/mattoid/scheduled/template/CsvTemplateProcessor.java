@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
-public class CsvTemplateProcessor implements TemplateProcessor {
+public class CsvTemplateProcessor extends AbstractPoiTemplateProcessor implements TemplateProcessor {
 
     @Override
     public boolean supports(String templateType) {
@@ -42,10 +42,15 @@ public class CsvTemplateProcessor implements TemplateProcessor {
              CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder()
                      .setHeader(headers.toArray(new String[0]))
                      .build())) {
+            int rowIndex = 0;
             for (Map<String, Object> row : data) {
                 List<Object> values = new ArrayList<>();
                 for (String h : headers) {
-                    values.add(row.getOrDefault(h, ""));
+                    if (isSequenceHeader(h)) {
+                        values.add(++rowIndex);
+                    } else {
+                        values.add(row.getOrDefault(h, ""));
+                    }
                 }
                 printer.printRecord(values);
             }
