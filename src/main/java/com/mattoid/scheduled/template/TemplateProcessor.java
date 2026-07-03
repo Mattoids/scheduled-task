@@ -9,4 +9,8 @@ public interface TemplateProcessor {
     boolean supports(String templateType);
 
     File process(File templateFile, List<Map<String, Object>> data, String outputFileName) throws Exception;
+
+    default File process(File templateFile, List<Map<String, Object>> data, String outputFileName, boolean cleanPlaceholders) throws Exception {
+        return process(templateFile, data, outputFileName);
+    }
 }

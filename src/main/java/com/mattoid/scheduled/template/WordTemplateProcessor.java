@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -19,10 +20,16 @@ public class WordTemplateProcessor extends AbstractPoiTemplateProcessor {
 
     @Override
     public File process(File templateFile, List<Map<String, Object>> data, String outputFileName) throws Exception {
+        return process(templateFile, data, outputFileName, true);
+    }
+
+    @Override
+    public File process(File templateFile, List<Map<String, Object>> data, String outputFileName, boolean cleanPlaceholders) throws Exception {
         try (FileInputStream fis = new FileInputStream(templateFile);
              XWPFDocument document = new XWPFDocument(fis)) {
 
-            replacePlaceholdersInWord(document, data.isEmpty() ? null : data.get(0));
+            Map<String, Object> placeholderData = data.isEmpty() ? Collections.emptyMap() : data.get(0);
+            replacePlaceholdersInWord(document, placeholderData, cleanPlaceholders);
 
             File output = new File(outputFileName);
             try (FileOutputStream fos = new FileOutputStream(output)) {

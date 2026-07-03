@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +21,11 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
 
     @Override
     public File process(File templateFile, List<Map<String, Object>> data, String outputFileName) throws Exception {
+        return process(templateFile, data, outputFileName, true);
+    }
+
+    @Override
+    public File process(File templateFile, List<Map<String, Object>> data, String outputFileName, boolean cleanPlaceholders) throws Exception {
         try (FileInputStream fis = new FileInputStream(templateFile);
              Workbook workbook = WorkbookFactory.create(fis)) {
 
@@ -29,7 +35,8 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
             String[] headers = readHeaders(sheet, startRow, columnCount);
 
             // 处理占位符替换
-            replacePlaceholdersInSheet(sheet, data.isEmpty() ? null : data.get(0));
+            Map<String, Object> placeholderData = data.isEmpty() ? Collections.emptyMap() : data.get(0);
+            replacePlaceholdersInSheet(sheet, placeholderData, cleanPlaceholders);
 
             // 在数据行追加数据
             if (!data.isEmpty() && headers != null) {

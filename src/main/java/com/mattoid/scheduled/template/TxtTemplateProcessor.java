@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -22,15 +23,20 @@ public class TxtTemplateProcessor implements TemplateProcessor {
 
     @Override
     public File process(File templateFile, List<Map<String, Object>> data, String outputFileName) throws Exception {
+        return process(templateFile, data, outputFileName, true);
+    }
+
+    @Override
+    public File process(File templateFile, List<Map<String, Object>> data, String outputFileName, boolean cleanPlaceholders) throws Exception {
         String content = Files.readString(templateFile.toPath(), StandardCharsets.UTF_8);
 
         StringBuilder dataRows = new StringBuilder();
         for (Map<String, Object> row : data) {
-            dataRows.append(replacePlaceholders(content, row)).append(System.lineSeparator());
+            dataRows.append(replacePlaceholders(content, row, cleanPlaceholders)).append(System.lineSeparator());
         }
 
         if (data.isEmpty()) {
-            dataRows.append(replacePlaceholders(content, null));
+            dataRows.append(replacePlaceholders(content, Collections.emptyMap(), cleanPlaceholders));
         }
 
         File output = new File(outputFileName);
@@ -38,15 +44,19 @@ public class TxtTemplateProcessor implements TemplateProcessor {
         return output;
     }
 
-    private String replacePlaceholders(String text, Map<String, Object> data) {
+    private String replacePlaceholders(String text, Map<String, Object> data, boolean clean) {
         if (text == null) return "";
-        if (data == null) return text;
+        if (data == null) data = Collections.emptyMap();
         Matcher matcher = PLACEHOLDER_PATTERN.matcher(text);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String key = matcher.group(1);
-            Object value = data.getOrDefault(key, "");
-            matcher.appendReplacement(sb, value == null ? "" : Matcher.quoteReplacement(value.toString()));
+            Object value = data.get(key);
+            if (value == null && !clean) {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
+            } else {
+                matcher.appendReplacement(sb, value == null ? "" : Matcher.quoteReplacement(value.toString()));
+            }
         }
         matcher.appendTail(sb);
         return sb.toString();

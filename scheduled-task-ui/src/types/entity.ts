@@ -5,17 +5,37 @@ export interface TaskConfig {
   description?: string
   triggerType: 'CRON' | 'ONCE'
   triggerConfig: string
-  datasourceId: number
-  sqlContent: string
   emailConfigId: number
   recipientIds?: string
-  templateId?: number
+  recipientGroupIds?: string
   status: 'ENABLE' | 'DISABLE'
   fileNamePattern?: string
   emailSubject?: string
   emailBody?: string
   createTime?: string
   updateTime?: string
+}
+
+export interface TaskSqlConfig {
+  id?: number
+  sqlName: string
+  sqlCode: string
+  datasourceId: number
+  sqlContent: string
+  templateId?: number
+  outputFormat?: string
+  fileSuffix?: string
+  fileNamePattern?: string
+  description?: string
+  status?: number
+  sortOrder?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface TaskConfigRequest {
+  task: TaskConfig
+  sqlIds?: number[]
 }
 
 export interface TaskLog {

@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import type { PageQuery, PageResult } from '@/types'
-import type { TaskConfig, TaskLog } from '@/types/entity'
+import type { TaskConfig, TaskConfigRequest, TaskLog } from '@/types/entity'
 import type { ChangeStatusRequest } from '@/types'
 
 export const pageTask = (params: PageQuery) => {
@@ -8,14 +8,14 @@ export const pageTask = (params: PageQuery) => {
 }
 
 export const getTask = (id: number) => {
-  return request.get<TaskConfig>(`/task/${id}`)
+  return request.get<TaskConfigRequest>(`/task/${id}`)
 }
 
-export const createTask = (data: TaskConfig) => {
+export const createTask = (data: TaskConfigRequest) => {
   return request.post<void>('/task', data)
 }
 
-export const updateTask = (id: number, data: TaskConfig) => {
+export const updateTask = (id: number, data: TaskConfigRequest) => {
   return request.put<void>(`/task/${id}`, data)
 }
 

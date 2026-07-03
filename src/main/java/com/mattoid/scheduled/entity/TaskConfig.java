@@ -23,15 +23,14 @@ public class TaskConfig extends BaseEntity {
      */
     private String triggerConfig;
 
-    private Long datasourceId;
-
-    private String sqlContent;
-
     private Long emailConfigId;
 
     private String recipientIds;
 
-    private Long templateId;
+    /**
+     * 逗号分隔的收件人群组 ID
+     */
+    private String recipientGroupIds;
 
     /**
      * ENABLE / DISABLE

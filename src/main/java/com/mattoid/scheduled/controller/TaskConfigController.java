@@ -6,6 +6,7 @@ import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.dto.ChangeStatusRequest;
 import com.mattoid.scheduled.dto.PageQuery;
+import com.mattoid.scheduled.dto.TaskConfigRequest;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
@@ -41,21 +42,32 @@ public class TaskConfigController {
 
     @PreAuthorize("hasAuthority('task:view')")
     @GetMapping("/{id}")
-    public Result<TaskConfig> detail(@PathVariable Long id) {
-        return Result.ok(taskConfigService.getById(id));
+    public Result<TaskConfigRequest> detail(@PathVariable Long id) {
+        TaskConfig task = taskConfigService.getById(id);
+        if (task == null) {
+            return Result.error("任务不存在");
+        }
+        TaskConfigRequest request = new TaskConfigRequest();
+        request.setTask(task);
+        request.setSqlIds(taskConfigService.getTaskSqlIds(id));
+        return Result.ok(request);
     }
 
     @PreAuthorize("hasAuthority('task:create')")
     @PostMapping
-    public Result<Boolean> create(@RequestBody TaskConfig task) throws Exception {
-        return Result.ok(taskConfigService.saveOrUpdateTask(task));
+    public Result<Boolean> create(@RequestBody TaskConfigRequest request) throws Exception {
+        return Result.ok(taskConfigService.saveOrUpdateTask(request.getTask(), request.getSqlIds()));
     }
 
     @PreAuthorize("hasAuthority('task:edit')")
     @PutMapping("/{id}")
-    public Result<Boolean> update(@PathVariable Long id, @RequestBody TaskConfig task) throws Exception {
+    public Result<Boolean> update(@PathVariable Long id, @RequestBody TaskConfigRequest request) throws Exception {
+        TaskConfig task = request.getTask();
+        if (task == null) {
+            task = new TaskConfig();
+        }
         task.setId(id);
-        return Result.ok(taskConfigService.saveOrUpdateTask(task));
+        return Result.ok(taskConfigService.saveOrUpdateTask(task, request.getSqlIds()));
     }
 
     @PreAuthorize("hasAuthority('task:edit')")

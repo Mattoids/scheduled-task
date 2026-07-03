@@ -3,10 +3,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePagination } from '@/composables/usePagination'
 import { pageTask, deleteTask, updateTaskStatus, triggerTask } from '@/api/task'
-import { listDatasource } from '@/api/datasource'
 import { listEmailConfig } from '@/api/emailConfig'
-import { listRecipient } from '@/api/emailRecipient'
-import { listTemplate } from '@/api/template'
+import { listRecipient, listGroup } from '@/api/emailRecipient'
 import TaskForm from './TaskForm.vue'
 import TaskLogDrawer from './TaskLogDrawer.vue'
 import type { TaskConfig } from '@/types/entity'
@@ -29,22 +27,16 @@ const formId = ref<number | undefined>(undefined)
 const logDrawerVisible = ref(false)
 const logTaskId = ref<number | undefined>(undefined)
 
-const datasourceOptions = ref<{ label: string; value: number }[]>([])
 const emailConfigOptions = ref<{ label: string; value: number }[]>([])
 const recipientOptions = ref<{ label: string; value: number }[]>([])
-const templateOptions = ref<{ label: string; value: number }[]>([])
+const groupOptions = ref<{ label: string; value: number }[]>([])
 
 const loadOptions = async () => {
-  const [ds, ec, rec, tpl] = await Promise.all([
-    listDatasource({ size: 1000 }).catch(() => ({ records: [] })),
+  const [ec, rec, grp] = await Promise.all([
     listEmailConfig({ size: 1000 }).catch(() => ({ records: [] })),
     listRecipient().catch(() => []),
-    listTemplate({ size: 1000 }).catch(() => ({ records: [] })),
+    listGroup().catch(() => []),
   ])
-  datasourceOptions.value = (ds.records || []).map((item: any) => ({
-    label: item.name,
-    value: item.id,
-  }))
   emailConfigOptions.value = (ec.records || []).map((item: any) => ({
     label: item.configName,
     value: item.id,
@@ -53,8 +45,8 @@ const loadOptions = async () => {
     label: `${item.recipientName || item.email} (${item.email})`,
     value: item.id,
   }))
-  templateOptions.value = (tpl.records || []).map((item: any) => ({
-    label: `${item.templateName} (${item.templateType})`,
+  groupOptions.value = (grp || []).map((item: any) => ({
+    label: item.groupName,
     value: item.id,
   }))
 }
@@ -128,9 +120,17 @@ const handlePageChange = (c: number, s: number) => {
 
 const formatRecipientIds = (ids?: string) => {
   if (!ids) return '-'
-  const idArr = ids.split(',').map((id) => Number(id.trim()))
+  const idArr = ids.split(',').map((id) => Number(id.trim())).filter(Boolean)
   return idArr
     .map((id) => recipientOptions.value.find((r) => r.value === id)?.label || id)
+    .join(', ')
+}
+
+const formatGroupIds = (ids?: string) => {
+  if (!ids) return '-'
+  const idArr = ids.split(',').map((id) => Number(id.trim())).filter(Boolean)
+  return idArr
+    .map((id) => groupOptions.value.find((g) => g.value === id)?.label || id)
     .join(', ')
 }
 
@@ -143,7 +143,7 @@ onMounted(() => {
 <template>
   <div class="page-card">
     <BaseSearchForm @search="handleSearch" @reset="handleReset"
-      >
+    >
       <el-form-item label="任务名称">
         <el-input v-model="queryForm.taskName" placeholder="任务名称" clearable />
       </el-form-item>
@@ -153,41 +153,39 @@ onMounted(() => {
     </BaseSearchForm>
 
     <div class="table-toolbar"
-      >
+    >
       <el-button type="primary" v-permission="'task:create'" @click="handleCreate"
         >新增任务</el-button>
     </div>
 
     <el-table v-loading="loading" :data="records" border stripe
-      >
+    >
       <el-table-column prop="taskName" label="任务名称" min-width="160" show-overflow-tooltip />
       <el-table-column prop="taskCode" label="任务编码" min-width="140" show-overflow-tooltip />
       <el-table-column prop="triggerType" label="触发类型" width="100"
-        >
+      >
         <template #default="{ row }">
           <el-tag v-if="row.triggerType === 'CRON'" type="primary">CRON</el-tag>
           <el-tag v-else type="info">单次</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="triggerConfig" label="触发配置" min-width="160" show-overflow-tooltip />
-      <el-table-column label="数据源" min-width="140"
-        >
-        <template #default="{ row }">
-          {{ datasourceOptions.find((d) => d.value === row.datasourceId)?.label || row.datasourceId }}
-        </template>
-      </el-table-column>
       <el-table-column label="邮箱配置" min-width="140"
-        >
+      >
         <template #default="{ row }">
           {{ emailConfigOptions.find((e) => e.value === row.emailConfigId)?.label || row.emailConfigId }}
         </template>
       </el-table-column>
-      <el-table-column label="收件人" min-width="180" show-overflow-tooltip
-        >
+      <el-table-column label="个人收件人" min-width="160" show-overflow-tooltip
+      >
         <template #default="{ row }">{{ formatRecipientIds(row.recipientIds) }}</template>
       </el-table-column>
+      <el-table-column label="收件人群组" min-width="140" show-overflow-tooltip
+      >
+        <template #default="{ row }">{{ formatGroupIds(row.recipientGroupIds) }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="90"
-        >
+      >
         <template #default="{ row }">
           <el-switch
             v-permission="'task:edit'"
@@ -202,7 +200,7 @@ onMounted(() => {
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="170" />
       <el-table-column label="操作" width="220" fixed="right"
-        >
+      >
         <template #default="{ row }">
           <el-button link type="primary" v-permission="'task:edit'" @click="handleEdit(row)"
             >编辑</el-button>
@@ -226,10 +224,8 @@ onMounted(() => {
     <TaskForm
       v-model:visible="formVisible"
       :id="formId"
-      :datasource-options="datasourceOptions"
       :email-config-options="emailConfigOptions"
       :recipient-options="recipientOptions"
-      :template-options="templateOptions"
       @success="onFormSuccess"
     />
 

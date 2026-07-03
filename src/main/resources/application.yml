@@ -8,8 +8,7 @@ spring:
     active: dev
   sql:
     init:
-      mode: always
-      schema-locations: classpath:db/schema.sql
+      mode: never
   servlet:
     multipart:
       max-file-size: 50MB

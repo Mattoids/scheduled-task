@@ -8,6 +8,12 @@ export const menuRoutes: RouteRecordRaw[] = [
     meta: { title: '首页', icon: 'HomeFilled', permission: null },
   },
   {
+    path: '/task-sql',
+    name: 'TaskSql',
+    component: () => import('@/views/task-sql/TaskSqlList.vue'),
+    meta: { title: 'SQL 管理', icon: 'DocumentCopy', permission: 'task:view' },
+  },
+  {
     path: '/task',
     name: 'Task',
     component: () => import('@/views/task/TaskList.vue'),
