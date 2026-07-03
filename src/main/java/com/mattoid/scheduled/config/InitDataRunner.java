@@ -43,6 +43,7 @@ public class InitDataRunner implements CommandLineRunner {
         initRoles();
         initPermissions();
         initAdmin();
+        ensureAdminHasAllPermissions();
         log.info("初始化数据完成");
     }
 
@@ -145,6 +146,30 @@ public class InitDataRunner implements CommandLineRunner {
                     rp.setPermissionId(permission.getId());
                     sysRolePermissionMapper.insert(rp);
                 }
+            }
+        }
+    }
+
+    private void ensureAdminHasAllPermissions() {
+        SysRole adminRole = sysRoleMapper.selectOne(
+                new LambdaQueryWrapper<SysRole>().eq(SysRole::getRoleCode, "ADMIN")
+        );
+        if (adminRole == null) {
+            return;
+        }
+        List<SysPermission> permissions = sysPermissionMapper.selectList(null);
+        for (SysPermission permission : permissions) {
+            Long permissionId = permission.getId();
+            Long count = sysRolePermissionMapper.selectCount(
+                    new LambdaQueryWrapper<SysRolePermission>()
+                            .eq(SysRolePermission::getRoleId, adminRole.getId())
+                            .eq(SysRolePermission::getPermissionId, permissionId)
+            );
+            if (count == null || count == 0) {
+                SysRolePermission rp = new SysRolePermission();
+                rp.setRoleId(adminRole.getId());
+                rp.setPermissionId(permissionId);
+                sysRolePermissionMapper.insert(rp);
             }
         }
     }
