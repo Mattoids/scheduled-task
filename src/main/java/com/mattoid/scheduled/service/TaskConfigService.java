@@ -68,11 +68,15 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         if (CollectionUtils.isEmpty(sqlIds)) {
             return;
         }
-        List<TaskSqlRelation> relations = IntStream.range(0, sqlIds.size())
+        // 去重并保留顺序
+        List<Long> distinctSqlIds = sqlIds.stream()
+                .distinct()
+                .collect(Collectors.toList());
+        List<TaskSqlRelation> relations = IntStream.range(0, distinctSqlIds.size())
                 .mapToObj(i -> {
                     TaskSqlRelation relation = new TaskSqlRelation();
                     relation.setTaskId(taskId);
-                    relation.setSqlId(sqlIds.get(i));
+                    relation.setSqlId(distinctSqlIds.get(i));
                     relation.setSortOrder(i);
                     return relation;
                 })
