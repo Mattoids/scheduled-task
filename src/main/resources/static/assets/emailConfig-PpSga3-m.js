@@ -1,0 +1,1 @@
+import{r as e}from"./index-BLGBRF-O.js";var t=t=>e.get(`/email-config/page`,{params:t}),n=e=>t({...e,current:1,size:1e3}),r=t=>e.get(`/email-config/${t}`),i=t=>e.post(`/email-config`,t),a=(t,n)=>e.put(`/email-config/${t}`,n),o=t=>e.delete(`/email-config/${t}`),s=t=>e.post(`/email-config/test`,t);export{t as a,n as i,o as n,s as o,r,a as s,i as t};

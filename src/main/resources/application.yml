@@ -1,0 +1,37 @@
+server:
+  port: 1236
+
+spring:
+  application:
+    name: scheduled-task
+  profiles:
+    active: dev
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      column-format: "`%s`"
+
+report:
+  jwt:
+    secret: ${JWT_SECRET:scheduled-task-secret-key-change-in-production}
+    expiration: 86400000
+  upload:
+    path: ${user.home}/scheduled-task/uploads
+  default:
+    page-size: 20
