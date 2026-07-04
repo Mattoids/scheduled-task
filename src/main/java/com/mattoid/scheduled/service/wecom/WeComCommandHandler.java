@@ -45,17 +45,17 @@ public class WeComCommandHandler {
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
 
         try {
-            if ("QUERY_TASKS".equalsIgnoreCase(command) || command.startsWith("查询任务")) {
+            if ("QUERY_TASKS".equalsIgnoreCase(command) || command.startsWith("查询任务") || "任务列表".equals(command)) {
                 return handleQueryTasks(command);
             }
-            if (command.startsWith("运行 ") || command.startsWith("运行任务 ")) {
+            if (command.startsWith("运行 ") || command.startsWith("运行任务 ") || command.startsWith("运行")) {
                 return handleRunTask(command);
             }
             if (command.startsWith("创建任务 ")) {
                 return handleCreateTask(command);
             }
             if ("RUN_TASK_PROMPT".equalsIgnoreCase(command)) {
-                return "请回复：运行 {任务ID}\n例如：运行 1";
+                return "请回复：运行 {任务ID 或 任务名称}\n例如：运行 1\n例如：运行销售日报任务";
             }
             if ("HELP".equalsIgnoreCase(command) || "帮助".equals(command)) {
                 return helpText();
@@ -82,35 +82,59 @@ public class WeComCommandHandler {
         );
         List<TaskConfig> records = result.getRecords();
         if (records.isEmpty()) {
-            return "暂无任务。";
+            return "当前系统中暂无任务。";
         }
-        StringBuilder sb = new StringBuilder("任务列表（第 " + page + " 页，共 " + result.getPages() + " 页）：\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("当前系统共有 ").append(result.getTotal()).append(" 个任务，");
+        sb.append("第 ").append(page).append("/").append(result.getPages()).append(" 页：\n");
         for (TaskConfig task : records) {
             sb.append(task.getId()).append(". ")
                     .append(task.getTaskName()).append(" [")
                     .append(task.getStatus()).append("]\n");
         }
-        sb.append("\n回复“运行 {ID}”触发任务，回复“帮助”查看全部指令。");
+        sb.append("\n回复“运行 {ID 或 任务名称}”触发任务，回复“帮助”查看全部指令。");
         return sb.toString();
     }
 
     private String handleRunTask(String command) {
-        String[] parts = command.split("\\s+");
-        if (parts.length < 2) {
-            return "请指定任务 ID，例如：运行 1";
+        String arg = command.substring("运行".length()).trim();
+        if (arg.startsWith("任务")) {
+            arg = arg.substring("任务".length()).trim();
         }
-        Long taskId;
-        try {
-            taskId = Long.parseLong(parts[parts.length - 1]);
-        } catch (NumberFormatException e) {
-            return "任务 ID 必须是数字。";
+        if (!StringUtils.hasText(arg)) {
+            return "请指定任务 ID 或任务名称，例如：运行 1\n例如：运行销售日报任务";
         }
-        TaskConfig task = taskConfigService.getById(taskId);
-        if (task == null) {
-            return "任务不存在: " + taskId;
+
+        TaskConfig task;
+        if (arg.matches("\\d+")) {
+            Long taskId = Long.parseLong(arg);
+            task = taskConfigService.getById(taskId);
+            if (task == null) {
+                return "任务不存在: " + taskId;
+            }
+        } else {
+            String name = arg;
+            if (name.endsWith("任务")) {
+                name = name.substring(0, name.length() - "任务".length());
+            }
+            List<TaskConfig> tasks = taskConfigService.lambdaQuery()
+                    .like(TaskConfig::getTaskName, name)
+                    .list();
+            if (tasks.isEmpty()) {
+                return "未找到匹配的任务: " + name;
+            }
+            if (tasks.size() > 1) {
+                StringBuilder sb = new StringBuilder("找到多个匹配任务，请使用任务 ID 运行：\n");
+                for (TaskConfig t : tasks) {
+                    sb.append(t.getId()).append(". ").append(t.getTaskName()).append("\n");
+                }
+                return sb.toString();
+            }
+            task = tasks.get(0);
         }
-        taskExecutionService.executeTaskAsync(taskId, "MANUAL");
-        return "已触发任务: " + task.getTaskName() + " (ID: " + taskId + ")，请稍后查看执行结果。";
+
+        taskExecutionService.executeTaskAsync(task.getId(), "MANUAL");
+        return "已触发任务: " + task.getTaskName() + " (ID: " + task.getId() + ")，请稍后查看执行结果。";
     }
 
     private String handleCreateTask(String command) throws Exception {
@@ -162,9 +186,11 @@ public class WeComCommandHandler {
 
     private String helpText() {
         return "可用指令：\n" +
-                "查询任务 [页码] - 查看任务列表\n" +
-                "运行 {任务ID} - 手动运行任务\n" +
-                "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务\n" +
-                "帮助 - 显示本帮助";
+                "帮助 - 显示本帮助\n" +
+                "任务列表 [页码] - 查看任务列表及总数\n" +
+                "查询任务 [页码] - 同“任务列表”\n" +
+                "运行 {任务ID} - 按 ID 手动运行任务\n" +
+                "运行{任务名称}任务 - 按名称手动运行任务\n" +
+                "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务";
     }
 }
