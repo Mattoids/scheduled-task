@@ -32,3 +32,4 @@ target/
 application-local.yml
 *.log
 uploads/
+.claude
