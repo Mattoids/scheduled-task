@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
@@ -8,6 +9,7 @@ import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.ReportTemplate;
 import com.mattoid.scheduled.service.ReportTemplateService;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,8 +25,12 @@ public class ReportTemplateController {
 
     @PreAuthorize("hasAuthority('template:view')")
     @GetMapping("/page")
-    public Result<PageResult<ReportTemplate>> page(PageQuery query) {
-        Page<ReportTemplate> page = reportTemplateService.page(new Page<>(query.getCurrent(), query.getSize()));
+    public Result<PageResult<ReportTemplate>> page(PageQuery query,
+                                                   @RequestParam(required = false) String templateName) {
+        LambdaQueryWrapper<ReportTemplate> wrapper = new LambdaQueryWrapper<ReportTemplate>()
+                .like(StringUtils.hasText(templateName), ReportTemplate::getTemplateName, templateName)
+                .orderByDesc(ReportTemplate::getCreateTime);
+        Page<ReportTemplate> page = reportTemplateService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         return Result.ok(PageUtil.convert(page));
     }
 

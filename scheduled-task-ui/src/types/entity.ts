@@ -5,16 +5,7 @@ export interface TaskConfig {
   description?: string
   triggerType: 'CRON' | 'ONCE'
   triggerConfig: string
-  emailConfigId: number
-  recipientIds?: string
-  recipientGroupIds?: string
   status: 'ENABLE' | 'DISABLE'
-  fileNamePattern?: string
-  emailSubject?: string
-  emailBody?: string
-  weComAppConfigId?: number
-  weComBotConfigId?: number
-  weComToUser?: string
   createTime?: string
   updateTime?: string
 }
@@ -26,13 +17,45 @@ export interface TaskSqlConfig {
   datasourceId: number
   sqlContent: string
   templateId?: number
+  groupId?: number
   outputFormat?: string
   fileSuffix?: string
   fileNamePattern?: string
-  groupName?: string
   description?: string
   status?: number
   sortOrder?: number
+  taskSqlGroup?: TaskSqlGroup
+  groupName?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface TaskSqlGroup {
+  id?: number
+  groupName: string
+  groupCode: string
+  fileNamePattern?: string
+  description?: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface NotificationRule {
+  id?: number
+  eventType: 'TASK_SUCCESS' | 'TASK_FAILURE' | 'TASK_COMPLETED'
+  channel: 'EMAIL' | 'WECOM_APP' | 'WECOM_BOT' | 'WECOM_INTELLIGENT_BOT'
+  configId?: number
+  taskId?: number
+  recipientIds?: string
+  recipientGroupIds?: string
+  wecomToUser?: string
+  subject?: string
+  body?: string
+  content?: string
+  aiOptimizeNotify?: number
+  aiConfigId?: number
+  enabled?: number
   createTime?: string
   updateTime?: string
 }
@@ -134,6 +157,7 @@ export interface WeComAppConfig {
   secret?: string
   token?: string
   aesKey?: string
+  proxyUrl?: string
   status?: number
   menuJson?: string
   createTime?: string
@@ -145,6 +169,42 @@ export interface WeComBotConfig {
   configName: string
   webhookKey: string
   status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface WeComIntelligentBotConfig {
+  id?: number
+  configName: string
+  webhookKey: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface NotificationConfig {
+  id?: number
+  configName: string
+  configType: 'EMAIL' | 'WECOM_APP' | 'WECOM_BOT' | 'WECOM_INTELLIGENT_BOT'
+  configJson: any
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface AiConfig {
+  id?: number
+  configName: string
+  provider: 'OPENAI' | 'ANTHROPIC' | 'AZURE_OPENAI' | 'OLLAMA' | 'CUSTOM'
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
+  timeoutSeconds?: number
+  isDefault?: number
+  status?: number
+  remark?: string
   createTime?: string
   updateTime?: string
 }

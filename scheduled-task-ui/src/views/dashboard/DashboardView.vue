@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from "vue";
+import { useRouter } from "vue-router";
 import {
   Timer,
   Coin,
@@ -8,169 +9,431 @@ import {
   TrendCharts,
   CircleCheck,
   CircleClose,
-} from '@element-plus/icons-vue'
-import { useAppStore } from '@/stores/app'
-import { getDashboardStats } from '@/api/dashboard'
-import type { DashboardStats } from '@/types'
+  Plus,
+  Refresh,
+  Warning,
+  ArrowRight,
+} from "@element-plus/icons-vue";
+import { useAppStore } from "@/stores/app";
+import { getDashboardStats } from "@/api/dashboard";
+import type { DashboardStats, RecentTaskLog } from "@/types";
 
-const appStore = useAppStore()
-appStore.setBreadcrumb([{ title: '首页' }])
+const appStore = useAppStore();
+const router = useRouter();
+appStore.setBreadcrumb([{ title: "首页" }]);
 
 const stats = ref<DashboardStats>({
   taskCount: 0,
   datasourceCount: 0,
-  emailConfigCount: 0,
+  notificationConfigCount: 0,
   templateCount: 0,
   todayLogCount: 0,
   successLogCount: 0,
   failedLogCount: 0,
-})
+  taskStatusStats: {},
+  todayStatusStats: {},
+  recentLogs: [],
+});
 
-const loading = ref(false)
+const loading = ref(false);
 
 const statCards = [
   {
-    title: '任务总数',
-    key: 'taskCount' as keyof DashboardStats,
+    title: "任务总数",
+    key: "taskCount" as keyof DashboardStats,
     icon: Timer,
-    color: 'blue',
+    color: "blue",
+    path: "/task",
   },
   {
-    title: '数据源',
-    key: 'datasourceCount' as keyof DashboardStats,
+    title: "数据源",
+    key: "datasourceCount" as keyof DashboardStats,
     icon: Coin,
-    color: 'green',
+    color: "green",
+    path: "/datasource",
   },
   {
-    title: '邮箱配置',
-    key: 'emailConfigCount' as keyof DashboardStats,
+    title: "通知配置",
+    key: "notificationConfigCount" as keyof DashboardStats,
     icon: Message,
-    color: 'orange',
+    color: "orange",
+    path: "/notification/config",
   },
   {
-    title: '报表模板',
-    key: 'templateCount' as keyof DashboardStats,
+    title: "报表模板",
+    key: "templateCount" as keyof DashboardStats,
     icon: DocumentCopy,
-    color: 'red',
+    color: "red",
+    path: "/template",
   },
-]
+];
 
 const logCards = [
   {
-    title: '今日执行',
-    key: 'todayLogCount' as keyof DashboardStats,
+    title: "今日执行",
+    key: "todayLogCount" as keyof DashboardStats,
     icon: TrendCharts,
-    color: 'purple',
+    color: "purple",
+    path: "/task-log",
   },
   {
-    title: '累计成功',
-    key: 'successLogCount' as keyof DashboardStats,
+    title: "累计成功",
+    key: "successLogCount" as keyof DashboardStats,
     icon: CircleCheck,
-    color: 'success',
+    color: "success",
+    path: "/task-log",
   },
   {
-    title: '累计失败',
-    key: 'failedLogCount' as keyof DashboardStats,
+    title: "累计失败",
+    key: "failedLogCount" as keyof DashboardStats,
     icon: CircleClose,
-    color: 'danger',
+    color: "danger",
+    path: "/task-log",
   },
-]
+];
+
+const quickActions = [
+  { label: "新建任务", path: "/task", icon: Plus, type: "primary" },
+  { label: "SQL 管理", path: "/task-sql", icon: DocumentCopy, type: "default" },
+  { label: "数据源", path: "/datasource", icon: Coin, type: "default" },
+];
 
 const colorMap: Record<string, string> = {
-  blue: '#3b82f6',
-  green: '#10b981',
-  orange: '#f59e0b',
-  red: '#ef4444',
-  purple: '#8b5cf6',
-  success: '#10b981',
-  danger: '#ef4444',
-}
+  blue: "#3b82f6",
+  green: "#10b981",
+  orange: "#f59e0b",
+  red: "#ef4444",
+  purple: "#8b5cf6",
+  success: "#10b981",
+  danger: "#ef4444",
+};
+
+const statusTypeMap: Record<string, any> = {
+  SUCCESS: "success",
+  FAILED: "danger",
+  RUNNING: "warning",
+};
+
+const statusLabelMap: Record<string, string> = {
+  SUCCESS: "成功",
+  FAILED: "失败",
+  RUNNING: "执行中",
+};
+
+const triggerLabelMap: Record<string, string> = {
+  MANUAL: "手动",
+  AUTO: "自动",
+};
+
+const enabledTaskCount = computed(
+  () => stats.value.taskStatusStats?.ENABLE ?? 0,
+);
+const disabledTaskCount = computed(
+  () => stats.value.taskStatusStats?.DISABLE ?? 0,
+);
+const taskTotal = computed(
+  () => enabledTaskCount.value + disabledTaskCount.value,
+);
+const enabledRate = computed(() =>
+  taskTotal.value > 0
+    ? Math.round((enabledTaskCount.value / taskTotal.value) * 100)
+    : 0,
+);
+
+const todaySuccess = computed(() => stats.value.todayStatusStats?.SUCCESS ?? 0);
+const todayFailed = computed(() => stats.value.todayStatusStats?.FAILED ?? 0);
+const todayRunning = computed(() => stats.value.todayStatusStats?.RUNNING ?? 0);
+const todayFinished = computed(() => todaySuccess.value + todayFailed.value);
+const successRate = computed(() =>
+  todayFinished.value > 0
+    ? Math.round((todaySuccess.value / todayFinished.value) * 100)
+    : 0,
+);
 
 const loadStats = async () => {
-  loading.value = true
+  loading.value = true;
   try {
-    stats.value = await getDashboardStats()
+    stats.value = await getDashboardStats();
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
+
+const goTo = (path: string) => {
+  router.push(path);
+};
+
+const formatDuration = (row: RecentTaskLog) => {
+  if (!row.startTime || !row.endTime) return "-";
+  const start = new Date(row.startTime).getTime();
+  const end = new Date(row.endTime).getTime();
+  const seconds = Math.round((end - start) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = seconds % 60;
+  return `${minutes}m ${rem}s`;
+};
 
 onMounted(() => {
-  loadStats()
-})
+  loadStats();
+});
 </script>
 
 <template>
   <div v-loading="loading" class="page-card dashboard-page">
     <div class="dashboard-welcome">
-      <h1 class="welcome-title">欢迎使用定时任务报表系统</h1>
-      <p class="welcome-desc">自动化报表生成、定时调度与邮件分发一站式平台</p>
+      <div class="welcome-text">
+        <h1 class="welcome-title">欢迎使用定时任务报表系统</h1>
+        <p class="welcome-desc">自动化报表生成、定时调度与邮件分发一站式平台</p>
+      </div>
+      <div class="quick-actions">
+        <el-button
+          v-for="action in quickActions"
+          :key="action.label"
+          :type="action.type as any"
+          :icon="action.icon"
+          @click="goTo(action.path)"
+        >
+          {{ action.label }}
+        </el-button>
+        <el-button :icon="Refresh" @click="loadStats">刷新</el-button>
+      </div>
     </div>
 
     <div class="section-title">资源概览</div>
     <el-row :gutter="20">
-      <el-col v-for="item in statCards" :key="item.title" :span="6" :xs="24" :sm="12" :md="6">
-        <el-card class="stat-card" shadow="never">
+      <el-col
+        v-for="item in statCards"
+        :key="item.title"
+        :span="6"
+        :xs="24"
+        :sm="12"
+        :md="6"
+      >
+        <el-card
+          class="stat-card clickable"
+          shadow="never"
+          @click="goTo(item.path)"
+        >
           <div class="stat-content">
-            <div class="stat-icon" :style="{ backgroundColor: colorMap[item.color] + '15', color: colorMap[item.color] }">
-              <el-icon :size="28"
-                ><component :is="item.icon" /></el-icon>
+            <div
+              class="stat-icon"
+              :style="{
+                backgroundColor: colorMap[item.color] + '15',
+                color: colorMap[item.color],
+              }"
+            >
+              <el-icon :size="28"><component :is="item.icon" /></el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats[item.key] ?? 0 }}</div>
+              <div class="stat-value">
+                {{ (stats[item.key] as number) ?? 0 }}
+              </div>
               <div class="stat-label">{{ item.title }}</div>
             </div>
+            <el-icon class="stat-arrow" :size="18"><ArrowRight /></el-icon>
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <div class="section-title" style="margin-top: 24px">执行统计</div>
+    <div class="section-title" style="margin-top: 28px">执行统计</div>
     <el-row :gutter="20">
-      <el-col v-for="item in logCards" :key="item.title" :span="8" :xs="24" :sm="24" :md="8">
-        <el-card class="stat-card log-stat-card" shadow="never">
+      <el-col :span="8" :xs="24" :sm="24" :md="8">
+        <el-card
+          class="stat-card log-stat-card clickable"
+          shadow="never"
+          @click="goTo('/task-log')"
+        >
           <div class="stat-content">
-            <div class="stat-icon" :style="{ backgroundColor: colorMap[item.color] + '15', color: colorMap[item.color] }">
-              <el-icon :size="28"
-                ><component :is="item.icon" /></el-icon>
+            <div
+              class="stat-icon"
+              :style="{
+                backgroundColor: colorMap.purple + '15',
+                color: colorMap.purple,
+              }"
+            >
+              <el-icon :size="28"><TrendCharts /></el-icon>
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stats[item.key] ?? 0 }}</div>
-              <div class="stat-label">{{ item.title }}</div>
+              <div class="stat-value">{{ stats.todayLogCount }}</div>
+              <div class="stat-label">今日执行</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8" :xs="24" :sm="24" :md="8">
+        <el-card
+          class="stat-card log-stat-card clickable"
+          shadow="never"
+          @click="goTo('/task-log')"
+        >
+          <div class="stat-content">
+            <div
+              class="stat-icon"
+              :style="{
+                backgroundColor: colorMap.success + '15',
+                color: colorMap.success,
+              }"
+            >
+              <el-icon :size="28"><CircleCheck /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.successLogCount }}</div>
+              <div class="stat-label">累计成功</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="8" :xs="24" :sm="24" :md="8">
+        <el-card
+          class="stat-card log-stat-card clickable"
+          shadow="never"
+          @click="goTo('/task-log')"
+        >
+          <div class="stat-content">
+            <div
+              class="stat-icon"
+              :style="{
+                backgroundColor: colorMap.danger + '15',
+                color: colorMap.danger,
+              }"
+            >
+              <el-icon :size="28"><CircleClose /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.failedLogCount }}</div>
+              <div class="stat-label">累计失败</div>
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <el-card class="dashboard-info-card" shadow="never">
+    <el-row :gutter="20" style="margin-top: 20px">
+      <el-col :span="12" :xs="24" :md="12">
+        <el-card class="distribution-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span>任务启用情况</span
+              ><el-tag v-if="todayRunning > 0" type="warning" effect="dark"
+                ><el-icon><Warning /></el-icon> 有
+                {{ todayRunning }} 个任务正在执行</el-tag
+              >
+            </div>
+          </template>
+          <div class="distribution-body">
+            <div class="distribution-value">{{ enabledRate }}%</div>
+            <el-progress
+              :percentage="enabledRate"
+              :stroke-width="16"
+              :show-text="false"
+              status="success"
+              class="distribution-progress"
+            />
+            <div class="distribution-detail">
+              <span>已启用 {{ enabledTaskCount }}</span
+              ><span>已停用 {{ disabledTaskCount }}</span>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="12" :xs="24" :md="12">
+        <el-card class="distribution-card" shadow="never">
+          <template #header>
+            <div class="card-header"><span>今日执行成功率</span></div>
+          </template>
+          <div class="distribution-body">
+            <div
+              class="distribution-value"
+              :style="{
+                color:
+                  successRate >= 90
+                    ? '#10b981'
+                    : successRate >= 70
+                      ? '#f59e0b'
+                      : '#ef4444',
+              }"
+            >
+              {{ successRate }}%
+            </div>
+            <el-progress
+              :percentage="successRate"
+              :stroke-width="16"
+              :show-text="false"
+              :status="
+                successRate >= 90
+                  ? 'success'
+                  : successRate >= 70
+                    ? 'warning'
+                    : 'exception'
+              "
+              class="distribution-progress"
+            />
+            <div class="distribution-detail">
+              <span>成功 {{ todaySuccess }}</span
+              ><span>失败 {{ todayFailed }}</span
+              ><span v-if="todayRunning > 0">执行中 {{ todayRunning }}</span>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-card class="recent-log-card" shadow="never">
       <template #header>
-        <div class="info-header">
-          <span class="info-title">系统说明</span>
+        <div class="card-header">
+          <span>最近执行日志</span
+          ><el-button link type="primary" @click="goTo('/task-log')"
+            >查看更多 <el-icon><ArrowRight /></el-icon
+          ></el-button>
         </div>
       </template>
-      <div class="info-content">
-        <p>本系统支持配置定时任务，连接多种数据源执行 SQL，将结果生成 Excel / Word / PPT / CSV / TXT 报表，并通过邮件发送给指定收件人。</p>
-        <el-divider />
-        <el-row :gutter="24">
-          <el-col :span="12" :xs="24">
-            <h4>快速入口</h4>
-            <ul class="feature-list">
-              <li><router-link to="/task">任务管理</router-link> — 创建、编辑、触发定时任务</li>
-              <li><router-link to="/task-sql">SQL 管理</router-link> — 维护 SQL 模块与模板绑定</li>
-              <li><router-link to="/template">模板管理</router-link> — 上传 Word / Excel / PPT 模板</li>
-            </ul>
-          </el-col>
-          <el-col :span="12" :xs="24">
-            <h4>核心能力</h4>
-            <ul class="feature-list">
-              <li>CRON / 单次触发</li>
-              <li>多数据源与 SSH 代理</li>
-              <li>邮件自动分发与模板变量</li>
-            </ul>
-          </el-col>
-        </el-row>
-      </div>
+      <el-table
+        :data="stats.recentLogs"
+        size="small"
+        stripe
+        style="width: 100%"
+      >
+        <el-table-column
+          prop="taskName"
+          label="任务名称"
+          min-width="160"
+          show-overflow-tooltip
+        />
+        <el-table-column label="触发方式" width="90">
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="row.triggerMode === 'MANUAL' ? 'primary' : 'info'"
+              >{{ triggerLabelMap[row.triggerMode] ?? row.triggerMode }}</el-tag
+            >
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="statusTypeMap[row.status]">{{
+              statusLabelMap[row.status] ?? row.status
+            }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="100" align="center">
+          <template #default="{ row }">{{ formatDuration(row) }}</template>
+        </el-table-column>
+        <el-table-column
+          prop="resultMessage"
+          label="结果"
+          min-width="200"
+          show-overflow-tooltip
+        />
+        <el-table-column label="时间" width="160">
+          <template #default="{ row }">{{ row.startTime }}</template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-if="stats.recentLogs.length === 0"
+        description="暂无执行记录"
+      />
     </el-card>
   </div>
 </template>
@@ -181,6 +444,11 @@ onMounted(() => {
 }
 
 .dashboard-welcome {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 28px;
   padding-bottom: 20px;
   border-bottom: 1px solid #e5e7eb;
@@ -196,6 +464,12 @@ onMounted(() => {
 .welcome-desc {
   color: #6b7280;
   font-size: 15px;
+}
+
+.quick-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .section-title {
@@ -215,7 +489,11 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-.stat-card:hover {
+.stat-card.clickable {
+  cursor: pointer;
+}
+
+.stat-card.clickable:hover {
   transform: translateY(-3px);
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
   border-color: #c7d2fe;
@@ -229,6 +507,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+  position: relative;
 }
 
 .stat-icon {
@@ -254,62 +533,72 @@ onMounted(() => {
   margin-top: 4px;
 }
 
+.stat-arrow {
+  margin-left: auto;
+  color: #d1d5db;
+  transition: color 0.2s ease;
+}
+
+.stat-card.clickable:hover .stat-arrow {
+  color: #4f46e5;
+}
+
 .log-stat-card {
   background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%);
 }
 
-.dashboard-info-card {
-  margin-top: 12px;
+.distribution-card,
+.recent-log-card {
   border-radius: 12px;
   border: 1px solid #e5e7eb;
 }
 
-.info-header {
+.recent-log-card {
+  margin-top: 20px;
+}
+
+.card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.info-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #374151;
+.distribution-body {
+  text-align: center;
+  padding: 12px 8px;
 }
 
-.info-content {
-  color: #4b5563;
-  line-height: 1.8;
+.distribution-value {
+  font-size: 42px;
+  font-weight: 700;
+  color: #10b981;
+  margin-bottom: 12px;
 }
 
-.info-content h4 {
-  color: #111827;
-  margin: 16px 0 10px;
-  font-size: 15px;
+.distribution-progress {
+  margin-bottom: 12px;
 }
 
-.feature-list {
-  list-style: none;
-  padding: 0;
-}
-
-.feature-list li {
-  padding: 6px 0;
-  color: #4b5563;
-}
-
-.feature-list a {
-  color: #4f46e5;
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.feature-list a:hover {
-  text-decoration: underline;
+.distribution-detail {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  color: #6b7280;
+  font-size: 14px;
 }
 
 @media (max-width: 768px) {
+  .dashboard-welcome {
+    flex-direction: column;
+  }
+
   .stat-card {
     margin-bottom: 16px;
+  }
+
+  .distribution-detail {
+    gap: 12px;
+    flex-wrap: wrap;
   }
 }
 </style>

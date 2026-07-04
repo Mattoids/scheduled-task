@@ -2,7 +2,9 @@ package com.mattoid.scheduled.config;
 
 import com.mattoid.scheduled.common.Result;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.servlet.http.HttpServletRequest;
 import org.quartz.SchedulerException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
@@ -40,6 +42,12 @@ public class GlobalExceptionHandler {
     public Result<Void> handleSchedulerException(SchedulerException e) {
         log.error("调度异常", e);
         return Result.error("任务调度异常: " + e.getMessage());
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public Result<Void> handleMethodNotSupported(HttpServletRequest request, HttpRequestMethodNotSupportedException e) {
+        log.error("请求方法不支持: {} {}", request.getMethod(), request.getRequestURI(), e);
+        return Result.error("请求方法不支持: " + request.getMethod() + " " + request.getRequestURI());
     }
 
     @ExceptionHandler(Exception.class)

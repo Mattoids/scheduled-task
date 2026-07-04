@@ -12,6 +12,7 @@ import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.TaskConfigService;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -29,8 +30,14 @@ public class TaskConfigController {
 
     @PreAuthorize("hasAuthority('task:view')")
     @GetMapping("/page")
-    public Result<PageResult<TaskConfig>> page(PageQuery query) {
-        Page<TaskConfig> page = taskConfigService.page(new Page<>(query.getCurrent(), query.getSize()));
+    public Result<PageResult<TaskConfig>> page(PageQuery query,
+                                               @RequestParam(required = false) String taskName,
+                                               @RequestParam(required = false) String taskCode) {
+        LambdaQueryWrapper<TaskConfig> wrapper = new LambdaQueryWrapper<TaskConfig>()
+                .like(StringUtils.hasText(taskName), TaskConfig::getTaskName, taskName)
+                .like(StringUtils.hasText(taskCode), TaskConfig::getTaskCode, taskCode)
+                .orderByDesc(TaskConfig::getCreateTime);
+        Page<TaskConfig> page = taskConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         PageResult<TaskConfig> result = new PageResult<>();
         result.setTotal(page.getTotal());
         result.setPages(page.getPages());

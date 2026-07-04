@@ -27,28 +27,52 @@ public class WeComCallbackController {
 
     @GetMapping("/{configId}")
     public String verify(@PathVariable Long configId,
-                         @RequestParam("signature") String signature,
-                         @RequestParam("timestamp") String timestamp,
-                         @RequestParam("nonce") String nonce,
-                         @RequestParam("echostr") String echostr) throws Exception {
+                         @RequestParam(value = "msg_signature", required = false) String msgSignature,
+                         @RequestParam(value = "signature", required = false) String signature,
+                         @RequestParam(value = "timestamp", required = false) String timestamp,
+                         @RequestParam(value = "nonce", required = false) String nonce,
+                         @RequestParam(value = "echostr", required = false) String echostr) throws Exception {
+        String actualSignature = StringUtils.hasText(msgSignature) ? msgSignature : signature;
+        if (!StringUtils.hasText(actualSignature) || !StringUtils.hasText(timestamp)
+                || !StringUtils.hasText(nonce) || !StringUtils.hasText(echostr)) {
+            log.warn("企业微信回调 URL 验证参数缺失: configId={}, msg_signature={}, signature={}, timestamp={}, nonce={}, echostr={}",
+                    configId, msgSignature, signature, timestamp, nonce, echostr);
+            return "参数缺失";
+        }
         log.info("收到企业微信 URL 验证请求: configId={}", configId);
-        return weComAppManager.verifyUrl(configId, signature, timestamp, nonce, echostr);
+        return weComAppManager.verifyUrl(configId, actualSignature, timestamp, nonce, echostr);
     }
 
     @PostMapping("/{configId}")
     public String callback(@PathVariable Long configId,
-                           @RequestParam("signature") String signature,
-                           @RequestParam("timestamp") String timestamp,
-                           @RequestParam("nonce") String nonce,
+                           @RequestParam(value = "msg_signature", required = false) String msgSignature,
+                           @RequestParam(value = "signature", required = false) String signature,
+                           @RequestParam(value = "timestamp", required = false) String timestamp,
+                           @RequestParam(value = "nonce", required = false) String nonce,
                            HttpServletRequest request) throws Exception {
-        String body = new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        log.debug("收到企业微信消息: configId={}, body={}", configId, body);
-
-        WxCpXmlMessage message = weComAppManager.parseMessage(configId, signature, timestamp, nonce, body);
-        String reply = weComCommandHandler.handle(message, configId);
-        if (!StringUtils.hasText(reply)) {
+        String actualSignature = StringUtils.hasText(msgSignature) ? msgSignature : signature;
+        if (!StringUtils.hasText(actualSignature) || !StringUtils.hasText(timestamp) || !StringUtils.hasText(nonce)) {
+            log.warn("企业微信消息回调参数缺失: configId={}, msg_signature={}, signature={}, timestamp={}, nonce={}",
+                    configId, msgSignature, signature, timestamp, nonce);
             return "success";
         }
-        return weComAppManager.encryptReply(configId, reply, timestamp, nonce);
+        String body = new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        log.info("收到企业微信消息回调: configId={}, body={}", configId, body);
+
+        try {
+            WxCpXmlMessage message = weComAppManager.parseMessage(configId, actualSignature, timestamp, nonce, body);
+            log.info("企业微信消息解析成功: configId={}, fromUser={}, msgType={}, content={}, eventKey={}",
+                    configId, message.getFromUserName(), message.getMsgType(), message.getContent(), message.getEventKey());
+            String reply = weComCommandHandler.handle(message, configId);
+            log.info("企业微信消息处理完成: configId={}, reply={}", configId, reply);
+            if (!StringUtils.hasText(reply)) {
+                return "success";
+            }
+            return weComAppManager.encryptReply(configId, reply,
+                    message.getFromUserName(), message.getToUserName(), timestamp, nonce);
+        } catch (Exception e) {
+            log.error("企业微信消息处理失败: configId={}", configId, e);
+            return "success";
+        }
     }
 }

@@ -16,6 +16,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -29,13 +30,20 @@ public class WeComBotClient {
     ObjectMapper objectMapper = new ObjectMapper();
 
     public void sendText(String webhookKey, String content) throws Exception {
+        sendText(webhookKey, content, null);
+    }
+
+    public void sendText(String webhookKey, String content, List<String> mentionedList) throws Exception {
         if (!StringUtils.hasText(content)) {
             return;
         }
         Map<String, Object> body = new HashMap<>();
         body.put("msgtype", "text");
-        Map<String, String> text = new HashMap<>();
+        Map<String, Object> text = new HashMap<>();
         text.put("content", content);
+        if (mentionedList != null && !mentionedList.isEmpty()) {
+            text.put("mentioned_list", mentionedList);
+        }
         body.put("text", text);
         post(webhookKey, body);
         log.info("企业微信群机器人文本消息发送成功: key={}", webhookKey);

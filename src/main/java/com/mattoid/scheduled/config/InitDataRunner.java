@@ -97,7 +97,23 @@ public class InitDataRunner implements CommandLineRunner {
                 createPermission(25L, "wecomBot:view", "企业微信群机器人查看", "MENU", 0L, 70),
                 createPermission(26L, "wecomBot:create", "企业微信群机器人创建", "BUTTON", 25L, 71),
                 createPermission(27L, "wecomBot:edit", "企业微信群机器人编辑", "BUTTON", 25L, 72),
-                createPermission(28L, "wecomBot:delete", "企业微信群机器人删除", "BUTTON", 25L, 73)
+                createPermission(28L, "wecomBot:delete", "企业微信群机器人删除", "BUTTON", 25L, 73),
+                createPermission(29L, "taskSqlGroup:view", "SQL分组查看", "MENU", 0L, 80),
+                createPermission(30L, "taskSqlGroup:create", "SQL分组创建", "BUTTON", 29L, 81),
+                createPermission(31L, "taskSqlGroup:edit", "SQL分组编辑", "BUTTON", 29L, 82),
+                createPermission(32L, "taskSqlGroup:delete", "SQL分组删除", "BUTTON", 29L, 83),
+                createPermission(33L, "notificationRule:view", "通知规则查看", "MENU", 0L, 90),
+                createPermission(34L, "notificationRule:create", "通知规则创建", "BUTTON", 33L, 91),
+                createPermission(35L, "notificationRule:edit", "通知规则编辑", "BUTTON", 33L, 92),
+                createPermission(36L, "notificationRule:delete", "通知规则删除", "BUTTON", 33L, 93),
+                createPermission(37L, "wecomIntelligentBot:view", "企业微信智能机器人查看", "MENU", 0L, 100),
+                createPermission(38L, "wecomIntelligentBot:create", "企业微信智能机器人创建", "BUTTON", 37L, 101),
+                createPermission(39L, "wecomIntelligentBot:edit", "企业微信智能机器人编辑", "BUTTON", 37L, 102),
+                createPermission(40L, "wecomIntelligentBot:delete", "企业微信智能机器人删除", "BUTTON", 37L, 103),
+                createPermission(41L, "notificationConfig:view", "通知配置查看", "MENU", 0L, 110),
+                createPermission(42L, "notificationConfig:create", "通知配置创建", "BUTTON", 41L, 111),
+                createPermission(43L, "notificationConfig:edit", "通知配置编辑", "BUTTON", 41L, 112),
+                createPermission(44L, "notificationConfig:delete", "通知配置删除", "BUTTON", 41L, 113)
         );
         for (SysPermission permission : permissions) {
             if (sysPermissionMapper.selectById(permission.getId()) == null) {

@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -19,6 +20,8 @@ public class TaskSqlConfig extends BaseEntity {
 
     private Long templateId;
 
+    private Long groupId;
+
     /**
      * CSV / EXCEL / WORD / PPT / TXT；无模板时默认 CSV
      */
@@ -28,15 +31,25 @@ public class TaskSqlConfig extends BaseEntity {
 
     private String fileNamePattern;
 
-    private String groupName;
-
     private String description;
 
     private Integer status;
 
     /**
+     * 非数据库字段：关联的 SQL 分组
+     */
+    @TableField(exist = false)
+    private TaskSqlGroup taskSqlGroup;
+
+    /**
+     * 非数据库字段：用于列表展示的分组名称
+     */
+    @TableField(exist = false)
+    private String groupName;
+
+    /**
      * 非数据库字段：在前端任务配置中用于标识该 SQL 在当前任务中的排序
      */
-    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @TableField(exist = false)
     private Integer sortOrder;
 }

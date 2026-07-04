@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import type { StageResult } from '@/types/index'
+import type { StageResult } from "@/types/index";
 
 interface Props {
-  stages: StageResult[]
-  sshEnabled: boolean
+  stages: StageResult[];
+  sshEnabled: boolean;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 
 const getStatus = (stages: StageResult[], key: string) => {
-  const found = stages.find((s) => s.stage === key)
-  if (!found) return 'pending'
-  return found.success ? 'success' : 'error'
-}
+  const found = stages.find((s) => s.stage === key);
+  if (!found) return "pending";
+  return found.success ? "success" : "error";
+};
 
 const clientStatus = () => {
-  return props.stages.length > 0 ? 'success' : 'pending'
-}
+  return props.stages.length > 0 ? "success" : "pending";
+};
 </script>
 
 <template>
@@ -28,7 +28,9 @@ const clientStatus = () => {
 
       <div
         class="progress-line"
-        :class="sshEnabled ? getStatus(stages, 'SSH') : getStatus(stages, 'DATABASE')"
+        :class="
+          sshEnabled ? getStatus(stages, 'SSH') : getStatus(stages, 'DATABASE')
+        "
       ></div>
 
       <template v-if="sshEnabled">
@@ -45,8 +47,17 @@ const clientStatus = () => {
 
     <div class="progress-labels">
       <span class="label">客户端</span>
-      <span v-if="sshEnabled" class="label" :class="{ 'is-error': getStatus(stages, 'SSH') === 'error' }">SSH 服务器</span>
-      <span class="label" :class="{ 'is-error': getStatus(stages, 'DATABASE') === 'error' }">数据库</span>
+      <span
+        v-if="sshEnabled"
+        class="label"
+        :class="{ 'is-error': getStatus(stages, 'SSH') === 'error' }"
+        >SSH 服务器</span
+      >
+      <span
+        class="label"
+        :class="{ 'is-error': getStatus(stages, 'DATABASE') === 'error' }"
+        >数据库</span
+      >
     </div>
 
     <div v-if="stages.length > 0" class="progress-messages">
@@ -56,8 +67,8 @@ const clientStatus = () => {
         class="stage-message"
         :class="stage.success ? 'is-success' : 'is-error'"
       >
-        {{ stage.stage === 'SSH' ? 'SSH 服务器' : '数据库' }}：
-        {{ stage.success ? '连接成功' : (stage.message || '连接失败') }}
+        {{ stage.stage === "SSH" ? "SSH 服务器" : "数据库" }}：
+        {{ stage.success ? "连接成功" : stage.message || "连接失败" }}
       </div>
     </div>
   </div>
@@ -105,7 +116,9 @@ const clientStatus = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.3s, background-color 0.3s;
+  transition:
+    border-color 0.3s,
+    background-color 0.3s;
   flex-shrink: 0;
 }
 

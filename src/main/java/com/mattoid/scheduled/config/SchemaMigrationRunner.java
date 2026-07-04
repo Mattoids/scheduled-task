@@ -30,6 +30,11 @@ public class SchemaMigrationRunner implements BeanPostProcessor {
     private static final String VERSION_TABLE = "schema_version";
     private static final AtomicBoolean MIGRATED = new AtomicBoolean(false);
 
+    // MySQL error codes that are safe to ignore during idempotent DDL
+    private static final int ER_DUP_FIELDNAME = 1060;
+    private static final int ER_DUP_KEYNAME = 1061;
+    private static final int ER_CANT_DROP_FIELD_OR_KEY = 1091;
+
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         if (bean instanceof DataSource dataSource && !MIGRATED.get()) {
@@ -66,11 +71,24 @@ public class SchemaMigrationRunner implements BeanPostProcessor {
                     if (statement.isBlank()) {
                         continue;
                     }
-                    stmt.execute(statement);
+                    executeStatement(stmt, statement);
                 }
                 markApplied(conn, filename);
                 log.info("Schema migration applied: {}", filename);
             }
+        }
+    }
+
+    private void executeStatement(Statement stmt, String statement) throws SQLException {
+        try {
+            stmt.execute(statement);
+        } catch (SQLException e) {
+            int errorCode = e.getErrorCode();
+            if (errorCode == ER_DUP_FIELDNAME || errorCode == ER_DUP_KEYNAME || errorCode == ER_CANT_DROP_FIELD_OR_KEY) {
+                log.warn("Ignoring idempotent DDL error: {}", e.getMessage());
+                return;
+            }
+            throw e;
         }
     }
 

@@ -26,16 +26,30 @@ export const menuRoutes: RouteRecordRaw[] = [
     meta: { title: '任务日志', icon: 'Document', permission: 'log:view' },
   },
   {
+    path: '/notification',
+    name: 'Notification',
+    redirect: '/notification/rule',
+    meta: { title: '通知管理', icon: 'Bell', permission: null },
+    children: [
+      {
+        path: '/notification/rule',
+        name: 'NotificationRule',
+        component: () => import('@/views/notification-rule/NotificationRuleList.vue'),
+        meta: { title: '通知规则', permission: 'notificationRule:view' },
+      },
+      {
+        path: '/notification/config',
+        name: 'NotificationConfig',
+        component: () => import('@/views/notification-config/NotificationConfigList.vue'),
+        meta: { title: '通知配置', permission: 'notificationConfig:view' },
+      },
+    ],
+  },
+  {
     path: '/datasource',
     name: 'Datasource',
     component: () => import('@/views/datasource/DatasourceList.vue'),
     meta: { title: '数据源管理', icon: 'Coin', permission: 'datasource:view' },
-  },
-  {
-    path: '/email-config',
-    name: 'EmailConfig',
-    component: () => import('@/views/email-config/EmailConfigList.vue'),
-    meta: { title: '邮箱配置', icon: 'Message', permission: 'email:view' },
   },
   {
     path: '/email-recipient',
@@ -48,6 +62,12 @@ export const menuRoutes: RouteRecordRaw[] = [
     name: 'Template',
     component: () => import('@/views/template/TemplateList.vue'),
     meta: { title: '报表模板', icon: 'Files', permission: 'template:view' },
+  },
+  {
+    path: '/ai-config',
+    name: 'AiConfig',
+    component: () => import('@/views/ai-config/AiConfigList.vue'),
+    meta: { title: 'AI 配置', icon: 'Cpu', permission: 'system:user' },
   },
   {
     path: '/system',
@@ -66,26 +86,6 @@ export const menuRoutes: RouteRecordRaw[] = [
         name: 'SystemRole',
         component: () => import('@/views/system/RoleList.vue'),
         meta: { title: '角色管理', permission: 'system:role' },
-      },
-    ],
-  },
-  {
-    path: '/wecom',
-    name: 'WeCom',
-    redirect: '/wecom/app-config',
-    meta: { title: '企业微信', icon: 'ChatDotRound', permission: null },
-    children: [
-      {
-        path: '/wecom/app-config',
-        name: 'WeComAppConfig',
-        component: () => import('@/views/wecom-config/WeComAppConfigList.vue'),
-        meta: { title: '应用配置', permission: 'wecomApp:view' },
-      },
-      {
-        path: '/wecom/bot-config',
-        name: 'WeComBotConfig',
-        component: () => import('@/views/wecom-config/WeComBotConfigList.vue'),
-        meta: { title: '群机器人配置', permission: 'wecomBot:view' },
       },
     ],
   },

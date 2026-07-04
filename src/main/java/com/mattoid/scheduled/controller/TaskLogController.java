@@ -8,8 +8,10 @@ import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,10 +26,14 @@ public class TaskLogController {
 
     @PreAuthorize("hasAuthority('log:view')")
     @GetMapping("/page")
-    public Result<PageResult<TaskLog>> page(PageQuery query) {
+    public Result<PageResult<TaskLog>> page(PageQuery query,
+                                            @RequestParam(required = false) String status) {
+        LambdaQueryWrapper<TaskLog> wrapper = new LambdaQueryWrapper<TaskLog>()
+                .eq(StringUtils.hasText(status), TaskLog::getStatus, status)
+                .orderByDesc(TaskLog::getCreateTime);
         Page<TaskLog> page = taskLogMapper.selectPage(
                 new Page<>(query.getCurrent(), query.getSize()),
-                new LambdaQueryWrapper<TaskLog>().orderByDesc(TaskLog::getCreateTime)
+                wrapper
         );
         PageResult<TaskLog> result = new PageResult<>();
         result.setTotal(page.getTotal());

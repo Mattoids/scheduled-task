@@ -1,35 +1,35 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
-import { useUserStore } from '@/stores/user'
-import type { LoginRequest } from '@/types'
+import { ref } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
+import { User, Lock } from "@element-plus/icons-vue";
+import { useUserStore } from "@/stores/user";
+import type { LoginRequest } from "@/types";
 
-const router = useRouter()
-const userStore = useUserStore()
+const router = useRouter();
+const userStore = useUserStore();
 
 const form = ref<LoginRequest>({
-  username: 'admin',
-  password: 'admin123',
-})
+  username: "admin",
+  password: "admin123",
+});
 
-const loading = ref(false)
+const loading = ref(false);
 
 const handleLogin = async () => {
   if (!form.value.username || !form.value.password) {
-    ElMessage.warning('请输入用户名和密码')
-    return
+    ElMessage.warning("请输入用户名和密码");
+    return;
   }
-  loading.value = true
+  loading.value = true;
   try {
-    await userStore.login(form.value)
-    ElMessage.success('登录成功')
-    router.push('/')
+    await userStore.login(form.value);
+    ElMessage.success("登录成功");
+    router.push("/");
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 </script>
 
 <template>
@@ -43,7 +43,11 @@ const handleLogin = async () => {
     <div class="login-container">
       <div class="login-brand">
         <div class="login-logo">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <path
               d="M12 2L2 7L12 12L22 7L12 2Z"
               stroke="currentColor"
@@ -75,7 +79,12 @@ const handleLogin = async () => {
         <h2 class="login-title">欢迎回来</h2>
         <p class="login-subtitle">请登录您的账号</p>
 
-        <el-form :model="form" label-position="top" size="large" @keyup.enter="handleLogin">
+        <el-form
+          :model="form"
+          label-position="top"
+          size="large"
+          @keyup.enter="handleLogin"
+        >
           <el-form-item label="用户名">
             <el-input
               v-model="form.username"

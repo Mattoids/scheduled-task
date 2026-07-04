@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
@@ -24,8 +25,12 @@ public class DatasourceConfigController {
 
     @PreAuthorize("hasAuthority('datasource:view')")
     @GetMapping("/page")
-    public Result<PageResult<DatasourceConfig>> page(PageQuery query) {
-        Page<DatasourceConfig> page = datasourceConfigService.page(new Page<>(query.getCurrent(), query.getSize()));
+    public Result<PageResult<DatasourceConfig>> page(PageQuery query,
+                                                     @RequestParam(required = false) String name) {
+        LambdaQueryWrapper<DatasourceConfig> wrapper = new LambdaQueryWrapper<DatasourceConfig>()
+                .like(StringUtils.hasText(name), DatasourceConfig::getName, name)
+                .orderByDesc(DatasourceConfig::getCreateTime);
+        Page<DatasourceConfig> page = datasourceConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         page.getRecords().forEach(this::maskSensitive);
         return Result.ok(PageUtil.convert(page));
     }

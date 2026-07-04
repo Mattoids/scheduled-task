@@ -1,26 +1,26 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed } from "vue";
 
 interface Props {
-  total: number
-  current: number
-  size: number
+  total: number;
+  current: number;
+  size: number;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 const emit = defineEmits<{
-  change: [current: number, size: number]
-}>()
+  change: [current: number, size: number];
+}>();
 
 const currentPage = computed({
   get: () => props.current,
-  set: (val) => emit('change', val, props.size),
-})
+  set: (val) => emit("change", val, props.size),
+});
 
 const pageSize = computed({
   get: () => props.size,
-  set: (val) => emit('change', 1, val),
-})
+  set: (val) => emit("change", 1, val),
+});
 </script>
 
 <template>

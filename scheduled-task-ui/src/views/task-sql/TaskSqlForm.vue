@@ -1,130 +1,154 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createTaskSql, getTaskSql, updateTaskSql } from '@/api/taskSql'
-import type { TaskSqlConfig } from '@/types/entity'
+import { ref, watch, computed } from "vue";
+import { ElMessage } from "element-plus";
+import { createTaskSql, getTaskSql, updateTaskSql } from "@/api/taskSql";
+import type { TaskSqlConfig } from "@/types/entity";
 
 interface Props {
-  visible: boolean
-  id?: number
-  datasourceOptions: { label: string; value: number }[]
-  templateOptions: { label: string; value: number }[]
+  visible: boolean;
+  id?: number;
+  datasourceOptions: { label: string; value: number }[];
+  templateOptions: { label: string; value: number }[];
+  groupOptions: { label: string; value: number; fileNamePattern?: string }[];
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  success: []
-}>()
+  "update:visible": [value: boolean];
+  success: [];
+}>();
 
 const dialogVisible = computed({
   get: () => props.visible,
-  set: (val) => emit('update:visible', val),
-})
+  set: (val) => emit("update:visible", val),
+});
 
-const loading = ref(false)
-const formRef = ref()
+const loading = ref(false);
+const formRef = ref();
 const form = ref<TaskSqlConfig>({
-  sqlName: '',
-  sqlCode: '',
+  sqlName: "",
+  sqlCode: "",
   datasourceId: undefined as any,
-  sqlContent: '',
+  sqlContent: "",
   templateId: undefined,
-  outputFormat: 'CSV',
-  fileSuffix: '',
-  fileNamePattern: '',
-  groupName: '',
-  description: '',
+  groupId: undefined,
+  outputFormat: "CSV",
+  fileSuffix: "",
+  fileNamePattern: "",
+  description: "",
   status: 1,
-})
+});
+
+const selectedGroupPattern = computed(() => {
+  const group = props.groupOptions.find((g) => g.value === form.value.groupId);
+  return group?.fileNamePattern;
+});
+
+watch(
+  () => form.value.groupId,
+  (groupId) => {
+    const group = props.groupOptions.find((g) => g.value === groupId);
+    if (group?.fileNamePattern) {
+      form.value.fileNamePattern = group.fileNamePattern;
+    }
+  },
+);
 
 const outputFormatOptions = [
-  { label: 'CSV', value: 'CSV' },
-  { label: 'Excel', value: 'EXCEL' },
-  { label: 'Word', value: 'WORD' },
-  { label: 'PPT', value: 'PPT' },
-  { label: '文本', value: 'TXT' },
-]
+  { label: "CSV", value: "CSV" },
+  { label: "Excel", value: "EXCEL" },
+  { label: "Word", value: "WORD" },
+  { label: "PPT", value: "PPT" },
+  { label: "文本", value: "TXT" },
+];
 
 const rules = {
-  sqlName: [{ required: true, message: '请输入 SQL 名称', trigger: 'blur' }],
-  sqlCode: [{ required: true, message: '请输入 SQL 编码', trigger: 'blur' }],
-  datasourceId: [{ required: true, message: '请选择数据源', trigger: 'change' }],
-  sqlContent: [{ required: true, message: '请输入 SQL 内容', trigger: 'blur' }],
-}
+  sqlName: [{ required: true, message: "请输入 SQL 名称", trigger: "blur" }],
+  sqlCode: [{ required: true, message: "请输入 SQL 编码", trigger: "blur" }],
+  datasourceId: [
+    { required: true, message: "请选择数据源", trigger: "change" },
+  ],
+  sqlContent: [{ required: true, message: "请输入 SQL 内容", trigger: "blur" }],
+};
 
-const isEdit = computed(() => !!props.id)
-const title = computed(() => (isEdit.value ? '编辑 SQL' : '新增 SQL'))
+const isEdit = computed(() => !!props.id);
+const title = computed(() => (isEdit.value ? "编辑 SQL" : "新增 SQL"));
 
 const resetForm = () => {
   form.value = {
-    sqlName: '',
-    sqlCode: '',
+    sqlName: "",
+    sqlCode: "",
     datasourceId: undefined as any,
-    sqlContent: '',
+    sqlContent: "",
     templateId: undefined,
-    outputFormat: 'CSV',
-    fileSuffix: '',
-    fileNamePattern: '',
-    groupName: '',
-    description: '',
+    groupId: undefined,
+    outputFormat: "CSV",
+    fileSuffix: "",
+    fileNamePattern: "",
+    description: "",
     status: 1,
-  }
-}
+  };
+};
 
 const loadDetail = async () => {
-  if (!props.id) return
-  loading.value = true
+  if (!props.id) return;
+  loading.value = true;
   try {
-    const res = await getTaskSql(props.id)
-    form.value = res
+    const res = await getTaskSql(props.id);
+    form.value = res;
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
 watch(
   () => props.visible,
   (val) => {
     if (val) {
-      resetForm()
+      resetForm();
       if (props.id) {
-        loadDetail()
+        loadDetail();
       }
     }
-  }
-)
+  },
+);
 
 const handleSubmit = async () => {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  const valid = await formRef.value?.validate().catch(() => false);
+  if (!valid) return;
 
-  loading.value = true
+  loading.value = true;
   try {
     if (isEdit.value) {
-      await updateTaskSql(props.id!, form.value)
+      await updateTaskSql(props.id!, form.value);
     } else {
-      await createTaskSql(form.value)
+      await createTaskSql(form.value);
     }
-    ElMessage.success(isEdit.value ? '修改成功' : '新增成功')
-    emit('success')
+    ElMessage.success(isEdit.value ? "修改成功" : "新增成功");
+    emit("success");
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
 const handleClose = () => {
-  emit('update:visible', false)
-}
+  emit("update:visible", false);
+};
 </script>
 
 <template>
-  <el-dialog v-model="dialogVisible" :title="title" width="780px" @close="handleClose">
+  <el-dialog
+    v-model="dialogVisible"
+    :title="title"
+    width="780px"
+    @close="handleClose"
+  >
     <el-form
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-width="110px"
+      class="dialog-form"
+      label-width="100px"
       v-loading="loading"
     >
       <el-row :gutter="16">
@@ -141,7 +165,11 @@ const handleClose = () => {
       </el-row>
 
       <el-form-item label="数据源" prop="datasourceId">
-        <el-select v-model="form.datasourceId" placeholder="请选择数据源" style="width: 100%">
+        <el-select
+          v-model="form.datasourceId"
+          placeholder="请选择数据源"
+          style="width: 100%"
+        >
           <el-option
             v-for="item in datasourceOptions"
             :key="item.value"
@@ -163,7 +191,11 @@ const handleClose = () => {
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="报表模板">
-            <el-select v-model="form.templateId" placeholder="请选择模板（可选）" clearable style="width: 100%">
+            <el-select
+              v-model="form.templateId"
+              placeholder="请选择模板（可选）"
+              clearable
+            >
               <el-option
                 v-for="item in templateOptions"
                 :key="item.value"
@@ -175,7 +207,7 @@ const handleClose = () => {
         </el-col>
         <el-col :span="12">
           <el-form-item label="输出格式">
-            <el-select v-model="form.outputFormat" placeholder="输出格式" style="width: 100%">
+            <el-select v-model="form.outputFormat" placeholder="输出格式">
               <el-option
                 v-for="item in outputFormatOptions"
                 :key="item.value"
@@ -190,35 +222,70 @@ const handleClose = () => {
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="文件后缀">
-            <el-input v-model="form.fileSuffix" placeholder="如 csv、xlsx（可选）" />
+            <el-input
+              v-model="form.fileSuffix"
+              placeholder="如 csv、xlsx（可选）"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="文件名格式">
-            <el-input v-model="form.fileNamePattern" placeholder="report_{yyyyMMddHHmmss}（可选）" />
+          <el-form-item label="分组">
+            <el-select
+              v-model="form.groupId"
+              placeholder="请选择分组（可选）"
+              clearable
+            >
+              <el-option
+                v-for="item in groupOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
           </el-form-item>
         </el-col>
       </el-row>
 
-      <el-form-item label="分组名称">
-        <el-input v-model="form.groupName" placeholder="如 门店报表、财务日报（可选，用于任务选择时分组展示）" />
+      <el-form-item label="文件名">
+        <el-input
+          v-model="form.fileNamePattern"
+          :disabled="!!selectedGroupPattern"
+          :placeholder="
+            selectedGroupPattern
+              ? '已使用分组文件名'
+              : '如 report_{yyyyMMddHHmmss}（可选）'
+          "
+        />
+        <span class="form-tip"
+          >支持 {yyyyMMdd}、{lastMonth} 等占位符；选择分组后将自动使用分组文件名</span
+        >
       </el-form-item>
 
       <el-form-item label="描述">
-        <el-input v-model="form.description" type="textarea" :rows="2" placeholder="描述（可选）" />
+        <el-input
+          v-model="form.description"
+          type="textarea"
+          :rows="2"
+          placeholder="描述（可选）"
+        />
       </el-form-item>
 
       <el-form-item label="状态">
-        <el-radio-group v-model="form.status">
-          <el-radio :label="1">启用</el-radio>
-          <el-radio :label="0">禁用</el-radio>
-        </el-radio-group>
+        <el-switch
+          v-model="form.status"
+          :active-value="1"
+          :inactive-value="0"
+          active-text="启用"
+          inactive-text="禁用"
+        />
       </el-form-item>
     </el-form>
 
     <template #footer>
       <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" :loading="loading" @click="handleSubmit">确定</el-button>
+      <el-button type="primary" :loading="loading" @click="handleSubmit"
+        >确定</el-button
+      >
     </template>
   </el-dialog>
 </template>

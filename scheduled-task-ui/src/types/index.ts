@@ -58,9 +58,23 @@ export interface TestConnectionResult {
 export interface DashboardStats {
   taskCount: number
   datasourceCount: number
-  emailConfigCount: number
+  notificationConfigCount: number
   templateCount: number
   todayLogCount: number
   successLogCount: number
   failedLogCount: number
+  taskStatusStats: Record<string, number>
+  todayStatusStats: Record<string, number>
+  recentLogs: RecentTaskLog[]
+}
+
+export interface RecentTaskLog {
+  id: number
+  taskId: number
+  taskName: string
+  triggerMode: string
+  status: 'RUNNING' | 'SUCCESS' | 'FAILED'
+  startTime?: string
+  endTime?: string
+  resultMessage?: string
 }

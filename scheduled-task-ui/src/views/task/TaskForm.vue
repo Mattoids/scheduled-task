@@ -1,263 +1,236 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createTask, getTask, updateTask } from '@/api/task'
-import { listTaskSql } from '@/api/taskSql'
-import { listGroup } from '@/api/emailRecipient'
-import type { TaskConfig, TaskConfigRequest, TaskSqlConfig } from '@/types/entity'
+import { ref, watch, computed, onMounted, nextTick } from "vue";
+import { ElMessage } from "element-plus";
+import { createTask, getTask, updateTask } from "@/api/task";
+import { listTaskSql } from "@/api/taskSql";
+import type {
+  TaskConfig,
+  TaskConfigRequest,
+  TaskSqlConfig,
+} from "@/types/entity";
 
 interface Props {
-  visible: boolean
-  id?: number
-  emailConfigOptions: { label: string; value: number }[]
-  recipientOptions: { label: string; value: number }[]
-  wecomAppOptions: { label: string; value: number }[]
-  wecomBotOptions: { label: string; value: number }[]
+  visible: boolean;
+  id?: number;
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props>();
 const emit = defineEmits<{
-  'update:visible': [value: boolean]
-  success: []
-}>()
+  "update:visible": [value: boolean];
+  success: [];
+}>();
 
 const dialogVisible = computed({
   get: () => props.visible,
-  set: (val) => emit('update:visible', val),
-})
+  set: (val) => emit("update:visible", val),
+});
 
-const loading = ref(false)
-const formRef = ref()
+const loading = ref(false);
+const formRef = ref();
 const form = ref<TaskConfig>({
-  taskName: '',
-  taskCode: '',
-  triggerType: 'CRON',
-  triggerConfig: '',
-  emailConfigId: undefined as any,
-  recipientIds: '',
-  recipientGroupIds: '',
-  status: 'ENABLE',
-  fileNamePattern: '',
-  emailSubject: '定时报表',
-  emailBody: '请查收附件报表。',
-  weComAppConfigId: undefined,
-  weComBotConfigId: undefined,
-  weComToUser: '',
-})
+  taskName: "",
+  taskCode: "",
+  triggerType: "CRON",
+  triggerConfig: "",
+  status: "ENABLE",
+});
 
-const sqlOptions = ref<TaskSqlConfig[]>([])
-const groupOptions = ref<{ label: string; value: number }[]>([])
-const selectedRecipients = ref<number[]>([])
-const selectedGroups = ref<number[]>([])
-const selectedSqlIds = ref<number[]>([])
+const sqlOptions = ref<TaskSqlConfig[]>([]);
+const selectedSqlIds = ref<number[]>([]);
 
 const rules = {
-  taskName: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
-  taskCode: [{ required: true, message: '请输入任务编码', trigger: 'blur' }],
-  triggerType: [{ required: true, message: '请选择触发类型', trigger: 'change' }],
-  triggerConfig: [{ required: true, message: '请输入触发配置', trigger: 'blur' }],
-  emailConfigId: [{ required: true, message: '请选择邮箱配置', trigger: 'change' }],
-}
+  taskName: [{ required: true, message: "请输入任务名称", trigger: "blur" }],
+  taskCode: [{ required: true, message: "请输入任务编码", trigger: "blur" }],
+  triggerType: [
+    { required: true, message: "请选择触发类型", trigger: "change" },
+  ],
+  triggerConfig: [
+    { required: true, message: "请输入触发配置", trigger: "blur" },
+  ],
+};
 
-const isEdit = computed(() => !!props.id)
-const title = computed(() => (isEdit.value ? '编辑任务' : '新增任务'))
+const isEdit = computed(() => !!props.id);
+const title = computed(() => (isEdit.value ? "编辑任务" : "新增任务"));
 
 const selectedSqlList = computed(() => {
   return selectedSqlIds.value
     .map((id) => sqlOptions.value.find((sql) => sql.id === id))
-    .filter((sql): sql is TaskSqlConfig => !!sql)
-})
+    .filter((sql): sql is TaskSqlConfig => !!sql);
+});
 
 const groupedSqlOptions = computed(() => {
-  const groups = new Map<string, TaskSqlConfig[]>()
-  const noGroup: TaskSqlConfig[] = []
+  const groups = new Map<string, TaskSqlConfig[]>();
+  const noGroup: TaskSqlConfig[] = [];
   sqlOptions.value.forEach((sql) => {
     if (sql.groupName) {
       if (!groups.has(sql.groupName)) {
-        groups.set(sql.groupName, [])
+        groups.set(sql.groupName, []);
       }
-      groups.get(sql.groupName)!.push(sql)
+      groups.get(sql.groupName)!.push(sql);
     } else {
-      noGroup.push(sql)
+      noGroup.push(sql);
     }
-  })
-  const result: { label: string; options: TaskSqlConfig[] }[] = []
-  groups.forEach((options, label) => result.push({ label, options }))
+  });
+  const result: { label: string; options: TaskSqlConfig[] }[] = [];
+  groups.forEach((options, label) => result.push({ label, options }));
   if (noGroup.length > 0) {
-    result.push({ label: '未分组', options: noGroup })
+    result.push({ label: "未分组", options: noGroup });
   }
-  return result
-})
+  return result;
+});
+
+const sqlTreeData = computed(() => {
+  return groupedSqlOptions.value.map((group) => ({
+    id: `group_${group.label}`,
+    label: group.label,
+    children: group.options.map((item) => ({
+      id: item.id!,
+      label: `${item.sqlName} (${item.sqlCode})`,
+    })),
+  }));
+});
+
+const treeSelectRef = ref();
+
+const handleTreeChange = () => {
+  nextTick(() => {
+    const ts = treeSelectRef.value as any;
+    if (ts?.treeRef) {
+      ts.treeRef.filter("");
+    }
+    if (ts?.selectRef) {
+      ts.selectRef.query = "";
+    }
+  });
+};
+
+const treeSelectedKeys = computed({
+  get: () => selectedSqlIds.value.map((id) => id!),
+  set: (keys) => {
+    selectedSqlIds.value = keys
+      .filter((k) => typeof k === "number" || !String(k).startsWith("group_"))
+      .map((k) => Number(k));
+  },
+});
 
 const loadOptions = async () => {
-  const [sqlRes, groupRes] = await Promise.all([
-    listTaskSql().catch(() => []),
-    listGroup().catch(() => []),
-  ])
-  sqlOptions.value = sqlRes || []
-  groupOptions.value = (groupRes || []).map((item: any) => ({
-    label: item.groupName,
-    value: item.id,
-  }))
-}
+  const sqlRes = await listTaskSql().catch(() => []);
+  sqlOptions.value = sqlRes || [];
+};
 
 const resetForm = () => {
   form.value = {
-    taskName: '',
-    taskCode: '',
-    triggerType: 'CRON',
-    triggerConfig: '',
-    emailConfigId: undefined as any,
-    recipientIds: '',
-    recipientGroupIds: '',
-    status: 'ENABLE',
-    fileNamePattern: '',
-    emailSubject: '定时报表',
-    emailBody: '请查收附件报表。',
-    weComAppConfigId: undefined,
-    weComBotConfigId: undefined,
-    weComToUser: '',
-  }
-  selectedRecipients.value = []
-  selectedGroups.value = []
-  selectedSqlIds.value = []
-}
+    taskName: "",
+    taskCode: "",
+    triggerType: "CRON",
+    triggerConfig: "",
+    status: "ENABLE",
+  };
+  selectedSqlIds.value = [];
+};
 
 const loadDetail = async () => {
-  if (!props.id) return
-  loading.value = true
+  if (!props.id) return;
+  loading.value = true;
   try {
-    const res: TaskConfigRequest = await getTask(props.id)
+    const res: TaskConfigRequest = await getTask(props.id);
     form.value = res.task || {
-      taskName: '',
-      taskCode: '',
-      triggerType: 'CRON',
-      triggerConfig: '',
-      emailConfigId: undefined as any,
-      recipientIds: '',
-      recipientGroupIds: '',
-      status: 'ENABLE',
-      fileNamePattern: '',
-      emailSubject: '定时报表',
-      emailBody: '请查收附件报表。',
-      wecomAppConfigId: undefined,
-      wecomBotConfigId: undefined,
-      wecomToUser: '',
-    }
-    selectedRecipients.value = form.value.recipientIds
-      ? form.value.recipientIds.split(',').map((id) => Number(id.trim())).filter(Boolean)
-      : []
-    selectedGroups.value = form.value.recipientGroupIds
-      ? form.value.recipientGroupIds.split(',').map((id) => Number(id.trim())).filter(Boolean)
-      : []
-    // 收件人与收件人群组互斥，若都存在则优先保留收件人
-    if (selectedRecipients.value.length > 0 && selectedGroups.value.length > 0) {
-      selectedGroups.value = []
-    }
-    selectedSqlIds.value = res.sqlIds || []
+      taskName: "",
+      taskCode: "",
+      triggerType: "CRON",
+      triggerConfig: "",
+      status: "ENABLE",
+    };
+    selectedSqlIds.value = res.sqlIds || [];
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
 watch(
   () => props.visible,
   (val) => {
     if (val) {
-      resetForm()
+      resetForm();
       if (props.id) {
-        loadDetail()
+        loadDetail();
       }
     }
-  }
-)
-
-watch(
-  () => selectedRecipients.value,
-  (val) => {
-    form.value.recipientIds = val.join(',')
-    if (val.length > 0) {
-      selectedGroups.value = []
-    }
-  }
-)
-
-watch(
-  () => selectedGroups.value,
-  (val) => {
-    form.value.recipientGroupIds = val.join(',')
-    if (val.length > 0) {
-      selectedRecipients.value = []
-    }
-  }
-)
+  },
+);
 
 const moveSqlUp = (index: number) => {
-  if (index <= 0) return
-  const arr = [...selectedSqlIds.value]
-  const temp = arr[index]
-  arr[index] = arr[index - 1]
-  arr[index - 1] = temp
-  selectedSqlIds.value = arr
-}
+  if (index <= 0) return;
+  const arr = [...selectedSqlIds.value];
+  const temp = arr[index];
+  arr[index] = arr[index - 1];
+  arr[index - 1] = temp;
+  selectedSqlIds.value = arr;
+};
 
 const moveSqlDown = (index: number) => {
-  if (index >= selectedSqlIds.value.length - 1) return
-  const arr = [...selectedSqlIds.value]
-  const temp = arr[index]
-  arr[index] = arr[index + 1]
-  arr[index + 1] = temp
-  selectedSqlIds.value = arr
-}
+  if (index >= selectedSqlIds.value.length - 1) return;
+  const arr = [...selectedSqlIds.value];
+  const temp = arr[index];
+  arr[index] = arr[index + 1];
+  arr[index + 1] = temp;
+  selectedSqlIds.value = arr;
+};
 
 const removeSql = (index: number) => {
-  const arr = [...selectedSqlIds.value]
-  arr.splice(index, 1)
-  selectedSqlIds.value = arr
-}
+  const arr = [...selectedSqlIds.value];
+  arr.splice(index, 1);
+  selectedSqlIds.value = arr;
+};
 
 const handleSubmit = async () => {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  const valid = await formRef.value?.validate().catch(() => false);
+  if (!valid) return;
 
   if (selectedSqlIds.value.length === 0) {
-    ElMessage.warning('请选择至少一条 SQL')
-    return
+    ElMessage.warning("请选择至少一条 SQL");
+    return;
   }
 
-  loading.value = true
+  loading.value = true;
   try {
     const request: TaskConfigRequest = {
       task: form.value,
       sqlIds: selectedSqlIds.value,
-    }
+    };
     if (isEdit.value) {
-      await updateTask(props.id!, request)
+      await updateTask(props.id!, request);
     } else {
-      await createTask(request)
+      await createTask(request);
     }
-    ElMessage.success(isEdit.value ? '修改成功' : '新增成功')
-    emit('success')
+    ElMessage.success(isEdit.value ? "修改成功" : "新增成功");
+    emit("success");
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
 const handleClose = () => {
-  emit('update:visible', false)
-}
+  emit("update:visible", false);
+};
 
 onMounted(() => {
-  loadOptions()
-})
+  loadOptions();
+});
 </script>
 
 <template>
-  <el-dialog v-model="dialogVisible" :title="title" width="820px" @close="handleClose">
+  <el-dialog
+    v-model="dialogVisible"
+    :title="title"
+    width="820px"
+    @close="handleClose"
+  >
     <el-form
       ref="formRef"
       :model="form"
       :rules="rules"
+      class="dialog-form"
       label-width="100px"
       v-loading="loading"
     >
@@ -285,171 +258,108 @@ onMounted(() => {
         </el-col>
         <el-col :span="12">
           <el-form-item label="触发配置" prop="triggerConfig">
-            <el-input v-model="form.triggerConfig" :placeholder="form.triggerType === 'CRON' ? '0 0 9 * * ?' : '2026-01-01 09:00:00'" />
+            <el-input
+              v-model="form.triggerConfig"
+              :placeholder="
+                form.triggerType === 'CRON'
+                  ? '0 0 9 * * ?'
+                  : '2026-01-01 09:00:00'
+              "
+            />
           </el-form-item>
         </el-col>
       </el-row>
 
       <el-form-item label="选择 SQL" required>
-        <el-select
-          v-model="selectedSqlIds"
+        <el-tree-select
+          ref="treeSelectRef"
+          v-model="treeSelectedKeys"
+          :data="sqlTreeData"
           multiple
-          collapse-tags
-          placeholder="请选择要执行的 SQL"
+          show-checkbox
+          filterable
+          default-expand-all
+          placeholder="请选择要执行的 SQL，支持按分组或 SQL 名称搜索"
           style="width: 100%"
-        >
-          <el-option-group
-            v-for="group in groupedSqlOptions"
-            :key="group.label"
-            :label="group.label"
-          >
-            <el-option
-              v-for="item in group.options"
-              :key="item.id"
-              :label="`${item.sqlName} (${item.sqlCode})`"
-              :value="item.id!"
-            />
-          </el-option-group>
-        </el-select>
+          @change="handleTreeChange"
+        />
       </el-form-item>
 
       <el-form-item v-if="selectedSqlList.length > 0" label="执行顺序">
-        <el-table :data="selectedSqlList" border size="small" style="width: 100%">
-          <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="sqlName" label="SQL 名称" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="sqlCode" label="SQL 编码" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="groupName" label="分组" min-width="120" show-overflow-tooltip />
+        <el-table :data="selectedSqlList" border size="small">
+          <el-table-column
+            type="index"
+            label="序号"
+            width="60"
+            align="center"
+          />
+          <el-table-column
+            prop="sqlName"
+            label="SQL 名称"
+            min-width="160"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="sqlCode"
+            label="SQL 编码"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="groupName"
+            label="分组"
+            min-width="120"
+            show-overflow-tooltip
+          />
           <el-table-column label="模板" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ row.templateId ? '有' : '无' }}
+              {{ row.templateId ? "有" : "无" }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="150" align="center" fixed="right">
+          <el-table-column
+            label="操作"
+            width="150"
+            align="center"
+            fixed="right"
+          >
             <template #default="{ $index }">
-              <el-button link type="primary" :disabled="$index === 0" @click="moveSqlUp($index)"
-                >上移</el-button>
-              <el-button link type="primary" :disabled="$index === selectedSqlList.length - 1" @click="moveSqlDown($index)"
-                >下移</el-button>
-              <el-button link type="danger" @click="removeSql($index)">删除</el-button>
+              <el-button
+                link
+                type="primary"
+                :disabled="$index === 0"
+                @click="moveSqlUp($index)"
+                >上移</el-button
+              >
+              <el-button
+                link
+                type="primary"
+                :disabled="$index === selectedSqlList.length - 1"
+                @click="moveSqlDown($index)"
+                >下移</el-button
+              >
+              <el-button link type="danger" @click="removeSql($index)"
+                >删除</el-button
+              >
             </template>
           </el-table-column>
         </el-table>
       </el-form-item>
 
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="邮箱配置" prop="emailConfigId">
-            <el-select v-model="form.emailConfigId" placeholder="请选择邮箱配置" style="width: 100%">
-              <el-option
-                v-for="item in emailConfigOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <el-form-item label="收件人">
-        <el-select
-          v-model="selectedRecipients"
-          multiple
-          collapse-tags
-          placeholder="请选择收件人"
-          style="width: 100%"
-        >
-          <el-option
-            v-for="item in recipientOptions"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="收件人群组">
-        <el-select
-          v-model="selectedGroups"
-          multiple
-          collapse-tags
-          placeholder="请选择收件人群组"
-          style="width: 100%"
-        >
-          <el-option
-            v-for="item in groupOptions"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="文件名格式">
+      <el-form-item label="描述">
         <el-input
-          v-model="form.fileNamePattern"
-          placeholder="模板链输出文件名，支持 {lastMonth}、{yyyyMMdd} 等变量；单 SQL 输出时可在 SQL 配置中设置"
-        />
-      </el-form-item>
-
-      <el-form-item label="邮件主题">
-        <el-input v-model="form.emailSubject" placeholder="支持 {lastMonth}、{lastMonth:yyyyMM}、{yyyyMMdd} 等变量" />
-      </el-form-item>
-
-      <el-form-item label="邮件正文">
-        <el-input v-model="form.emailBody" type="textarea" :rows="3" placeholder="支持 {lastMonth}、{lastMonth:yyyyMM}、{yyyyMMdd} 等变量" />
-      </el-form-item>
-
-      <el-divider content-position="left">企业微信通知</el-divider>
-
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="企业微信应用">
-            <el-select
-              v-model="form.weComAppConfigId"
-              clearable
-              placeholder="请选择企业微信应用"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in wecomAppOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="群机器人">
-            <el-select
-              v-model="form.weComBotConfigId"
-              clearable
-              placeholder="请选择群机器人"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in wecomBotOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <el-form-item label="应用接收人">
-        <el-input
-          v-model="form.weComToUser"
-          placeholder="应用消息接收人，多个用逗号分隔，为空则 @all"
+          v-model="form.description"
+          type="textarea"
+          :rows="2"
+          placeholder="任务描述（可选）"
         />
       </el-form-item>
     </el-form>
 
     <template #footer>
       <el-button @click="handleClose">取消</el-button>
-      <el-button type="primary" :loading="loading" @click="handleSubmit">确定</el-button>
+      <el-button type="primary" :loading="loading" @click="handleSubmit"
+        >确定</el-button
+      >
     </template>
   </el-dialog>
 </template>

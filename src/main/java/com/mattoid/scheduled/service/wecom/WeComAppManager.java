@@ -1,7 +1,9 @@
 package com.mattoid.scheduled.service.wecom;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mattoid.scheduled.entity.NotificationConfig;
 import com.mattoid.scheduled.entity.WeComAppConfig;
-import com.mattoid.scheduled.mapper.WeComAppConfigMapper;
+import com.mattoid.scheduled.mapper.NotificationConfigMapper;
 import com.mattoid.scheduled.util.CryptoUtil;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.common.bean.menu.WxMenu;
@@ -25,11 +27,26 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class WeComAppManager {
 
-    private final WeComAppConfigMapper weComAppConfigMapper;
+    private final NotificationConfigMapper notificationConfigMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<Long, WxCpService> serviceCache = new ConcurrentHashMap<>();
 
-    public WeComAppManager(WeComAppConfigMapper weComAppConfigMapper) {
-        this.weComAppConfigMapper = weComAppConfigMapper;
+    public WeComAppManager(NotificationConfigMapper notificationConfigMapper) {
+        this.notificationConfigMapper = notificationConfigMapper;
+    }
+
+    private WeComAppConfig loadConfig(Long configId) throws Exception {
+        NotificationConfig notificationConfig = notificationConfigMapper.selectById(configId);
+        if (notificationConfig == null) {
+            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
+        }
+        if (!"WECOM_APP".equals(notificationConfig.getConfigType())) {
+            throw new IllegalArgumentException("配置类型不是企业微信应用: " + configId);
+        }
+        if (notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
+            throw new IllegalArgumentException("企业微信应用配置已禁用: " + configId);
+        }
+        return objectMapper.readValue(notificationConfig.getConfigJson(), WeComAppConfig.class);
     }
 
     public WxCpService getService(Long configId) {
@@ -37,29 +54,17 @@ public class WeComAppManager {
         if (service != null) {
             return service;
         }
-        WeComAppConfig config = weComAppConfigMapper.selectById(configId);
-        if (config == null) {
-            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
-        }
-        if (config.getStatus() == null || config.getStatus() != 1) {
-            throw new IllegalArgumentException("企业微信应用配置已禁用: " + configId);
-        }
+        try {
+            WeComAppConfig config = loadConfig(configId);
+            WxCpDefaultConfigImpl storage = buildStorage(config);
 
-        WxCpDefaultConfigImpl storage = new WxCpDefaultConfigImpl();
-        storage.setCorpId(config.getCorpId());
-        storage.setAgentId(config.getAgentId());
-        storage.setCorpSecret(CryptoUtil.decryptIfNeeded(config.getSecret()));
-        if (StringUtils.hasText(config.getToken())) {
-            storage.setToken(config.getToken());
+            WxCpServiceImpl impl = new WxCpServiceImpl();
+            impl.setWxCpConfigStorage(storage);
+            serviceCache.put(configId, impl);
+            return impl;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("加载企业微信应用配置失败: " + configId, e);
         }
-        if (StringUtils.hasText(config.getAesKey())) {
-            storage.setAesKey(config.getAesKey());
-        }
-
-        WxCpServiceImpl impl = new WxCpServiceImpl();
-        impl.setWxCpConfigStorage(storage);
-        serviceCache.put(configId, impl);
-        return impl;
     }
 
     public void invalidateCache(Long configId) {
@@ -72,7 +77,11 @@ public class WeComAppManager {
 
     public void createMenu(Long configId, String menuJson) throws Exception {
         WxCpService service = getService(configId);
-        WxMenu menu = WxMenu.fromJson(menuJson);
+        String parseJson = menuJson;
+        if (!menuJson.trim().startsWith("{\"menu\"")) {
+            parseJson = "{\"menu\":" + menuJson + "}";
+        }
+        WxMenu menu = WxMenu.fromJson(parseJson);
         service.getMenuService().create(menu);
         log.info("企业微信应用菜单创建成功: {}", configId);
     }
@@ -110,10 +119,7 @@ public class WeComAppManager {
     }
 
     public String verifyUrl(Long configId, String signature, String timestamp, String nonce, String echostr) throws Exception {
-        WeComAppConfig config = weComAppConfigMapper.selectById(configId);
-        if (config == null) {
-            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
-        }
+        WeComAppConfig config = loadConfig(configId);
         if (!StringUtils.hasText(config.getToken()) || !StringUtils.hasText(config.getAesKey())) {
             throw new IllegalArgumentException("企业微信应用配置缺少 Token 或 AES Key");
         }
@@ -126,39 +132,38 @@ public class WeComAppManager {
     }
 
     public WxCpXmlMessage parseMessage(Long configId, String signature, String timestamp, String nonce, String postData) throws Exception {
-        WeComAppConfig config = weComAppConfigMapper.selectById(configId);
-        if (config == null) {
-            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
-        }
+        WeComAppConfig config = loadConfig(configId);
         WxCpCryptUtil cryptUtil = new WxCpCryptUtil(buildStorage(config));
         String decrypted = cryptUtil.decryptXml(signature, timestamp, nonce, postData);
         return XStreamTransformer.fromXml(WxCpXmlMessage.class, decrypted);
     }
 
-    public WxCpCryptUtil buildCryptUtil(Long configId) {
-        WeComAppConfig config = weComAppConfigMapper.selectById(configId);
-        if (config == null) {
-            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
-        }
+    public WxCpCryptUtil buildCryptUtil(Long configId) throws Exception {
+        WeComAppConfig config = loadConfig(configId);
         return new WxCpCryptUtil(buildStorage(config));
     }
 
-    public String encryptReply(Long configId, String reply, String timestamp, String nonce) throws Exception {
-        WeComAppConfig config = weComAppConfigMapper.selectById(configId);
-        if (config == null) {
-            throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
-        }
+    public String encryptReply(Long configId, String reply, String toUser, String fromUser,
+                               String timestamp, String nonce) throws Exception {
+        WeComAppConfig config = loadConfig(configId);
         if (!StringUtils.hasText(config.getToken()) || !StringUtils.hasText(config.getAesKey())) {
             throw new IllegalArgumentException("企业微信应用配置缺少 Token 或 AES Key");
         }
         WxCpCryptUtil cryptUtil = new WxCpCryptUtil(buildStorage(config));
-        String encrypt = cryptUtil.encrypt(reply);
+        String replyXml = "<xml>" +
+                "<ToUserName><![CDATA[" + toUser + "]]></ToUserName>" +
+                "<FromUserName><![CDATA[" + fromUser + "]]></FromUserName>" +
+                "<CreateTime>" + (System.currentTimeMillis() / 1000) + "</CreateTime>" +
+                "<MsgType><![CDATA[text]]></MsgType>" +
+                "<Content><![CDATA[" + reply + "]]></Content>" +
+                "</xml>";
+        String encrypt = cryptUtil.encrypt(replyXml);
         String signature = SHA1.gen(config.getToken(), timestamp, nonce, encrypt);
         return "<xml>" +
-                "<Encrypt><![CDATA[" + encrypt + "]]</Encrypt>" +
-                "<MsgSignature><![CDATA[" + signature + "]]</MsgSignature>" +
+                "<Encrypt><![CDATA[" + encrypt + "]]></Encrypt>" +
+                "<MsgSignature><![CDATA[" + signature + "]]></MsgSignature>" +
                 "<TimeStamp>" + timestamp + "</TimeStamp>" +
-                "<Nonce><![CDATA[" + nonce + "]]</Nonce>" +
+                "<Nonce><![CDATA[" + nonce + "]]></Nonce>" +
                 "</xml>";
     }
 
@@ -180,6 +185,10 @@ public class WeComAppManager {
         if (StringUtils.hasText(config.getAesKey())) {
             storage.setAesKey(config.getAesKey());
         }
+        if (StringUtils.hasText(config.getProxyUrl())) {
+            storage.setBaseApiUrl(config.getProxyUrl());
+        }
+        storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         return storage;
     }
 }

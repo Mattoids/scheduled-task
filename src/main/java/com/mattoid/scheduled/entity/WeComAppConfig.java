@@ -15,6 +15,7 @@ public class WeComAppConfig extends BaseEntity {
     private String secret;
     private String token;
     private String aesKey;
+    private String proxyUrl;
     private Integer status;
     private String menuJson;
 }

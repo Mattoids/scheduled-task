@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
@@ -15,6 +16,7 @@ import com.mattoid.scheduled.mapper.SysUserMapper;
 import com.mattoid.scheduled.mapper.SysUserRoleMapper;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -45,8 +47,12 @@ public class SystemController {
     // ---- 用户 ----
     @PreAuthorize("hasAuthority('system:user')")
     @GetMapping("/user/page")
-    public Result<PageResult<SysUser>> userPage(PageQuery query) {
-        Page<SysUser> page = sysUserMapper.selectPage(new Page<>(query.getCurrent(), query.getSize()), null);
+    public Result<PageResult<SysUser>> userPage(PageQuery query,
+                                                @RequestParam(required = false) String username) {
+        LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<SysUser>()
+                .like(StringUtils.hasText(username), SysUser::getUsername, username)
+                .orderByDesc(SysUser::getCreateTime);
+        Page<SysUser> page = sysUserMapper.selectPage(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         return Result.ok(PageUtil.convert(page));
     }
 
