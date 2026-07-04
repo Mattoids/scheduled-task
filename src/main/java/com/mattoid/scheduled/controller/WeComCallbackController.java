@@ -68,8 +68,19 @@ public class WeComCallbackController {
             if (!StringUtils.hasText(reply)) {
                 return "success";
             }
-            return weComAppManager.encryptReply(configId, reply,
-                    message.getFromUserName(), message.getToUserName(), timestamp, nonce);
+
+            // 优先使用主动消息接口回复用户，失败时回退到被动回复
+            try {
+                weComAppManager.sendText(configId, message.getFromUserName(), reply);
+                log.info("企业微信主动回复消息发送成功: configId={}, toUser={}", configId, message.getFromUserName());
+                return "success";
+            } catch (Exception sendEx) {
+                log.error("企业微信主动回复消息发送失败，尝试被动回复: configId={}", configId, sendEx);
+                String encrypted = weComAppManager.encryptReply(configId, reply,
+                        message.getFromUserName(), message.getToUserName(), timestamp, nonce);
+                log.info("企业微信被动回复消息已生成: configId={}", configId);
+                return encrypted;
+            }
         } catch (Exception e) {
             log.error("企业微信消息处理失败: configId={}", configId, e);
             return "success";
