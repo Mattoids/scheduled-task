@@ -55,6 +55,7 @@ export interface NotificationRule {
   content?: string
   aiOptimizeNotify?: number
   aiConfigId?: number
+  storageConfigId?: number
   enabled?: number
   createTime?: string
   updateTime?: string
@@ -205,6 +206,17 @@ export interface AiConfig {
   isDefault?: number
   status?: number
   remark?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface StorageConfig {
+  id?: number
+  configName: string
+  storageType: 'LOCAL' | 'OSS' | 'S3' | 'WEBDAV'
+  configJson: any
+  status?: number
+  isDefault?: number
   createTime?: string
   updateTime?: string
 }

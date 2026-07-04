@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.service.wecom;
 
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
@@ -11,6 +12,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -62,13 +65,19 @@ class WeComCommandHandlerTest {
     }
 
     @Test
-    void handle_runCommandWithInvalidId_returnsError() {
+    @SuppressWarnings("unchecked")
+    void handle_runCommandWithInvalidName_returnsNotFound() {
         WxCpXmlMessage message = new WxCpXmlMessage();
         message.setContent("运行 abc");
 
+        LambdaQueryChainWrapper<TaskConfig> wrapper = org.mockito.Mockito.mock(LambdaQueryChainWrapper.class);
+        when(taskConfigService.lambdaQuery()).thenReturn(wrapper);
+        when(wrapper.like(any(), eq("abc"))).thenReturn(wrapper);
+        when(wrapper.list()).thenReturn(Collections.emptyList());
+
         String reply = handler.handle(message, 1L);
 
-        assertTrue(reply.contains("任务 ID 必须是数字"));
+        assertTrue(reply.contains("未找到匹配的任务"));
     }
 
     @Test

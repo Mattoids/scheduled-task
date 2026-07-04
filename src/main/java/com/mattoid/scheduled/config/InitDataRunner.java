@@ -113,7 +113,11 @@ public class InitDataRunner implements CommandLineRunner {
                 createPermission(41L, "notificationConfig:view", "通知配置查看", "MENU", 0L, 110),
                 createPermission(42L, "notificationConfig:create", "通知配置创建", "BUTTON", 41L, 111),
                 createPermission(43L, "notificationConfig:edit", "通知配置编辑", "BUTTON", 41L, 112),
-                createPermission(44L, "notificationConfig:delete", "通知配置删除", "BUTTON", 41L, 113)
+                createPermission(44L, "notificationConfig:delete", "通知配置删除", "BUTTON", 41L, 113),
+                createPermission(45L, "storageConfig:view", "存储配置查看", "MENU", 0L, 120),
+                createPermission(46L, "storageConfig:create", "存储配置创建", "BUTTON", 45L, 121),
+                createPermission(47L, "storageConfig:edit", "存储配置编辑", "BUTTON", 45L, 122),
+                createPermission(48L, "storageConfig:delete", "存储配置删除", "BUTTON", 45L, 123)
         );
         for (SysPermission permission : permissions) {
             if (sysPermissionMapper.selectById(permission.getId()) == null) {

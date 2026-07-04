@@ -23,7 +23,8 @@ public class TaskSqlConfig extends BaseEntity {
     private Long groupId;
 
     /**
-     * CSV / EXCEL / WORD / PPT / TXT；无模板时默认 CSV
+     * CSV / EXCEL / WORD / PPT / TXT / INLINE；无模板时默认 CSV
+     * INLINE：不生成文件，直接将 SQL 结果嵌入通知内容
      */
     private String outputFormat;
 

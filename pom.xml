@@ -25,6 +25,9 @@
         <jwt.version>0.12.5</jwt.version>
         <commons-csv.version>1.10.0</commons-csv.version>
         <weixin-java-cp.version>4.6.0</weixin-java-cp.version>
+        <aliyun-sdk-oss.version>3.17.4</aliyun-sdk-oss.version>
+        <aws-java-sdk-s3.version>1.12.715</aws-java-sdk-s3.version>
+        <sardine.version>5.10</sardine.version>
     </properties>
 
     <dependencies>
@@ -137,6 +140,23 @@
             <groupId>com.github.binarywang</groupId>
             <artifactId>weixin-java-cp</artifactId>
             <version>${weixin-java-cp.version}</version>
+        </dependency>
+
+        <!-- Storage SDKs -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>${aliyun-sdk-oss.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-s3</artifactId>
+            <version>${aws-java-sdk-s3.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.lookfirst</groupId>
+            <artifactId>sardine</artifactId>
+            <version>${sardine.version}</version>
         </dependency>
 
         <!-- Test -->

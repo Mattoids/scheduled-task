@@ -44,12 +44,28 @@ const selectedGroupPattern = computed(() => {
   return group?.fileNamePattern;
 });
 
+const isInlineOutput = computed(() => form.value.outputFormat === "INLINE");
+
 watch(
   () => form.value.groupId,
   (groupId) => {
+    if (isInlineOutput.value) {
+      return;
+    }
     const group = props.groupOptions.find((g) => g.value === groupId);
     if (group?.fileNamePattern) {
       form.value.fileNamePattern = group.fileNamePattern;
+    }
+  },
+);
+
+watch(
+  () => form.value.outputFormat,
+  (format) => {
+    if (format === "INLINE") {
+      form.value.templateId = undefined;
+      form.value.fileSuffix = "";
+      form.value.fileNamePattern = "";
     }
   },
 );
@@ -60,6 +76,7 @@ const outputFormatOptions = [
   { label: "Word", value: "WORD" },
   { label: "PPT", value: "PPT" },
   { label: "文本", value: "TXT" },
+  { label: "内联到通知", value: "INLINE" },
 ];
 
 const rules = {
@@ -96,6 +113,11 @@ const loadDetail = async () => {
   try {
     const res = await getTaskSql(props.id);
     form.value = res;
+    if (res.outputFormat === "INLINE") {
+      form.value.templateId = undefined;
+      form.value.fileSuffix = "";
+      form.value.fileNamePattern = "";
+    }
   } finally {
     loading.value = false;
   }
@@ -195,6 +217,7 @@ const handleClose = () => {
               v-model="form.templateId"
               placeholder="请选择模板（可选）"
               clearable
+              :disabled="isInlineOutput"
             >
               <el-option
                 v-for="item in templateOptions"
@@ -225,6 +248,7 @@ const handleClose = () => {
             <el-input
               v-model="form.fileSuffix"
               placeholder="如 csv、xlsx（可选）"
+              :disabled="isInlineOutput"
             />
           </el-form-item>
         </el-col>
@@ -249,11 +273,13 @@ const handleClose = () => {
       <el-form-item label="文件名">
         <el-input
           v-model="form.fileNamePattern"
-          :disabled="!!selectedGroupPattern"
+          :disabled="isInlineOutput || !!selectedGroupPattern"
           :placeholder="
-            selectedGroupPattern
-              ? '已使用分组文件名'
-              : '如 report_{yyyyMMddHHmmss}（可选）'
+            isInlineOutput
+              ? '内联到通知，无需文件名'
+              : selectedGroupPattern
+                ? '已使用分组文件名'
+                : '如 report_{yyyyMMddHHmmss}（可选）'
           "
         />
         <span class="form-tip"

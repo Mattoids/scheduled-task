@@ -14,6 +14,7 @@ import java.io.File;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -209,5 +210,53 @@ class NotificationEventListenerTest {
 
         verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(), anyString(), anyList());
         verify(weComBotClient, times(1)).sendText(eq("key123"), anyString(), eq(Collections.emptyList()));
+    }
+
+    @Test
+    void emailRuleWithInlineResults_appendsHtmlTable() throws Exception {
+        NotificationRule rule = new NotificationRule();
+        rule.setId(7L);
+        rule.setEventType("TASK_COMPLETED");
+        rule.setChannel("EMAIL");
+        rule.setConfigId(1L);
+        rule.setRecipientIds("1");
+        rule.setEnabled(1);
+
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+                .thenReturn(List.of(rule));
+
+        String configJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
+        when(notificationConfigService.getById(1L))
+                .thenReturn(config(1L, "EMAIL", configJson));
+        EmailConfig emailConfig = new EmailConfig();
+        emailConfig.setSmtpHost("smtp.example.com");
+        emailConfig.setSmtpPort(587);
+        emailConfig.setUsername("user");
+        emailConfig.setFromAddress("from@example.com");
+        when(notificationConfigService.parseConfigJson(configJson, EmailConfig.class))
+                .thenReturn(emailConfig);
+
+        EmailRecipient recipient = new EmailRecipient();
+        recipient.setEmail("test@example.com");
+        when(emailRecipientService.listByIds("1")).thenReturn(List.of(recipient));
+
+        TaskConfig task = new TaskConfig();
+        task.setId(1L);
+        task.setTaskName("测试任务");
+        task.setTaskCode("TEST_TASK");
+        task.setTriggerType("CRON");
+        TaskLog log = new TaskLog();
+        log.setStatus("SUCCESS");
+        log.setStartTime(LocalDateTime.now());
+        log.setEndTime(LocalDateTime.now());
+        InlineSqlResult inlineResult = new InlineSqlResult("测试SQL", "test_sql",
+                List.of(Map.of("name", "Alice", "value", 100)));
+        TaskExecutionEvent event = new TaskExecutionEvent(this, task, log, Collections.emptyList(),
+                List.of(inlineResult), TaskExecutionEvent.EventType.TASK_COMPLETED);
+
+        listener.onTaskExecutionEvent(event);
+
+        verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(),
+                argThat((String body) -> body.contains("<table") && body.contains("Alice")), anyList());
     }
 }

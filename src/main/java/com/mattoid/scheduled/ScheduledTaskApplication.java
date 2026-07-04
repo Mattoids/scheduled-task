@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 @SpringBootApplication
-@MapperScan("com.mattoid.scheduled.mapper")
+@MapperScan({"com.mattoid.scheduled.mapper", "com.mattoid.scheduled.storage.mapper"})
 @EnableAsync
 public class ScheduledTaskApplication {
 

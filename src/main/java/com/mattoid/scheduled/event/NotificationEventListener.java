@@ -4,6 +4,8 @@ import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.service.*;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
+import com.mattoid.scheduled.storage.client.StorageClient;
+import com.mattoid.scheduled.storage.service.StorageConfigService;
 import com.mattoid.scheduled.util.PlaceholderUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -26,6 +28,7 @@ public class NotificationEventListener {
     private final WeComAppManager weComAppManager;
     private final WeComBotClient weComBotClient;
     private final AiAssistantService aiAssistantService;
+    private final StorageConfigService storageConfigService;
 
     public NotificationEventListener(NotificationRuleService notificationRuleService,
                                      NotificationConfigService notificationConfigService,
@@ -33,7 +36,8 @@ public class NotificationEventListener {
                                      EmailSenderService emailSenderService,
                                      WeComAppManager weComAppManager,
                                      WeComBotClient weComBotClient,
-                                     AiAssistantService aiAssistantService) {
+                                     AiAssistantService aiAssistantService,
+                                     StorageConfigService storageConfigService) {
         this.notificationRuleService = notificationRuleService;
         this.notificationConfigService = notificationConfigService;
         this.emailRecipientService = emailRecipientService;
@@ -41,6 +45,7 @@ public class NotificationEventListener {
         this.weComAppManager = weComAppManager;
         this.weComBotClient = weComBotClient;
         this.aiAssistantService = aiAssistantService;
+        this.storageConfigService = storageConfigService;
     }
 
     @Async
@@ -94,8 +99,12 @@ public class NotificationEventListener {
                 ? PlaceholderUtils.replacePlaceholders(rule.getBody())
                 : buildDefaultSummary(event);
 
+        if (!event.getInlineResults().isEmpty()) {
+            body = body + "<br><br>" + formatInlineResultsHtml(event.getInlineResults());
+        }
+
         if (rule.getAiOptimizeNotify() != null && rule.getAiOptimizeNotify() == 1) {
-            String context = buildAiNotificationContext(event.getTask(), event.getReportFiles());
+            String context = buildAiNotificationContext(event.getTask(), event);
             AiAssistantService.NotificationContent optimized = aiAssistantService.optimizeNotification(subject, body, context, rule.getAiConfigId());
             subject = optimized.subject();
             body = optimized.body();
@@ -105,7 +114,9 @@ public class NotificationEventListener {
         emailSenderService.sendEmail(config, toList, subject, body, event.getReportFiles());
     }
 
-    private String buildAiNotificationContext(TaskConfig task, List<File> reportFiles) {
+    private String buildAiNotificationContext(TaskConfig task, TaskExecutionEvent event) {
+        List<File> reportFiles = event.getReportFiles();
+        List<InlineSqlResult> inlineResults = event.getInlineResults();
         StringBuilder sb = new StringBuilder();
         sb.append("任务名称: ").append(task.getTaskName()).append("\n");
         sb.append("任务编码: ").append(task.getTaskCode()).append("\n");
@@ -118,6 +129,17 @@ public class NotificationEventListener {
                 sb.append(reportFiles.get(i).getName());
             }
             sb.append("\n");
+        }
+        sb.append("内联 SQL 结果数量: ").append(inlineResults != null ? inlineResults.size() : 0).append("\n");
+        if (inlineResults != null) {
+            for (InlineSqlResult result : inlineResults) {
+                sb.append("  - ").append(result.sqlName())
+                        .append("(")
+                        .append(result.sqlCode())
+                        .append("): ")
+                        .append(result.data().size())
+                        .append(" 行\n");
+            }
         }
         return sb.toString();
     }
@@ -153,9 +175,23 @@ public class NotificationEventListener {
         String content = StringUtils.hasText(rule.getContent())
                 ? PlaceholderUtils.replacePlaceholders(rule.getContent())
                 : buildDefaultSummary(event);
+
+        if (!event.getInlineResults().isEmpty()) {
+            content = content + "\n\n" + formatInlineResultsText(event.getInlineResults());
+        }
+
         weComAppManager.sendText(rule.getConfigId(), toUser, content);
-        for (File file : event.getReportFiles()) {
-            weComAppManager.sendFile(rule.getConfigId(), toUser, file);
+        List<File> reportFiles = event.getReportFiles();
+        if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
+            List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
+            if (!urls.isEmpty()) {
+                String urlContent = "文件下载地址：\n" + String.join("\n", urls);
+                weComAppManager.sendText(rule.getConfigId(), toUser, urlContent);
+            }
+        } else {
+            for (File file : reportFiles) {
+                weComAppManager.sendFile(rule.getConfigId(), toUser, file);
+            }
         }
     }
 
@@ -181,10 +217,24 @@ public class NotificationEventListener {
         String content = StringUtils.hasText(rule.getContent())
                 ? PlaceholderUtils.replacePlaceholders(rule.getContent())
                 : buildDefaultSummary(event);
+
+        if (!event.getInlineResults().isEmpty()) {
+            content = content + "\n\n" + formatInlineResultsText(event.getInlineResults());
+        }
+
         List<String> mentionedList = parseMentionedList(rule.getWecomToUser());
         weComBotClient.sendText(config.getWebhookKey(), content, mentionedList);
-        for (File file : event.getReportFiles()) {
-            weComBotClient.sendFile(config.getWebhookKey(), file);
+        List<File> reportFiles = event.getReportFiles();
+        if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
+            List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
+            if (!urls.isEmpty()) {
+                String urlContent = "文件下载地址：\n" + String.join("\n", urls);
+                weComBotClient.sendText(config.getWebhookKey(), urlContent, mentionedList);
+            }
+        } else {
+            for (File file : reportFiles) {
+                weComBotClient.sendFile(config.getWebhookKey(), file);
+            }
         }
     }
 
@@ -196,6 +246,94 @@ public class NotificationEventListener {
                 .map(String::trim)
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toList());
+    }
+
+    private List<String> uploadReportFilesToStorage(Long storageConfigId, List<File> reportFiles) {
+        List<String> urls = new ArrayList<>();
+        if (storageConfigId == null || reportFiles == null || reportFiles.isEmpty()) {
+            return urls;
+        }
+        try {
+            StorageClient client = storageConfigService.getClient(storageConfigId);
+            for (File file : reportFiles) {
+                if (file == null || !file.exists()) {
+                    continue;
+                }
+                String url = client.upload(file, file.getName());
+                urls.add(url);
+                log.info("文件已上传至存储系统: configId={}, file={}, url={}", storageConfigId, file.getName(), url);
+            }
+        } catch (Exception e) {
+            log.error("上传文件到存储系统失败: configId={}", storageConfigId, e);
+        }
+        return urls;
+    }
+
+    private String formatInlineResultsHtml(List<InlineSqlResult> inlineResults) {
+        if (inlineResults == null || inlineResults.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("<h3>SQL 查询结果</h3>");
+        for (InlineSqlResult result : inlineResults) {
+            sb.append("<h4>").append(escapeHtml(result.sqlName())).append("</h4>");
+            if (result.data() == null || result.data().isEmpty()) {
+                sb.append("<p>无数据</p>");
+                continue;
+            }
+            List<String> headers = new ArrayList<>(result.data().get(0).keySet());
+            sb.append("<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;'>");
+            sb.append("<tr>");
+            for (String header : headers) {
+                sb.append("<th>").append(escapeHtml(header)).append("</th>");
+            }
+            sb.append("</tr>");
+            for (Map<String, Object> row : result.data()) {
+                sb.append("<tr>");
+                for (String header : headers) {
+                    Object value = row.get(header);
+                    sb.append("<td>").append(escapeHtml(value != null ? value.toString() : "")).append("</td>");
+                }
+                sb.append("</tr>");
+            }
+            sb.append("</table>");
+        }
+        return sb.toString();
+    }
+
+    private String formatInlineResultsText(List<InlineSqlResult> inlineResults) {
+        if (inlineResults == null || inlineResults.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("SQL 查询结果：");
+        for (InlineSqlResult result : inlineResults) {
+            sb.append("\n\n【").append(result.sqlName()).append("】");
+            if (result.data() == null || result.data().isEmpty()) {
+                sb.append("\n无数据");
+                continue;
+            }
+            List<String> headers = new ArrayList<>(result.data().get(0).keySet());
+            sb.append("\n").append(String.join("\t", headers));
+            for (Map<String, Object> row : result.data()) {
+                List<String> values = new ArrayList<>();
+                for (String header : headers) {
+                    Object value = row.get(header);
+                    values.add(value != null ? value.toString() : "");
+                }
+                sb.append("\n").append(String.join("\t", values));
+            }
+        }
+        return sb.toString();
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private String buildDefaultSubject(TaskExecutionEvent event) {

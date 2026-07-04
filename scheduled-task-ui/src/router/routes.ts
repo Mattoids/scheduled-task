@@ -70,6 +70,12 @@ export const menuRoutes: RouteRecordRaw[] = [
     meta: { title: 'AI 配置', icon: 'Cpu', permission: 'system:user' },
   },
   {
+    path: '/storage-config',
+    name: 'StorageConfig',
+    component: () => import('@/views/storage-config/StorageConfigList.vue'),
+    meta: { title: '存储配置', icon: 'FolderOpened', permission: 'storageConfig:view' },
+  },
+  {
     path: '/system',
     name: 'System',
     redirect: '/system/user',

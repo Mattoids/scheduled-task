@@ -12,6 +12,7 @@ import { listNotificationConfig } from "@/api/notificationConfig";
 import { listRecipient, listGroup } from "@/api/emailRecipient";
 import { pageTask } from "@/api/task";
 import { listAiConfig } from "@/api/aiConfig";
+import { listStorageConfig } from "@/api/storageConfig";
 import type { NotificationRule, TaskConfig, AiConfig } from "@/types/entity";
 import { useAppStore } from "@/stores/app";
 
@@ -36,6 +37,7 @@ const recipientOptions = ref<{ label: string; value: number }[]>([]);
 const recipientGroupOptions = ref<{ label: string; value: number }[]>([]);
 const taskOptions = ref<{ label: string; value: number }[]>([]);
 const aiConfigOptions = ref<{ label: string; value: number }[]>([]);
+const storageConfigOptions = ref<{ label: string; value: number }[]>([]);
 
 const eventTypeOptions = [
   { label: "任务执行完成", value: "TASK_COMPLETED" },
@@ -80,6 +82,7 @@ const form = ref<NotificationRule>({
   content: "",
   aiOptimizeNotify: 0,
   aiConfigId: undefined,
+  storageConfigId: undefined,
   enabled: 1,
 });
 
@@ -114,12 +117,13 @@ const isEdit = computed(() => !!formId.value);
 const title = computed(() => (isEdit.value ? "编辑通知规则" : "新增通知规则"));
 
 const loadOptions = async () => {
-  const [configs, rec, grp, taskRes, aiRes] = await Promise.all([
+  const [configs, rec, grp, taskRes, aiRes, storageRes] = await Promise.all([
     listNotificationConfig().catch(() => ({ records: [] })),
     listRecipient().catch(() => []),
     listGroup().catch(() => []),
     pageTask({ current: 1, size: 1000 }).catch(() => ({ records: [] })),
     listAiConfig().catch(() => ({ records: [] })),
+    listStorageConfig().catch(() => []),
   ]);
   notificationConfigOptions.value = (configs.records || []).map((item: any) => ({
     label: item.configName,
@@ -142,6 +146,10 @@ const loadOptions = async () => {
     label: item.configName,
     value: item.id!,
   }));
+  storageConfigOptions.value = (storageRes || []).map((item: any) => ({
+    label: item.configName,
+    value: item.id!,
+  }));
 };
 
 const resetForm = () => {
@@ -158,6 +166,7 @@ const resetForm = () => {
     content: "",
     aiOptimizeNotify: 0,
     aiConfigId: undefined,
+    storageConfigId: undefined,
     enabled: 1,
   };
 };
@@ -608,6 +617,22 @@ onMounted(() => {
               :rows="4"
               placeholder="支持占位符，留空使用默认内容"
             />
+          </el-form-item>
+
+          <el-form-item label="存储配置">
+            <el-select
+              v-model="form.storageConfigId"
+              placeholder="未选择时直接发送文件，选择后上传到存储系统并发送链接"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in storageConfigOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
           </el-form-item>
         </template>
 

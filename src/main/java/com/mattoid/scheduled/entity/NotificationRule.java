@@ -63,5 +63,10 @@ public class NotificationRule extends BaseEntity {
      */
     private Long aiConfigId;
 
+    /**
+     * 存储配置 ID，为空时企业微信文件直接发送，不为空时上传到存储系统后发链接
+     */
+    private Long storageConfigId;
+
     private Integer enabled;
 }

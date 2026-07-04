@@ -189,7 +189,11 @@ public class WeComAppManager {
             storage.setAesKey(config.getAesKey());
         }
         if (StringUtils.hasText(config.getProxyUrl())) {
-            storage.setBaseApiUrl(config.getProxyUrl());
+            String baseApiUrl = config.getProxyUrl().trim();
+            log.info("企业微信应用使用自定义 API 地址: baseApiUrl={}", baseApiUrl);
+            storage.setBaseApiUrl(baseApiUrl);
+        } else {
+            log.info("企业微信应用使用默认 API 地址");
         }
         storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         return storage;

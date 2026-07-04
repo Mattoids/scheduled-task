@@ -1,6 +1,7 @@
 package com.mattoid.scheduled.service;
 
 import com.mattoid.scheduled.entity.*;
+import com.mattoid.scheduled.event.InlineSqlResult;
 import com.mattoid.scheduled.event.TaskExecutionEvent;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
@@ -78,14 +79,22 @@ public class TaskExecutionService {
         taskLogMapper.insert(logEntity);
 
         List<File> reportFiles = new ArrayList<>();
+        List<InlineSqlResult> inlineResults = new ArrayList<>();
         try {
             List<TaskSqlConfig> sqlConfigs = taskSqlConfigService.listByTaskId(taskId);
             if (sqlConfigs.isEmpty()) {
                 throw new IllegalArgumentException("任务未配置 SQL 模块");
             }
 
-            reportFiles = executeSqlConfigs(task, sqlConfigs);
-            logEntity.setResultMessage("生成 " + reportFiles.size() + " 个报表文件");
+            SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs);
+            reportFiles = results.getFiles();
+            inlineResults = results.getInlineResults();
+            StringBuilder resultMsg = new StringBuilder("生成 ")
+                    .append(reportFiles.size()).append(" 个报表文件");
+            if (!inlineResults.isEmpty()) {
+                resultMsg.append("，").append(inlineResults.size()).append(" 个 SQL 结果内联发送");
+            }
+            logEntity.setResultMessage(resultMsg.toString());
 
             if (!reportFiles.isEmpty()) {
                 List<String> filePaths = reportFiles.stream()
@@ -102,19 +111,20 @@ public class TaskExecutionService {
         } finally {
             logEntity.setEndTime(LocalDateTime.now());
             taskLogMapper.updateById(logEntity);
-            publishTaskExecutionEvents(task, logEntity, reportFiles);
+            publishTaskExecutionEvents(task, logEntity, reportFiles, inlineResults);
         }
     }
 
-    private void publishTaskExecutionEvents(TaskConfig task, TaskLog logEntity, List<File> reportFiles) {
+    private void publishTaskExecutionEvents(TaskConfig task, TaskLog logEntity, List<File> reportFiles,
+                                            List<InlineSqlResult> inlineResults) {
         String status = logEntity.getStatus();
         if ("SUCCESS".equals(status)) {
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, TaskExecutionEvent.EventType.TASK_SUCCESS));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_SUCCESS));
         }
         if ("FAILED".equals(status)) {
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, TaskExecutionEvent.EventType.TASK_FAILURE));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_FAILURE));
         }
-        eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, TaskExecutionEvent.EventType.TASK_COMPLETED));
+        eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_COMPLETED));
     }
 
     @Async
@@ -122,14 +132,14 @@ public class TaskExecutionService {
         executeTask(taskId, triggerMode);
     }
 
-    private List<File> executeSqlConfigs(TaskConfig task, List<TaskSqlConfig> sqlConfigs) throws Exception {
+    private SqlExecutionResults executeSqlConfigs(TaskConfig task, List<TaskSqlConfig> sqlConfigs) throws Exception {
         Map<Object, List<TaskSqlConfig>> groups = new LinkedHashMap<>();
         for (TaskSqlConfig sql : sqlConfigs) {
             Object key = sql.getTemplateId() != null ? sql.getTemplateId() : "sql_" + sql.getId();
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(sql);
         }
 
-        List<File> result = new ArrayList<>();
+        SqlExecutionResults results = new SqlExecutionResults();
         for (Map.Entry<Object, List<TaskSqlConfig>> entry : groups.entrySet()) {
             List<TaskSqlConfig> group = entry.getValue();
             if (group.get(0).getTemplateId() != null) {
@@ -138,15 +148,40 @@ public class TaskExecutionService {
                 if (template == null) {
                     throw new IllegalArgumentException("模板不存在: " + templateId);
                 }
-                result.add(processTemplateChain(task, template, group));
+                results.addFile(processTemplateChain(task, template, group));
             } else {
                 for (TaskSqlConfig sql : group) {
                     List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent());
-                    result.add(generateSqlOutputFile(task, sql, data));
+                    if ("INLINE".equalsIgnoreCase(sql.getOutputFormat())) {
+                        results.addInline(new InlineSqlResult(sql.getSqlName(), sql.getSqlCode(), data));
+                    } else {
+                        results.addFile(generateSqlOutputFile(task, sql, data));
+                    }
                 }
             }
         }
-        return result;
+        return results;
+    }
+
+    private static class SqlExecutionResults {
+        private final List<File> files = new ArrayList<>();
+        private final List<InlineSqlResult> inlineResults = new ArrayList<>();
+
+        public void addFile(File file) {
+            files.add(file);
+        }
+
+        public void addInline(InlineSqlResult inlineResult) {
+            inlineResults.add(inlineResult);
+        }
+
+        public List<File> getFiles() {
+            return files;
+        }
+
+        public List<InlineSqlResult> getInlineResults() {
+            return inlineResults;
+        }
     }
 
     private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs) throws Exception {

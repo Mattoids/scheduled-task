@@ -37,6 +37,17 @@ const form = ref<TaskConfig>({
 
 const sqlOptions = ref<TaskSqlConfig[]>([]);
 const selectedSqlIds = ref<number[]>([]);
+const treeSelectedKeys = ref<Array<string | number>>([]);
+
+watch(
+  treeSelectedKeys,
+  (keys) => {
+    selectedSqlIds.value = keys
+      .filter((k) => typeof k === "number" || !String(k).startsWith("group_"))
+      .map((k) => Number(k));
+  },
+  { deep: true },
+);
 
 const rules = {
   taskName: [{ required: true, message: "请输入任务名称", trigger: "blur" }],
@@ -104,15 +115,6 @@ const handleTreeChange = () => {
   });
 };
 
-const treeSelectedKeys = computed({
-  get: () => selectedSqlIds.value.map((id) => id!),
-  set: (keys) => {
-    selectedSqlIds.value = keys
-      .filter((k) => typeof k === "number" || !String(k).startsWith("group_"))
-      .map((k) => Number(k));
-  },
-});
-
 const loadOptions = async () => {
   const sqlRes = await listTaskSql().catch(() => []);
   sqlOptions.value = sqlRes || [];
@@ -127,6 +129,7 @@ const resetForm = () => {
     status: "ENABLE",
   };
   selectedSqlIds.value = [];
+  treeSelectedKeys.value = [];
 };
 
 const loadDetail = async () => {
@@ -142,6 +145,7 @@ const loadDetail = async () => {
       status: "ENABLE",
     };
     selectedSqlIds.value = res.sqlIds || [];
+    treeSelectedKeys.value = [...selectedSqlIds.value];
   } finally {
     loading.value = false;
   }
@@ -275,6 +279,7 @@ onMounted(() => {
           ref="treeSelectRef"
           v-model="treeSelectedKeys"
           :data="sqlTreeData"
+          node-key="id"
           multiple
           show-checkbox
           filterable
