@@ -81,41 +81,50 @@ public class WeComAppManager {
         if (!menuJson.trim().startsWith("{\"menu\"")) {
             parseJson = "{\"menu\":" + menuJson + "}";
         }
+        log.info("企业微信应用创建菜单: configId={}, menuJson={}", configId, truncate(parseJson, 1000));
         WxMenu menu = WxMenu.fromJson(parseJson);
         service.getMenuService().create(menu);
-        log.info("企业微信应用菜单创建成功: {}", configId);
+        log.info("企业微信应用菜单创建成功: configId={}", configId);
     }
 
     public void sendText(Long configId, String toUser, String content) throws Exception {
         if (!StringUtils.hasText(content)) {
             return;
         }
+        log.info("企业微信应用发送文本消息: configId={}, toUser={}, contentLength={}, content={}",
+                configId, toUser, content.length(), truncate(content, 500));
         WxCpService service = getService(configId);
         WxCpMessage message = WxCpMessage.TEXT()
                 .toUser(toUser)
                 .content(content)
                 .build();
-        service.getMessageService().send(message);
-        log.info("企业微信应用文本消息发送成功: configId={}, toUser={}", configId, toUser);
+        var result = service.getMessageService().send(message);
+        log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, toUser, result);
     }
 
     public void sendFile(Long configId, String toUser, File file) throws Exception {
         if (file == null || !file.exists()) {
             throw new IllegalArgumentException("文件不存在: " + (file == null ? "null" : file.getAbsolutePath()));
         }
+        log.info("企业微信应用发送文件消息: configId={}, toUser={}, fileName={}, fileSize={}",
+                configId, toUser, file.getName(), file.length());
         WxCpService service = getService(configId);
         String mediaId;
         try (FileInputStream fis = new FileInputStream(file)) {
-            mediaId = service.getMediaService()
-                    .upload("file", file.getName(), fis)
-                    .getMediaId();
+            var uploadResult = service.getMediaService().upload("file", file.getName(), fis);
+            mediaId = uploadResult.getMediaId();
+            log.info("企业微信应用文件上传完成: configId={}, mediaIdLength={}, mediaType={}",
+                    configId,
+                    mediaId != null ? mediaId.length() : 0,
+                    uploadResult.getType());
         }
         WxCpMessage message = WxCpMessage.FILE()
                 .toUser(toUser)
                 .mediaId(mediaId)
                 .build();
-        service.getMessageService().send(message);
-        log.info("企业微信应用文件消息发送成功: configId={}, toUser={}, file={}", configId, toUser, file.getName());
+        var result = service.getMessageService().send(message);
+        log.info("企业微信应用文件消息发送完成: configId={}, toUser={}, fileName={}, result={}",
+                configId, toUser, file.getName(), result);
     }
 
     public String verifyUrl(Long configId, String signature, String timestamp, String nonce, String echostr) throws Exception {
@@ -190,5 +199,12 @@ public class WeComAppManager {
         }
         storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         return storage;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
     }
 }

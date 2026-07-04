@@ -78,6 +78,7 @@ public class WeComBotClient {
 
     private String uploadMedia(String webhookKey, File file) throws Exception {
         String url = String.format(UPLOAD_URL, webhookKey);
+        String maskedUrl = maskUrl(url);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
@@ -85,7 +86,11 @@ public class WeComBotClient {
         body.add("media", new FileSystemResource(file));
 
         HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+        log.info("企业微信群机器人上传文件: url={}, fileName={}, fileSize={}",
+                maskedUrl, file.getName(), file.length());
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+        log.info("企业微信群机器人文件上传响应: url={}, status={}, response={}",
+                maskedUrl, response.getStatusCode(), response.getBody());
         JsonNode node = objectMapper.readTree(response.getBody());
         int errcode = node.path("errcode").asInt(-1);
         if (errcode != 0) {
@@ -96,14 +101,26 @@ public class WeComBotClient {
 
     private void post(String webhookKey, Map<String, Object> body) throws Exception {
         String url = String.format(SEND_URL, webhookKey);
+        String maskedUrl = maskUrl(url);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        String bodyJson = objectMapper.writeValueAsString(body);
+        log.info("企业微信群机器人发送消息: url={}, body={}", maskedUrl, bodyJson);
         ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+        log.info("企业微信群机器人消息响应: url={}, status={}, response={}",
+                maskedUrl, response.getStatusCode(), response.getBody());
         JsonNode node = objectMapper.readTree(response.getBody());
         int errcode = node.path("errcode").asInt(-1);
         if (errcode != 0) {
             throw new RuntimeException("群机器人消息发送失败: " + response.getBody());
         }
+    }
+
+    private String maskUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        return url.replaceAll("key=[^&]+", "key=***");
     }
 }
