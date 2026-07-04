@@ -166,14 +166,8 @@ public class WeComAppManager {
                 "<MsgType><![CDATA[text]]></MsgType>" +
                 "<Content><![CDATA[" + reply + "]]></Content>" +
                 "</xml>";
-        String encrypt = cryptUtil.encrypt(replyXml);
-        String signature = SHA1.gen(config.getToken(), timestamp, nonce, encrypt);
-        return "<xml>" +
-                "<Encrypt><![CDATA[" + encrypt + "]]></Encrypt>" +
-                "<MsgSignature><![CDATA[" + signature + "]]></MsgSignature>" +
-                "<TimeStamp>" + timestamp + "</TimeStamp>" +
-                "<Nonce><![CDATA[" + nonce + "]]></Nonce>" +
-                "</xml>";
+        // WxCpCryptUtil.encrypt 已经返回包含 Encrypt/MsgSignature/TimeStamp/Nonce 的完整 XML
+        return cryptUtil.encrypt(replyXml);
     }
 
     public WxCpService buildTempService(WeComAppConfig config) {
