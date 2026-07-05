@@ -102,6 +102,21 @@ public class WeComAppManager {
         log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, toUser, result);
     }
 
+    public void sendMarkdown(Long configId, String toUser, String content) throws Exception {
+        if (!StringUtils.hasText(content)) {
+            return;
+        }
+        log.info("企业微信应用发送 Markdown 消息: configId={}, toUser={}, contentLength={}, content={}",
+                configId, toUser, content.length(), truncate(content, 500));
+        WxCpService service = getService(configId);
+        WxCpMessage message = WxCpMessage.MARKDOWN()
+                .toUser(toUser)
+                .content(content)
+                .build();
+        var result = service.getMessageService().send(message);
+        log.info("企业微信应用 Markdown 消息发送完成: configId={}, toUser={}, result={}", configId, toUser, result);
+    }
+
     public void sendFile(Long configId, String toUser, File file) throws Exception {
         if (file == null || !file.exists()) {
             throw new IllegalArgumentException("文件不存在: " + (file == null ? "null" : file.getAbsolutePath()));

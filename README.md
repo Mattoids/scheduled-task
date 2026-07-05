@@ -68,9 +68,9 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 | 渠道 | 说明 |
 |------|------|
 | `EMAIL` | 通过 SMTP 发送邮件，支持 HTML 正文和附件 |
-| `WECOM_APP` | 企业微信应用消息，支持文本和文件 |
-| `WECOM_BOT` | 企业微信机器人 Webhook 消息，支持 @提及 |
-| `WECOM_INTELLIGENT_BOT` | 企业微信智能机器人 Webhook 消息 |
+| `WECOM_APP` | 企业微信应用消息，支持 Markdown 富文本和文件 |
+| `WECOM_BOT` | 企业微信机器人 Webhook 消息，支持 Markdown 富文本和 @提及 |
+| `WECOM_INTELLIGENT_BOT` | 企业微信智能机器人 Webhook 消息，支持 Markdown 富文本 |
 
 ### 通知规则
 
@@ -81,6 +81,29 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 - `TASK_COMPLETED` — 任务执行完成（无论成功或失败）
 
 规则可全局生效（`task_id` 为空），也可绑定到指定任务。
+
+### 企业微信消息格式
+
+企业微信渠道（`WECOM_APP`、`WECOM_BOT`、`WECOM_INTELLIGENT_BOT`）发送 **Markdown 富文本** 消息。
+
+**格式说明：**
+
+- 第一行作为标题，显示为蓝色加粗文字
+- 剩余内容作为正文，支持基本 Markdown 语法
+- 标题和正文之间用空行分隔
+
+**示例正文模板：**
+
+```
+本周任务执行报告
+> 任务: 销售日报任务
+> 状态: 执行成功
+> 耗时: 120s
+
+本次共处理 **${name_count}** 条记录。
+```
+
+企业微信机器人消息正文中支持 `@用户`，在通知规则的 `wecomToUser` 字段中填写需要 @ 的 userId。
 
 ### 通知模板占位符
 

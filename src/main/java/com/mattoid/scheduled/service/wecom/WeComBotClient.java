@@ -50,13 +50,20 @@ public class WeComBotClient {
     }
 
     public void sendMarkdown(String webhookKey, String content) throws Exception {
+        sendMarkdown(webhookKey, content, null);
+    }
+
+    public void sendMarkdown(String webhookKey, String content, List<String> mentionedList) throws Exception {
         if (!StringUtils.hasText(content)) {
             return;
         }
         Map<String, Object> body = new HashMap<>();
         body.put("msgtype", "markdown");
-        Map<String, String> markdown = new HashMap<>();
+        Map<String, Object> markdown = new HashMap<>();
         markdown.put("content", content);
+        if (mentionedList != null && !mentionedList.isEmpty()) {
+            markdown.put("mentioned_list", mentionedList);
+        }
         body.put("markdown", markdown);
         post(webhookKey, body);
         log.info("企业微信群机器人 Markdown 消息发送成功: key={}", webhookKey);

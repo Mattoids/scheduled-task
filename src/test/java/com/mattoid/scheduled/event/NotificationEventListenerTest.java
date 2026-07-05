@@ -118,7 +118,7 @@ class NotificationEventListenerTest {
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(weComAppManager, times(1)).sendText(eq(2L), eq("user1"), anyString());
+        verify(weComAppManager, times(1)).sendMarkdown(eq(2L), eq("user1"), anyString());
     }
 
     @Test
@@ -144,7 +144,7 @@ class NotificationEventListenerTest {
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(weComBotClient, times(1)).sendText(eq("key123"), anyString(), eq(Collections.emptyList()));
+        verify(weComBotClient, times(1)).sendMarkdown(eq("key123"), anyString());
     }
 
     @Test
@@ -209,7 +209,7 @@ class NotificationEventListenerTest {
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_SUCCESS));
 
         verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(), anyString(), anyList());
-        verify(weComBotClient, times(1)).sendText(eq("key123"), anyString(), eq(Collections.emptyList()));
+        verify(weComBotClient, times(1)).sendMarkdown(eq("key123"), anyString());
     }
 
     @Test

@@ -186,13 +186,13 @@ public class NotificationEventListener {
             log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
-        weComAppManager.sendText(rule.getConfigId(), toUser, content);
+        weComAppManager.sendMarkdown(rule.getConfigId(), toUser, formatWeComMarkdown(content, event.getTask().getTaskName()));
         List<File> reportFiles = event.getReportFiles();
         if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
                 String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                weComAppManager.sendText(rule.getConfigId(), toUser, urlContent);
+                weComAppManager.sendMarkdown(rule.getConfigId(), toUser, urlContent);
             }
         } else {
             for (File file : reportFiles) {
@@ -234,13 +234,13 @@ public class NotificationEventListener {
         }
 
         List<String> mentionedList = parseMentionedList(rule.getWecomToUser());
-        weComBotClient.sendText(config.getWebhookKey(), content, mentionedList);
+        weComBotClient.sendMarkdown(config.getWebhookKey(), formatWeComMarkdown(content, event.getTask().getTaskName()));
         List<File> reportFiles = event.getReportFiles();
         if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
                 String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                weComBotClient.sendText(config.getWebhookKey(), urlContent, mentionedList);
+                weComBotClient.sendMarkdown(config.getWebhookKey(), urlContent, mentionedList);
             }
         } else {
             for (File file : reportFiles) {
@@ -314,6 +314,12 @@ public class NotificationEventListener {
 
     private String buildDefaultSubject(TaskExecutionEvent event) {
         return "任务执行通知 - " + event.getTask().getTaskName();
+    }
+
+    private String formatWeComMarkdown(String content, String title) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(title).append("\n\n").append(content);
+        return sb.toString();
     }
 
     private String buildDefaultSummary(TaskExecutionEvent event) {

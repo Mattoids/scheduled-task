@@ -50,7 +50,13 @@ public class SchemaMigrationRunner implements BeanPostProcessor {
 
     private void runMigrations(DataSource dataSource) throws Exception {
         ResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource[] resources = resolver.getResources(MIGRATION_LOCATION);
+        Resource[] resources;
+        try {
+            resources = resolver.getResources(MIGRATION_LOCATION);
+        } catch (Exception e) {
+            log.info("No schema migration files found");
+            return;
+        }
         if (resources.length == 0) {
             log.info("No schema migration files found");
             return;
