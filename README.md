@@ -59,34 +59,108 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 
 登录接口：`POST /api/auth/login`
 
-## 主要接口
+## 通知系统
 
-| 功能 | 接口 |
+任务执行后，系统可根据配置的通知规则通过多种渠道发送通知。
+
+### 通知渠道
+
+| 渠道 | 说明 |
 |------|------|
-| 登录 | `POST /api/auth/login` |
-| 当前用户 | `GET /api/auth/me` |
-| 任务分页 | `GET /api/task/page` |
-| 创建任务 | `POST /api/task` |
-| 手动触发 | `POST /api/task/{id}/trigger` |
-| 数据源分页 | `GET /api/datasource/page` |
-| 测试数据源 | `POST /api/datasource/{id}/test` |
-| 邮箱配置分页 | `GET /api/email-config/page` |
-| 收件人管理 | `/api/email-recipient/**` |
-| 模板上传 | `POST /api/template/upload` |
-| 任务日志 | `GET /api/task-log/page` |
-| 仪表盘统计 | `GET /api/dashboard/stats` |
-| 用户 / 角色 / 权限 | `/api/system/**` |
+| `EMAIL` | 通过 SMTP 发送邮件，支持 HTML 正文和附件 |
+| `WECOM_APP` | 企业微信应用消息，支持文本和文件 |
+| `WECOM_BOT` | 企业微信机器人 Webhook 消息，支持 @提及 |
+| `WECOM_INTELLIGENT_BOT` | 企业微信智能机器人 Webhook 消息 |
 
-## 仪表盘
+### 通知规则
 
-首页仪表盘提供系统资源与执行状态的一览：
+通知规则基于事件驱动，支持以下触发事件：
 
-- **资源概览卡片**：任务、数据源、邮箱配置、报表模板数量，点击卡片可直接跳转对应管理页
-- **执行统计卡片**：今日执行次数、累计成功 / 失败次数
-- **任务启用情况**：实时展示启用 / 停用任务占比
-- **今日执行成功率**：成功 / 失败 / 执行中分布
-- **最近执行日志**：展示最近 10 条任务执行记录，含任务名称、触发方式、状态、耗时、结果
-- **快捷操作**：一键新建任务、进入 SQL 管理、进入数据源管理
+- `TASK_SUCCESS` — 任务执行成功
+- `TASK_FAILURE` — 任务执行失败
+- `TASK_COMPLETED` — 任务执行完成（无论成功或失败）
+
+规则可全局生效（`task_id` 为空），也可绑定到指定任务。
+
+### 通知模板占位符
+
+邮件主题、邮件正文、企业微信文本模板均支持占位符，使用 `${变量名}` 格式。
+
+**内置变量**（同任务级变量规则）：
+
+| 变量 | 说明 | 示例（当前 2026-07-04） |
+|------|------|------------------------|
+| `{lastMonth}` | 上月月份，固定两位 | `06` |
+| `{lastMonth:yyyyMM}` | 上月按自定义格式输出 | `202606` |
+| `{nextMonth}` | 下月月份，固定 `yyyyMM` | `202608` |
+| `{nextMonth:yyyy-MM}` | 下月按自定义格式输出 | `2026-08` |
+| `{yyyyMMddHHmmss}` | 当前时间 | `20260704123045` |
+| `{yyyyMMdd}` | 当前日期 | `20260704` |
+| `{yyyy-MM-dd}` | 当前日期 | `2026-07-04` |
+| `{HHmmss}` | 当前时间 | `123045` |
+
+**内联 SQL 结果占位符**：任务关联的 SQL 查询结果会作为变量注入模板。
+
+- 单行单列：直接使用该列名，值为字符串/数字
+- 多行或多列：使用列名作为变量，值为数组
+
+例如 SQL 查询结果为两行两列 `name` 和 `value`：
+
+```json
+[{"name": "Alice", "value": 100}, {"name": "Bob", "value": 200}]
+```
+
+模板中可直接使用：
+
+```
+本周报表：${name} 共 ${value} 条记录
+总记录数：${name_count}
+```
+
+会渲染为：
+
+```
+本周报表：[Alice, Bob] 共 [100, 200] 条记录
+总记录数：2
+```
+
+### AI 优化通知内容
+
+在通知规则中启用 `aiOptimizeNotify`，系统会调用 AI 配置中指定的模型对通知内容（主题 / 正文）进行优化，使表达更自然、更精炼。
+
+所有通知渠道均支持 AI 优化：EMAIL、WECOM_APP、WECOM_BOT、WECOM_INTELLIGENT_BOT。
+
+### 企业微信文件发送策略
+
+对于 WeCom 渠道，文件发送有两种模式：
+
+- **直接发送文件**：未配置存储配置时，文件作为附件直接发送
+- **上传后发送链接**：在通知规则中指定存储配置，系统先将文件上传到存储系统，再发送下载链接。适用于文件较大或需要长期留存的场景
+
+## 存储配置
+
+系统支持多种文件存储后端，用于报表文件与通知附件的上传与分发：
+
+| 存储类型 | 说明 |
+|---------|------|
+| `LOCAL` | 本地文件系统 |
+| `OSS` | 阿里云 OSS |
+| `S3` | AWS S3 及兼容存储 |
+| `WEBDAV` | WebDAV 服务器 |
+
+配置存储后，通知规则可选择使用该存储将文件上传并返回下载链接。
+
+## AI 配置
+
+系统支持多种 AI 厂商接入，用于通知内容优化：
+
+| 厂商 | 说明 |
+|------|------|
+| `OPENAI` | OpenAI API |
+| `ANTHROPIC` | Anthropic Claude API |
+| `AZURE_OPENAI` | Azure OpenAI Service |
+| `OLLAMA` | 本地 Ollama 部署 |
+| `CUSTOM` | 自定义兼容 OpenAI 格式的 API |
 
 ## SQL 模块
 
@@ -99,7 +173,7 @@ SQL 配置支持 `group_name` 分组：
 - 在 SQL 管理中填写分组名称，如 `门店报表`、`财务日报`
 - SQL 管理列表支持按分组筛选
 - 任务配置中选择 SQL 时，下拉框会按分组展示，便于在 SQL 较多时快速定位
-- 未填写分组的 SQL 会归入“未分组”
+- 未填写分组的 SQL 会归入"未分组"
 
 ### 单 SQL 输出
 
@@ -201,8 +275,9 @@ city_name | store_name | checkin_num
 
 - **任务级文件名格式**（`task_config.file_name_pattern`）：当多个 SQL 共享同一个模板形成链式处理时，最终输出文件名优先使用任务级配置
 - **SQL 级文件名格式**（`task_sql_config.file_name_pattern`）：单 SQL 输出时使用；若任务级未配置，链式处理时也会回退到第一条 SQL 的配置
-- 任务的 **邮件主题**（`emailSubject`）
-- 任务的 **邮件正文**（`emailBody`）
+- 通知规则中的 **邮件主题**（`subject`）
+- 通知规则中的 **邮件正文**（`body`）
+- 通知规则中的 **企业微信文本模板**（`content`）
 
 ### 内置变量
 
@@ -258,8 +333,63 @@ report_{yyyyMMddHHmmss}.csv
 
 在数据源配置中开启 `sshEnabled` 并填写 SSH 跳板机信息即可。系统会在本地建立 SSH 隧道，再通过 127.0.0.1:localPort 连接目标数据库。
 
+## 主要接口
+
+| 功能 | 接口 |
+|------|------|
+| 登录 | `POST /api/auth/login` |
+| 当前用户 | `GET /api/auth/me` |
+| 修改密码 | `POST /api/auth/change-password` |
+| 仪表盘统计 | `GET /api/dashboard/stats` |
+| 任务分页 | `GET /api/task/page` |
+| 创建任务 | `POST /api/task` |
+| 修改任务 | `PUT /api/task/{id}` |
+| 更新任务状态 | `PUT /api/task/{id}/status` |
+| 手动触发任务 | `POST /api/task/{id}/trigger` |
+| 任务日志（按任务） | `GET /api/task/{taskId}/logs` |
+| 任务日志分页 | `GET /api/task-log/page` |
+| SQL 配置分页 | `GET /api/task-sql/page` |
+| SQL 配置列表（下拉） | `GET /api/task-sql/list` |
+| SQL 分组分页 | `GET /api/task-sql-group/page` |
+| SQL 分组列表 | `GET /api/task-sql-group/list` |
+| 数据源分页 | `GET /api/datasource/page` |
+| 测试数据源 | `POST /api/datasource/{id}/test` |
+| 收件人分页 | `GET /api/email-recipient/page` |
+| 收件人列表 | `GET /api/email-recipient/list` |
+| 收件人群组列表 | `GET /api/email-recipient/group/list` |
+| 模板分页 | `GET /api/template/page` |
+| 模板上传 | `POST /api/template/upload` |
+| 通知配置分页 | `GET /api/notification-config/page` |
+| 测试通知配置 | `POST /api/notification-config/test` |
+| 通知规则分页 | `GET /api/notification-rule/page` |
+| 通知规则列表 | `GET /api/notification-rule/list` |
+| AI 配置分页 | `GET /api/ai-config/page` |
+| AI 配置列表 | `GET /api/ai-config/list` |
+| 测试 AI 配置 | `POST /api/ai-config/test` |
+| 存储配置分页 | `GET /api/storage-config/page` |
+| 存储配置列表 | `GET /api/storage-config/list` |
+| 测试存储配置 | `POST /api/storage-config/{id}/test` |
+| 存储文件访问 | `GET /storage/**` |
+| 企业微信回调（GET/POST） | `/api/wecom/callback/{configId}` |
+| AI 意图解析 | `POST /api/assistant/parse-intent` |
+| AI 优化通知 | `POST /api/assistant/optimize-notification` |
+| 用户分页 | `GET /api/system/user/page` |
+| 角色列表 | `GET /api/system/role/list` |
+| 权限列表 | `GET /api/system/permission/list` |
+
+## 仪表盘
+
+首页仪表盘提供系统资源与执行状态的一览：
+
+- **资源概览卡片**：任务、数据源、邮箱配置、报表模板数量，点击卡片可直接跳转对应管理页
+- **执行统计卡片**：今日执行次数、累计成功 / 失败次数
+- **任务启用情况**：实时展示启用 / 停用任务占比
+- **今日执行成功率**：成功 / 失败 / 执行中分布
+- **最近执行日志**：展示最近 10 条任务执行记录，含任务名称、触发方式、状态、耗时、结果
+- **快捷操作**：一键新建任务、进入 SQL 管理、进入数据源管理
+
 ## 注意事项
 
 - 项目使用简单 AES 加密存储密码，生产环境建议更换密钥或使用 KMS。
 - 定时任务使用 Quartz RAMJobStore，重启后会从数据库重新加载所有启用状态的任务。
-- 邮件正文支持 HTML，可直接在 `emailBody` 中编写 `<p>`、`<table>` 等标签。
+- 邮件正文支持 HTML，可直接在 `body` 中编写 `<p>`、`<table>` 等标签。
