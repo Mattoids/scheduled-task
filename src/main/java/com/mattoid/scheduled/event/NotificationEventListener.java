@@ -219,6 +219,9 @@ public class NotificationEventListener {
             log.warn("智能机器人配置不可用: {}", rule.getConfigId());
             return;
         }
+        WeComIntelligentBotConfig config = notificationConfigService.parseConfigJson(notificationConfig.getConfigJson(), WeComIntelligentBotConfig.class);
+        String mode = StringUtils.hasText(config.getMode()) ? config.getMode() : "LONGCHAIN";
+
         Map<String, Object> data = buildInlineResultContext(event.getInlineResults());
         String toUser = StringUtils.hasText(rule.getWecomToUser()) ? rule.getWecomToUser() : "@all";
         String content = StringUtils.hasText(rule.getContent())
@@ -233,17 +236,33 @@ public class NotificationEventListener {
             log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
-        weComIntelligentBotClient.sendMarkdown(rule.getConfigId(), formatWeComMarkdown(content, event.getTask().getTaskName()), toUser);
-        List<File> reportFiles = event.getReportFiles();
-        if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
-            List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
-            if (!urls.isEmpty()) {
-                String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                weComIntelligentBotClient.sendText(rule.getConfigId(), urlContent, toUser);
+        if ("CALLBACK".equals(mode)) {
+            weComAppManager.sendMarkdown(rule.getConfigId(), toUser, formatWeComMarkdown(content, event.getTask().getTaskName()));
+            List<File> reportFiles = event.getReportFiles();
+            if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
+                List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
+                if (!urls.isEmpty()) {
+                    String urlContent = "文件下载地址：\n" + String.join("\n", urls);
+                    weComAppManager.sendText(rule.getConfigId(), toUser, urlContent);
+                }
+            } else {
+                for (File file : reportFiles) {
+                    weComAppManager.sendFile(rule.getConfigId(), toUser, file);
+                }
             }
         } else {
-            for (File file : reportFiles) {
-                weComIntelligentBotClient.sendFile(rule.getConfigId(), file, toUser);
+            weComIntelligentBotClient.sendMarkdown(rule.getConfigId(), formatWeComMarkdown(content, event.getTask().getTaskName()), toUser);
+            List<File> reportFiles = event.getReportFiles();
+            if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
+                List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
+                if (!urls.isEmpty()) {
+                    String urlContent = "文件下载地址：\n" + String.join("\n", urls);
+                    weComIntelligentBotClient.sendText(rule.getConfigId(), urlContent, toUser);
+                }
+            } else {
+                for (File file : reportFiles) {
+                    weComIntelligentBotClient.sendFile(rule.getConfigId(), file, toUser);
+                }
             }
         }
     }

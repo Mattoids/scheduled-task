@@ -40,8 +40,9 @@ public class WeComAppManager {
         if (notificationConfig == null) {
             throw new IllegalArgumentException("企业微信应用配置不存在: " + configId);
         }
-        if (!"WECOM_APP".equals(notificationConfig.getConfigType())) {
-            throw new IllegalArgumentException("配置类型不是企业微信应用: " + configId);
+        if (!"WECOM_APP".equals(notificationConfig.getConfigType())
+                && !"WECOM_INTELLIGENT_BOT".equals(notificationConfig.getConfigType())) {
+            throw new IllegalArgumentException("配置类型不是企业微信应用或智能机器人回调模式: " + configId);
         }
         if (notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             throw new IllegalArgumentException("企业微信应用配置已禁用: " + configId);

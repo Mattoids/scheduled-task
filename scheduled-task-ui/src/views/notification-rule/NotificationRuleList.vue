@@ -467,7 +467,7 @@ onMounted(() => {
     <el-dialog
       v-model="formVisible"
       :title="title"
-      width="640px"
+      width="860px"
       @close="handleClose"
     >
       <el-form
@@ -505,86 +505,99 @@ onMounted(() => {
           </el-col>
         </el-row>
 
-        <el-form-item label="关联任务">
-          <el-select
-            v-model="form.taskId"
-            placeholder="全部任务（不指定则所有任务都通知）"
-            clearable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in taskOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="关联配置" prop="configId">
-          <el-select
-            v-model="form.configId"
-            :placeholder="configPlaceholder"
-            clearable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in configOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="关联任务">
+              <el-select
+                v-model="form.taskId"
+                placeholder="全部任务（不指定则所有任务都通知）"
+                clearable
+              >
+                <el-option
+                  v-for="item in taskOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="关联配置" prop="configId">
+              <el-select
+                v-model="form.configId"
+                :placeholder="configPlaceholder"
+                clearable
+              >
+                <el-option
+                  v-for="item in configOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
 
         <template v-if="form.channel === 'EMAIL'">
-          <el-form-item label="收件人" prop="recipientIds">
-            <el-select
-              v-model="form.recipientIds"
-              multiple
-              collapse-tags
-              placeholder="请选择收件人（与收件人群组二选一）"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in recipientOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="String(item.value)"
-              />
-            </el-select>
-          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="收件人" prop="recipientIds">
+                <el-select
+                  v-model="form.recipientIds"
+                  multiple
+                  collapse-tags
+                  placeholder="请选择收件人（与收件人群组二选一）"
+                >
+                  <el-option
+                    v-for="item in recipientOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="String(item.value)"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="收件人群组" prop="recipientGroupIds">
+                <el-select
+                  v-model="form.recipientGroupIds"
+                  multiple
+                  collapse-tags
+                  placeholder="请选择收件人群组（与收件人二选一）"
+                >
+                  <el-option
+                    v-for="item in recipientGroupOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="String(item.value)"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-          <el-form-item label="收件人群组" prop="recipientGroupIds">
-            <el-select
-              v-model="form.recipientGroupIds"
-              multiple
-              collapse-tags
-              placeholder="请选择收件人群组（与收件人二选一）"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in recipientGroupOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="String(item.value)"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="邮件主题">
-            <el-input
-              v-model="form.subject"
-              placeholder="支持占位符，留空使用默认主题"
-            />
-          </el-form-item>
-
-          <el-form-item label="邮件正文">
-            <RichTextEditor
-              v-model="form.body"
-              placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认正文"
-            />
-          </el-form-item>
+          <el-row>
+            <el-col>
+              <el-form-item label="邮件主题">
+                <el-input
+                    v-model="form.subject"
+                    placeholder="支持占位符，留空使用默认主题"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row>
+            <el-col>
+              <el-form-item label="邮件正文">
+                <RichTextEditor
+                    v-model="form.body"
+                    placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认正文"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </template>
 
         <template
@@ -594,83 +607,88 @@ onMounted(() => {
             form.channel === 'WECOM_INTELLIGENT_BOT'
           "
         >
-          <el-form-item label="接收人">
-            <el-input
-              v-model="form.wecomToUser"
-              placeholder="企业微信用户 ID，多个用 | 分隔，为空则不指定"
-            />
-          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="接收人">
+                <el-input
+                  v-model="form.wecomToUser"
+                  placeholder="企业微信用户 ID，多个用 | 分隔，为空则不指定"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="存储配置">
+                <el-select
+                  v-model="form.storageConfigId"
+                  placeholder="未选择时直接发送文件，选择后上传到存储系统并发送链接"
+                  clearable
+                >
+                  <el-option
+                    v-for="item in storageConfigOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row>
+            <el-col>
+              <el-form-item label="消息内容">
+                <RichTextEditor
+                    v-model="form.content"
+                    placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认内容"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
         </template>
 
-        <template
-          v-if="
-            form.channel === 'WECOM_APP' ||
-            form.channel === 'WECOM_BOT' ||
-            form.channel === 'WECOM_INTELLIGENT_BOT'
-          "
-        >
-          <el-form-item label="消息内容">
-            <RichTextEditor
-              v-model="form.content"
-              placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认内容"
-            />
-          </el-form-item>
-
-          <el-form-item label="存储配置">
-            <el-select
-              v-model="form.storageConfigId"
-              placeholder="未选择时直接发送文件，选择后上传到存储系统并发送链接"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in storageConfigOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="AI 优化通知">
+              <el-switch
+                v-model="form.aiOptimizeNotify"
+                :active-value="1"
+                :inactive-value="0"
+                active-text="启用"
+                inactive-text="禁用"
               />
-            </el-select>
-          </el-form-item>
-        </template>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="启用状态">
+              <el-switch
+                v-model="form.enabled"
+                :active-value="1"
+                :inactive-value="0"
+                active-text="启用"
+                inactive-text="禁用"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
 
-        <el-form-item label="AI 优化通知">
-          <el-switch
-            v-model="form.aiOptimizeNotify"
-            :active-value="1"
-            :inactive-value="0"
-            active-text="启用"
-            inactive-text="禁用"
-          />
-        </el-form-item>
-
-        <el-form-item
-          v-if="form.aiOptimizeNotify === 1"
-          label="AI 配置"
-        >
-          <el-select
-            v-model="form.aiConfigId"
-            placeholder="未选择时使用默认 AI 配置"
-            clearable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in aiConfigOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="启用状态">
-          <el-switch
-            v-model="form.enabled"
-            :active-value="1"
-            :inactive-value="0"
-            active-text="启用"
-            inactive-text="禁用"
-          />
-        </el-form-item>
+        <el-row v-if="form.aiOptimizeNotify === 1">
+          <el-col :span="24">
+            <el-form-item label="AI 配置">
+              <el-select
+                v-model="form.aiConfigId"
+                placeholder="未选择时使用默认 AI 配置"
+                clearable
+              >
+                <el-option
+                  v-for="item in aiConfigOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
 
       <template #footer>

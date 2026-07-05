@@ -1,1 +1,0 @@
-import{o as e}from"./index-C4Byx9WG.js";var t=t=>e.get(`/datasource/page`,{params:t}),n=e=>t({...e,current:1,size:1e3}),r=t=>e.get(`/datasource/${t}`),i=t=>e.post(`/datasource`,t),a=(t,n)=>e.put(`/datasource/${t}`,n),o=t=>e.delete(`/datasource/${t}`),s=t=>e.post(`/datasource/${t}/test`),c=t=>e.post(`/datasource/test`,t);export{t as a,a as c,n as i,o as n,s as o,r,c as s,i as t};

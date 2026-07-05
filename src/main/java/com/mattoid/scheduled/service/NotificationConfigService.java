@@ -52,7 +52,12 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             } else if ("WECOM_APP".equals(configType)) {
                 encryptField(map, "secret");
             } else if ("WECOM_INTELLIGENT_BOT".equals(configType)) {
-                encryptField(map, "botSecret");
+                String mode = (String) map.get("mode");
+                if ("CALLBACK".equals(mode)) {
+                    encryptField(map, "secret");
+                } else {
+                    encryptField(map, "botSecret");
+                }
             }
             return objectMapper.writeValueAsString(map);
         } catch (JsonProcessingException e) {
@@ -140,12 +145,25 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     private TestConnectionResult testWeComIntelligentBot(NotificationConfig config) throws Exception {
         com.mattoid.scheduled.entity.WeComIntelligentBotConfig botConfig = parseConfigJson(config.getConfigJson(), com.mattoid.scheduled.entity.WeComIntelligentBotConfig.class);
-        if (StringUtils.hasText(botConfig.getBotSecret())) {
-            botConfig.setBotSecret(CryptoUtil.decryptIfNeeded(botConfig.getBotSecret()));
+        String mode = StringUtils.hasText(botConfig.getMode()) ? botConfig.getMode() : "LONGCHAIN";
+
+        if ("CALLBACK".equals(mode)) {
+            // 回调模式：通过 WeComAppManager 测试（同 WECOM_APP）
+            WeComAppConfig temp = new WeComAppConfig();
+            temp.setCorpId(botConfig.getCorpId());
+            temp.setAgentId(botConfig.getAgentId());
+            temp.setSecret(CryptoUtil.decryptIfNeeded(botConfig.getSecret()));
+            temp.setToken(botConfig.getToken());
+            temp.setAesKey(botConfig.getAesKey());
+            weComAppManager.buildTempService(temp).getAccessToken();
+        } else {
+            // 长链模式：通过 botId/botSecret 获取 access token
+            if (StringUtils.hasText(botConfig.getBotSecret())) {
+                botConfig.setBotSecret(CryptoUtil.decryptIfNeeded(botConfig.getBotSecret()));
+            }
+            me.chanjar.weixin.cp.api.WxCpService service = buildIntelligentBotService(botConfig);
+            service.getAccessToken();
         }
-        // 验证鉴权：获取 access token
-        me.chanjar.weixin.cp.api.WxCpService service = buildIntelligentBotService(botConfig);
-        service.getAccessToken();
         return TestConnectionResult.ok();
     }
 
