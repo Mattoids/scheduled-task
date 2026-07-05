@@ -192,7 +192,7 @@ public class WeComAppManager {
         return impl;
     }
 
-    private WxCpDefaultConfigImpl buildStorage(WeComAppConfig config) {
+    public static WxCpDefaultConfigImpl buildStorage(WeComAppConfig config) {
         WxCpDefaultConfigImpl storage = new WxCpDefaultConfigImpl();
         storage.setCorpId(config.getCorpId());
         storage.setAgentId(config.getAgentId());
@@ -205,10 +205,7 @@ public class WeComAppManager {
         }
         if (StringUtils.hasText(config.getProxyUrl())) {
             String baseApiUrl = config.getProxyUrl().trim();
-            log.info("企业微信应用使用自定义 API 地址: baseApiUrl={}", baseApiUrl);
             storage.setBaseApiUrl(baseApiUrl);
-        } else {
-            log.info("企业微信应用使用默认 API 地址");
         }
         storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         return storage;

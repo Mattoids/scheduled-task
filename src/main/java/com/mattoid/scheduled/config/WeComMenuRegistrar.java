@@ -25,7 +25,7 @@ import java.util.Map;
 @Component
 public class WeComMenuRegistrar implements CommandLineRunner {
 
-    private static final int TOP_TASKS_COUNT = 3;
+    private static final int TOP_TASKS_COUNT = 5;
 
     private final NotificationConfigService notificationConfigService;
     private final TaskConfigService taskConfigService;
@@ -68,16 +68,13 @@ public class WeComMenuRegistrar implements CommandLineRunner {
     }
 
     private String buildDefaultMenu() throws JsonProcessingException {
-        List<TaskLog> recentLogs = taskLogMapper.selectList(
-                new LambdaQueryWrapper<TaskLog>()
-                        .ne(TaskLog::getStatus, "RUNNING")
-                        .orderByDesc(TaskLog::getCreateTime)
+        List<TaskConfig> tasks = taskConfigService.list(
+                new LambdaQueryWrapper<TaskConfig>()
+                        .orderByDesc(TaskConfig::getCreateTime)
                         .last("LIMIT " + TOP_TASKS_COUNT)
         );
         List<Map<String, Object>> quickSubButtons = new ArrayList<>();
-        for (TaskLog log : recentLogs) {
-            TaskConfig task = taskConfigService.getById(log.getTaskId());
-            if (task == null) continue;
+        for (TaskConfig task : tasks) {
             Map<String, Object> btn = new LinkedHashMap<>();
             btn.put("type", "click");
             btn.put("name", task.getTaskName());

@@ -49,7 +49,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
             if ("EMAIL".equals(configType)) {
                 encryptField(map, "password");
-            } else if ("WECOM_APP".equals(configType)) {
+            } else if ("WECOM_APP".equals(configType) || "WECOM_INTELLIGENT_BOT".equals(configType)) {
                 encryptField(map, "secret");
             }
             return objectMapper.writeValueAsString(map);
@@ -77,7 +77,8 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             return switch (type) {
                 case "EMAIL" -> testEmail(config);
                 case "WECOM_APP" -> testWeComApp(config);
-                case "WECOM_BOT", "WECOM_INTELLIGENT_BOT" -> testWeComBot(config);
+                case "WECOM_BOT" -> testWeComBot(config);
+                case "WECOM_INTELLIGENT_BOT" -> testWeComIntelligentBot(config);
                 default -> TestConnectionResult.fail("未知的配置类型: " + type);
             };
         } catch (Exception e) {
@@ -132,6 +133,13 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
     private TestConnectionResult testWeComBot(NotificationConfig config) throws Exception {
         WeComBotConfig botConfig = parseConfigJson(config.getConfigJson(), WeComBotConfig.class);
         weComBotClient.sendText(botConfig.getWebhookKey(), "连接测试", null);
+        return TestConnectionResult.ok();
+    }
+
+    private TestConnectionResult testWeComIntelligentBot(NotificationConfig config) throws Exception {
+        com.mattoid.scheduled.entity.WeComIntelligentBotConfig botConfig = parseConfigJson(config.getConfigJson(), com.mattoid.scheduled.entity.WeComIntelligentBotConfig.class);
+        // 验证鉴权：获取 access token
+        weComAppManager.buildTempService(botConfig).getAccessToken();
         return TestConnectionResult.ok();
     }
 

@@ -54,6 +54,10 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jdbc</artifactId>
         </dependency>
 
@@ -159,6 +163,7 @@
             <version>${sardine.version}</version>
         </dependency>
 
+        <!-- Markdown to HTML conversion for email body -->
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

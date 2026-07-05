@@ -15,6 +15,7 @@ import { listAiConfig } from "@/api/aiConfig";
 import { listStorageConfig } from "@/api/storageConfig";
 import type { NotificationRule, TaskConfig, AiConfig } from "@/types/entity";
 import { useAppStore } from "@/stores/app";
+import RichTextEditor from "@/components/RichTextEditor.vue";
 
 const appStore = useAppStore();
 appStore.setBreadcrumb([{ title: "通知规则" }]);
@@ -579,11 +580,9 @@ onMounted(() => {
           </el-form-item>
 
           <el-form-item label="邮件正文">
-            <el-input
+            <RichTextEditor
               v-model="form.body"
-              type="textarea"
-              :rows="4"
-              placeholder="支持占位符，留空使用默认正文"
+              placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认正文"
             />
           </el-form-item>
         </template>
@@ -611,11 +610,9 @@ onMounted(() => {
           "
         >
           <el-form-item label="消息内容">
-            <el-input
+            <RichTextEditor
               v-model="form.content"
-              type="textarea"
-              :rows="4"
-              placeholder="支持占位符，留空使用默认内容"
+              placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认内容"
             />
           </el-form-item>
 

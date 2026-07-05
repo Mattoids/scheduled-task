@@ -45,7 +45,20 @@ public class WeComCommandHandler {
         }
 
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
+        return processCommand(command);
+    }
 
+    /**
+     * 纯文本指令处理（用于智能机器人长链模式）
+     */
+    public String handleText(String content) {
+        if (!StringUtils.hasText(content)) {
+            return "无法识别指令，请发送\"帮助\"查看可用指令。";
+        }
+        return processCommand(content.trim());
+    }
+
+    private String processCommand(String command) {
         try {
             if ("QUERY_TASKS".equalsIgnoreCase(command) || command.startsWith("查询任务") || "任务列表".equals(command)) {
                 return handleQueryTasks(command);

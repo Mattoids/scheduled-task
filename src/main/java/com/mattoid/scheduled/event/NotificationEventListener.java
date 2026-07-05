@@ -4,6 +4,7 @@ import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.service.*;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
+import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
 import com.mattoid.scheduled.storage.client.StorageClient;
 import com.mattoid.scheduled.storage.service.StorageConfigService;
 import com.mattoid.scheduled.util.PlaceholderUtils;
@@ -27,6 +28,7 @@ public class NotificationEventListener {
     private final EmailSenderService emailSenderService;
     private final WeComAppManager weComAppManager;
     private final WeComBotClient weComBotClient;
+    private final WeComIntelligentBotClient weComIntelligentBotClient;
     private final AiAssistantService aiAssistantService;
     private final StorageConfigService storageConfigService;
 
@@ -36,6 +38,7 @@ public class NotificationEventListener {
                                      EmailSenderService emailSenderService,
                                      WeComAppManager weComAppManager,
                                      WeComBotClient weComBotClient,
+                                     WeComIntelligentBotClient weComIntelligentBotClient,
                                      AiAssistantService aiAssistantService,
                                      StorageConfigService storageConfigService) {
         this.notificationRuleService = notificationRuleService;
@@ -44,6 +47,7 @@ public class NotificationEventListener {
         this.emailSenderService = emailSenderService;
         this.weComAppManager = weComAppManager;
         this.weComBotClient = weComBotClient;
+        this.weComIntelligentBotClient = weComIntelligentBotClient;
         this.aiAssistantService = aiAssistantService;
         this.storageConfigService = storageConfigService;
     }
@@ -206,7 +210,42 @@ public class NotificationEventListener {
     }
 
     private void sendWeComIntelligentBot(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        sendWeComBot(event, rule, "WECOM_INTELLIGENT_BOT");
+        if (rule.getConfigId() == null) {
+            return;
+        }
+        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
+        if (notificationConfig == null || !"WECOM_INTELLIGENT_BOT".equals(notificationConfig.getConfigType()) ||
+                notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
+            log.warn("智能机器人配置不可用: {}", rule.getConfigId());
+            return;
+        }
+        Map<String, Object> data = buildInlineResultContext(event.getInlineResults());
+        String toUser = StringUtils.hasText(rule.getWecomToUser()) ? rule.getWecomToUser() : "@all";
+        String content = StringUtils.hasText(rule.getContent())
+                ? PlaceholderUtils.replacePlaceholders(rule.getContent(), data)
+                : buildDefaultSummary(event);
+
+        if (rule.getAiOptimizeNotify() != null && rule.getAiOptimizeNotify() == 1) {
+            AiAssistantService.NotificationContent optimized = optimizeNotify(rule, event,
+                    StringUtils.hasText(rule.getSubject()) ? rule.getSubject() : event.getTask().getTaskName(),
+                    content);
+            content = optimized.body();
+            log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
+        }
+
+        weComIntelligentBotClient.sendMarkdown(rule.getConfigId(), formatWeComMarkdown(content, event.getTask().getTaskName()), toUser);
+        List<File> reportFiles = event.getReportFiles();
+        if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
+            List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
+            if (!urls.isEmpty()) {
+                String urlContent = "文件下载地址：\n" + String.join("\n", urls);
+                weComIntelligentBotClient.sendText(rule.getConfigId(), urlContent, toUser);
+            }
+        } else {
+            for (File file : reportFiles) {
+                weComIntelligentBotClient.sendFile(rule.getConfigId(), file, toUser);
+            }
+        }
     }
 
     private void sendWeComBot(TaskExecutionEvent event, NotificationRule rule, String configType) throws Exception {
@@ -240,7 +279,7 @@ public class NotificationEventListener {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
                 String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                weComBotClient.sendMarkdown(config.getWebhookKey(), urlContent, mentionedList);
+                weComBotClient.sendText(config.getWebhookKey(), urlContent, mentionedList);
             }
         } else {
             for (File file : reportFiles) {
