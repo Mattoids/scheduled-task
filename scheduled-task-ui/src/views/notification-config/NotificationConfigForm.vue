@@ -55,7 +55,7 @@ const defaultConfigJson = (type: string) => {
     case "WECOM_BOT":
       return { webhookKey: "" };
     case "WECOM_INTELLIGENT_BOT":
-      return { corpId: "", agentId: 0, secret: "", token: "", aesKey: "", botId: "" };
+      return { corpId: "", botId: "", botSecret: "" };
     default:
       return {};
   }

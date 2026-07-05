@@ -49,8 +49,10 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
             if ("EMAIL".equals(configType)) {
                 encryptField(map, "password");
-            } else if ("WECOM_APP".equals(configType) || "WECOM_INTELLIGENT_BOT".equals(configType)) {
+            } else if ("WECOM_APP".equals(configType)) {
                 encryptField(map, "secret");
+            } else if ("WECOM_INTELLIGENT_BOT".equals(configType)) {
+                encryptField(map, "botSecret");
             }
             return objectMapper.writeValueAsString(map);
         } catch (JsonProcessingException e) {
@@ -138,9 +140,23 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     private TestConnectionResult testWeComIntelligentBot(NotificationConfig config) throws Exception {
         com.mattoid.scheduled.entity.WeComIntelligentBotConfig botConfig = parseConfigJson(config.getConfigJson(), com.mattoid.scheduled.entity.WeComIntelligentBotConfig.class);
+        if (StringUtils.hasText(botConfig.getBotSecret())) {
+            botConfig.setBotSecret(CryptoUtil.decryptIfNeeded(botConfig.getBotSecret()));
+        }
         // 验证鉴权：获取 access token
-        weComAppManager.buildTempService(botConfig).getAccessToken();
+        me.chanjar.weixin.cp.api.WxCpService service = buildIntelligentBotService(botConfig);
+        service.getAccessToken();
         return TestConnectionResult.ok();
+    }
+
+    private me.chanjar.weixin.cp.api.WxCpService buildIntelligentBotService(com.mattoid.scheduled.entity.WeComIntelligentBotConfig config) {
+        me.chanjar.weixin.cp.config.impl.WxCpDefaultConfigImpl storage = new me.chanjar.weixin.cp.config.impl.WxCpDefaultConfigImpl();
+        storage.setCorpId(config.getCorpId());
+        storage.setAgentId(Integer.valueOf(config.getBotId()));
+        storage.setCorpSecret(config.getBotSecret());
+        me.chanjar.weixin.cp.api.impl.WxCpServiceImpl impl = new me.chanjar.weixin.cp.api.impl.WxCpServiceImpl();
+        impl.setWxCpConfigStorage(storage);
+        return impl;
     }
 
     public <T> T parseConfigJson(String configJson, Class<T> clazz) throws JsonProcessingException {

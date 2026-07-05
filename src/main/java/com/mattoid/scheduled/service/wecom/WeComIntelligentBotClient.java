@@ -297,17 +297,21 @@ public class WeComIntelligentBotClient {
             throw new IllegalArgumentException("配置已禁用: " + configId);
         }
         WeComIntelligentBotConfig config = objectMapper.readValue(nc.getConfigJson(), WeComIntelligentBotConfig.class);
-        if (StringUtils.hasText(config.getSecret())) {
-            config.setSecret(CryptoUtil.decryptIfNeeded(config.getSecret()));
+        if (StringUtils.hasText(config.getBotSecret())) {
+            config.setBotSecret(CryptoUtil.decryptIfNeeded(config.getBotSecret()));
         }
         return config;
     }
 
     /**
-     * 构建临时 WxCpService（复用 WeComAppManager 的构建逻辑）
+     * 构建临时 WxCpService（智能机器人使用 botSecret 和 botId）
      */
     private WxCpService buildTempService(WeComIntelligentBotConfig config) {
-        WxCpDefaultConfigImpl storage = WeComAppManager.buildStorage(config);
+        WxCpDefaultConfigImpl storage = new WxCpDefaultConfigImpl();
+        storage.setCorpId(config.getCorpId());
+        storage.setAgentId(Integer.valueOf(config.getBotId()));
+        storage.setCorpSecret(config.getBotSecret());
+        storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         WxCpServiceImpl impl = new WxCpServiceImpl();
         impl.setWxCpConfigStorage(storage);
         return impl;
