@@ -92,11 +92,12 @@ public class NotificationEventListener {
             log.warn("邮件通知规则无收件人: ruleId={}", rule.getId());
             return;
         }
+        Map<String, Object> data = buildInlineResultContext(event.getInlineResults());
         String subject = StringUtils.hasText(rule.getSubject())
-                ? PlaceholderUtils.replacePlaceholders(rule.getSubject())
+                ? PlaceholderUtils.replacePlaceholders(rule.getSubject(), data)
                 : buildDefaultSubject(event);
         String body = StringUtils.hasText(rule.getBody())
-                ? PlaceholderUtils.replacePlaceholders(rule.getBody())
+                ? PlaceholderUtils.replacePlaceholders(rule.getBody(), data)
                 : buildDefaultSummary(event);
 
         if (!event.getInlineResults().isEmpty()) {
@@ -171,9 +172,10 @@ public class NotificationEventListener {
             log.warn("企业微信应用配置不可用: {}", rule.getConfigId());
             return;
         }
+        Map<String, Object> data = buildInlineResultContext(event.getInlineResults());
         String toUser = StringUtils.hasText(rule.getWecomToUser()) ? rule.getWecomToUser() : "@all";
         String content = StringUtils.hasText(rule.getContent())
-                ? PlaceholderUtils.replacePlaceholders(rule.getContent())
+                ? PlaceholderUtils.replacePlaceholders(rule.getContent(), data)
                 : buildDefaultSummary(event);
 
         if (!event.getInlineResults().isEmpty()) {
@@ -213,9 +215,10 @@ public class NotificationEventListener {
             log.warn("{} 配置不可用: {}", configType, rule.getConfigId());
             return;
         }
+        Map<String, Object> data = buildInlineResultContext(event.getInlineResults());
         WeComBotConfig config = notificationConfigService.parseConfigJson(notificationConfig.getConfigJson(), WeComBotConfig.class);
         String content = StringUtils.hasText(rule.getContent())
-                ? PlaceholderUtils.replacePlaceholders(rule.getContent())
+                ? PlaceholderUtils.replacePlaceholders(rule.getContent(), data)
                 : buildDefaultSummary(event);
 
         if (!event.getInlineResults().isEmpty()) {
@@ -323,6 +326,38 @@ public class NotificationEventListener {
             }
         }
         return sb.toString();
+    }
+
+    private Map<String, Object> buildInlineResultContext(List<InlineSqlResult> inlineResults) {
+        if (inlineResults == null || inlineResults.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> context = new LinkedHashMap<>();
+        for (InlineSqlResult result : inlineResults) {
+            if (result.data() == null || result.data().isEmpty()) {
+                continue;
+            }
+            List<Map<String, Object>> rows = result.data();
+            Set<String> columnNames = new LinkedHashSet<>();
+            for (Map<String, Object> row : rows) {
+                columnNames.addAll(row.keySet());
+            }
+            for (String col : columnNames) {
+                List<Object> values = new ArrayList<>();
+                for (Map<String, Object> row : rows) {
+                    values.add(row.get(col));
+                }
+                // If single row and single column, use plain value; otherwise use list
+                if (rows.size() == 1 && columnNames.size() == 1) {
+                    context.put(col, values.get(0));
+                } else {
+                    context.put(col, values);
+                }
+            }
+            // Also add total row count for the SQL
+            context.put(result.sqlName() + "_count", rows.size());
+        }
+        return context;
     }
 
     private String escapeHtml(String text) {

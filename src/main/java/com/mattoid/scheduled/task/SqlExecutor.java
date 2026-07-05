@@ -37,6 +37,9 @@ public class SqlExecutor {
     private static final Pattern SQL_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql) throws Exception {
+        if (!org.springframework.util.StringUtils.hasText(sql)) {
+            throw new IllegalArgumentException("SQL 内容为空, datasourceId=" + datasourceId);
+        }
         String processedSql = processSqlVariables(sql);
         if (!processedSql.equals(sql)) {
             log.debug("SQL 变量替换后: {}", processedSql);

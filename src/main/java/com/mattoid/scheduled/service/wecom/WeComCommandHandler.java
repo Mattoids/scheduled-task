@@ -12,6 +12,7 @@ import me.chanjar.weixin.cp.bean.message.WxCpXmlMessage;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 public class WeComCommandHandler {
 
     private static final int PAGE_SIZE = 10;
+    private static final int TOP_TASKS_COUNT = 3;
 
     private final TaskConfigService taskConfigService;
     private final TaskExecutionService taskExecutionService;
@@ -39,7 +41,7 @@ public class WeComCommandHandler {
         String eventKey = message.getEventKey();
 
         if (!StringUtils.hasText(content) && !StringUtils.hasText(eventKey)) {
-            return "无法识别指令，请发送“帮助”查看可用指令。";
+            return "无法识别指令，请发送\"帮助\"查看可用指令。";
         }
 
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
@@ -47,6 +49,18 @@ public class WeComCommandHandler {
         try {
             if ("QUERY_TASKS".equalsIgnoreCase(command) || command.startsWith("查询任务") || "任务列表".equals(command)) {
                 return handleQueryTasks(command);
+            }
+            if (command.startsWith("查看任务")) {
+                return handleViewTask(command);
+            }
+            if (command.startsWith("任务日志")) {
+                return handleTaskLogs(command);
+            }
+            if ("最近任务".equals(command) || "RECENT_TASKS".equalsIgnoreCase(command)) {
+                return handleRecentTasks();
+            }
+            if (command.startsWith("RUN_TASK_")) {
+                return handleQuickRun(command);
             }
             if (command.startsWith("运行 ") || command.startsWith("运行任务 ") || command.startsWith("运行")) {
                 return handleRunTask(command);
@@ -60,11 +74,149 @@ public class WeComCommandHandler {
             if ("HELP".equalsIgnoreCase(command) || "帮助".equals(command)) {
                 return helpText();
             }
-            return "未知指令：" + command + "\n请发送“帮助”查看可用指令。";
+            return "未知指令：" + command + "\n请发送\"帮助\"查看可用指令。";
         } catch (Exception e) {
             log.error("企业微信指令处理失败: {}", command, e);
             return "指令处理失败: " + e.getMessage();
         }
+    }
+
+    private String handleViewTask(String command) {
+        String arg = command.substring("查看任务".length()).trim();
+        if (!StringUtils.hasText(arg)) {
+            return "请指定任务 ID，例如：查看任务 1";
+        }
+        if (!arg.matches("\\d+")) {
+            return "请使用任务 ID 查看，例如：查看任务 1";
+        }
+        TaskConfig task = taskConfigService.getById(Long.parseLong(arg));
+        if (task == null) {
+            return "任务不存在: " + arg;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("任务详情：\n");
+        sb.append("ID: ").append(task.getId()).append("\n");
+        sb.append("名称: ").append(task.getTaskName()).append("\n");
+        sb.append("编码: ").append(task.getTaskCode() != null ? task.getTaskCode() : "无").append("\n");
+        sb.append("状态: ").append(task.getStatus()).append("\n");
+        sb.append("触发类型: ").append(task.getTriggerType() != null ? task.getTriggerType() : "无").append("\n");
+        if (StringUtils.hasText(task.getTriggerConfig())) {
+            sb.append("触发配置: ").append(task.getTriggerConfig()).append("\n");
+        }
+        // Get last execution info
+        TaskLog lastLog = taskLogMapper.selectOne(
+                new LambdaQueryWrapper<TaskLog>()
+                        .eq(TaskLog::getTaskId, task.getId())
+                        .orderByDesc(TaskLog::getCreateTime)
+                        .last("LIMIT 1")
+        );
+        if (lastLog != null) {
+            sb.append("最近执行: ").append(lastLog.getStartTime() != null ? lastLog.getStartTime().format(DateTimeFormatter.ofPattern("MM-dd HH:mm")) : "未知");
+            if ("SUCCESS".equals(lastLog.getStatus())) {
+                sb.append(" 成功");
+            } else if ("FAILED".equals(lastLog.getStatus())) {
+                sb.append(" 失败");
+            } else {
+                sb.append(" ").append(lastLog.getStatus());
+            }
+            sb.append("\n");
+        }
+        sb.append("\n回复\"运行 ").append(task.getId()).append("\" 立即运行本任务。");
+        return sb.toString();
+    }
+
+    private String handleTaskLogs(String command) {
+        String arg = command.substring("任务日志".length()).trim();
+        if (!StringUtils.hasText(arg)) {
+            return "请指定任务 ID，例如：任务日志 1";
+        }
+        String[] parts = arg.split("\\s+");
+        if (!parts[0].matches("\\d+")) {
+            return "请使用任务 ID 查看日志，例如：任务日志 1";
+        }
+        Long taskId = Long.parseLong(parts[0]);
+        TaskConfig task = taskConfigService.getById(taskId);
+        if (task == null) {
+            return "任务不存在: " + parts[0];
+        }
+        int page = 1;
+        if (parts.length > 1) {
+            try {
+                page = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        Page<TaskLog> result = taskLogMapper.selectPage(
+                new Page<>(page, PAGE_SIZE),
+                new LambdaQueryWrapper<TaskLog>()
+                        .eq(TaskLog::getTaskId, taskId)
+                        .orderByDesc(TaskLog::getCreateTime)
+        );
+        List<TaskLog> records = result.getRecords();
+        if (records.isEmpty()) {
+            return "任务 \"" + task.getTaskName() + "\" 暂无执行记录。";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("任务 \"" + task.getTaskName() + "\" 执行记录，");
+        sb.append("第 ").append(page).append("/").append(result.getPages()).append(" 页：\n");
+        for (TaskLog log : records) {
+            String timeStr = log.getStartTime() != null
+                    ? log.getStartTime().format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+                    : "未知";
+            sb.append("[").append(log.getStatus()).append("] ").append(timeStr);
+            if (StringUtils.hasText(log.getResultMessage())) {
+                sb.append("\n  ").append(log.getResultMessage());
+            }
+            if (StringUtils.hasText(log.getErrorMessage())) {
+                sb.append("\n  错误: ").append(log.getErrorMessage());
+            }
+            sb.append("\n");
+        }
+        sb.append("回复\"任务日志 ").append(taskId).append(" {页码}\" 查看其他页。");
+        return sb.toString();
+    }
+
+    private String handleRecentTasks() {
+        // Get top 3 most recently executed tasks
+        List<TaskLog> recentLogs = taskLogMapper.selectList(
+                new LambdaQueryWrapper<TaskLog>()
+                        .ne(TaskLog::getStatus, "RUNNING")
+                        .orderByDesc(TaskLog::getCreateTime)
+                        .last("LIMIT " + TOP_TASKS_COUNT)
+        );
+        if (recentLogs.isEmpty()) {
+            return "暂无最近执行的任务。请发送\"任务列表\"查看所有任务。";
+        }
+
+        StringBuilder sb = new StringBuilder("最近执行的任务（点击快捷按钮或回复序号运行）：\n");
+        for (int i = 0; i < recentLogs.size(); i++) {
+            TaskLog log = recentLogs.get(i);
+            TaskConfig task = taskConfigService.getById(log.getTaskId());
+            if (task == null) continue;
+            String timeStr = log.getStartTime() != null
+                    ? log.getStartTime().format(DateTimeFormatter.ofPattern("MM-dd HH:mm"))
+                    : "未知";
+            String statusLabel = "SUCCESS".equals(log.getStatus()) ? "成功" : "FAILED".equals(log.getStatus()) ? "失败" : log.getStatus();
+            sb.append(i + 1).append(". ").append(task.getTaskName())
+                    .append(" [").append(statusLabel).append("] ").append(timeStr).append("\n");
+        }
+        sb.append("\n回复序号（如\"1\"）即可运行对应任务，或回复\"任务列表\"查看全部。");
+        return sb.toString();
+    }
+
+    private String handleQuickRun(String command) {
+        // Command format: RUN_TASK_{taskId}
+        String taskIdStr = command.substring("RUN_TASK_".length()).trim();
+        if (!taskIdStr.matches("\\d+")) {
+            return "快捷运行参数错误，请重新点击菜单或发送\"运行 {任务ID}\"。";
+        }
+        Long taskId = Long.parseLong(taskIdStr);
+        TaskConfig task = taskConfigService.getById(taskId);
+        if (task == null) {
+            return "任务不存在: " + taskId;
+        }
+        taskExecutionService.executeTaskAsync(taskId, "MANUAL");
+        return "已触发任务: " + task.getTaskName() + " (ID: " + taskId + ")，请稍后查看执行结果。";
     }
 
     private String handleQueryTasks(String command) {
@@ -92,7 +244,7 @@ public class WeComCommandHandler {
                     .append(task.getTaskName()).append(" [")
                     .append(task.getStatus()).append("]\n");
         }
-        sb.append("\n回复“运行 {ID 或 任务名称}”触发任务，回复“帮助”查看全部指令。");
+        sb.append("\n回复\"运行 {ID 或 任务名称}\"触发任务，回复\"帮助\"查看全部指令。");
         return sb.toString();
     }
 
@@ -188,7 +340,10 @@ public class WeComCommandHandler {
         return "可用指令：\n" +
                 "帮助 - 显示本帮助\n" +
                 "任务列表 [页码] - 查看任务列表及总数\n" +
-                "查询任务 [页码] - 同“任务列表”\n" +
+                "查询任务 [页码] - 同\"任务列表\"\n" +
+                "查看任务 {ID} - 查看任务详情及最近执行结果\n" +
+                "任务日志 {ID} [页码] - 查看任务执行日志\n" +
+                "最近任务 - 查看最近执行的3个任务及快捷运行\n" +
                 "运行 {任务ID} - 按 ID 手动运行任务\n" +
                 "运行{任务名称}任务 - 按名称手动运行任务\n" +
                 "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务";

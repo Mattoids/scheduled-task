@@ -8,6 +8,7 @@ import type {
   TaskConfigRequest,
   TaskSqlConfig,
 } from "@/types/entity";
+import { validateCron, getNextExecutions } from "@/utils/cron";
 
 interface Props {
   visible: boolean;
@@ -100,6 +101,43 @@ const sqlTreeData = computed(() => {
     })),
   }));
 });
+
+const cronPreviewVisible = ref(false);
+const cronPreviewResult = ref<string[]>([]);
+const cronPreviewValid = ref(false);
+const cronPreviewMessage = ref("");
+
+const handlePreviewCron = () => {
+  if (form.value.triggerType !== "CRON") {
+    ElMessage.warning("仅 CRON 触发类型支持预览");
+    return;
+  }
+  const cron = form.value.triggerConfig;
+  if (!cron || cron.trim() === "") {
+    ElMessage.warning("请先填写 Cron 表达式");
+    return;
+  }
+
+  const validation = validateCron(cron);
+  cronPreviewValid.value = validation.valid;
+  cronPreviewMessage.value = validation.message;
+  if (!validation.valid) {
+    cronPreviewResult.value = [];
+    cronPreviewVisible.value = true;
+    return;
+  }
+
+  const executions = getNextExecutions(cron, 10);
+  if (!executions) {
+    cronPreviewValid.value = false;
+    cronPreviewMessage.value = "Cron 表达式格式无效";
+    cronPreviewResult.value = [];
+    cronPreviewVisible.value = true;
+    return;
+  }
+  cronPreviewResult.value = executions;
+  cronPreviewVisible.value = true;
+};
 
 const treeSelectRef = ref();
 
@@ -262,14 +300,29 @@ onMounted(() => {
         </el-col>
         <el-col :span="12">
           <el-form-item label="触发配置" prop="triggerConfig">
-            <el-input
-              v-model="form.triggerConfig"
-              :placeholder="
+            <el-row :gutter="16">
+              <el-col :span="15">
+                <el-input
+                    v-model="form.triggerConfig"
+                    :placeholder="
                 form.triggerType === 'CRON'
                   ? '0 0 9 * * ?'
                   : '2026-01-01 09:00:00'
               "
-            />
+                />
+              </el-col>
+              <el-col :span="1">
+                <el-button
+                    v-if="form.triggerType === 'CRON'"
+                    type="primary"
+                    :disabled="!form.triggerConfig || !form.triggerConfig.trim()"
+                    @click="handlePreviewCron"
+                    style="margin-left: 8px"
+                >
+                  预览
+                </el-button>
+              </el-col>
+            </el-row>
           </el-form-item>
         </el-col>
       </el-row>
@@ -366,5 +419,39 @@ onMounted(() => {
         >确定</el-button
       >
     </template>
+  </el-dialog>
+
+  <!-- Cron Preview Dialog -->
+  <el-dialog
+    v-model="cronPreviewVisible"
+    title="Cron 预览"
+    width="520px"
+  >
+    <el-alert
+      :type="cronPreviewValid ? 'success' : 'error'"
+      :title="cronPreviewValid ? 'Cron 表达式有效' : 'Cron 表达式无效'"
+      :description="cronPreviewMessage"
+      show-icon
+      closable="false"
+      style="margin-bottom: 16px"
+    />
+    <el-table
+      v-if="cronPreviewValid && cronPreviewResult.length > 0"
+      :data="cronPreviewResult"
+      border
+      size="small"
+      style="width: 100%"
+    >
+      <el-table-column type="index" label="序号" width="70" align="center" />
+      <el-table-column label="执行时间">
+        <template #default="{ row }">
+          <code style="font-size: 13px">{{ row }}</code>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-empty
+      v-if="cronPreviewValid && cronPreviewResult.length === 0"
+      description="未找到未来执行时间"
+    />
   </el-dialog>
 </template>
