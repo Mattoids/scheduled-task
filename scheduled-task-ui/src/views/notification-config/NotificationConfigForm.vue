@@ -346,45 +346,19 @@ const handleTest = async () => {
       </template>
 
       <template v-if="form.configType === 'WECOM_INTELLIGENT_BOT'">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="企业 ID" required>
-              <el-input v-model="form.configJson.corpId" placeholder="企业微信 CorpID" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="应用 ID" required>
-              <el-input-number
-                v-model="form.configJson.agentId"
-                :min="0"
-                controls-position="right"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="Secret">
+        <el-form-item label="企业 ID" required>
+          <el-input v-model="form.configJson.corpId" placeholder="企业微信 CorpID" />
+        </el-form-item>
+        <el-form-item label="机器人 ID" required>
+          <el-input v-model="form.configJson.botId" placeholder="智能机器人的 BotId" />
+        </el-form-item>
+        <el-form-item label="机器人 Secret">
           <el-input
-            v-model="form.configJson.secret"
+            v-model="form.configJson.botSecret"
             type="password"
             placeholder="留空表示不修改"
             show-password
           />
-        </el-form-item>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="Token">
-              <el-input v-model="form.configJson.token" placeholder="回调 Token（可选）" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="AES Key">
-              <el-input v-model="form.configJson.aesKey" placeholder="回调 AES Key（可选）" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="机器人 ID" required>
-          <el-input v-model="form.configJson.botId" placeholder="智能机器人的 BotId" />
         </el-form-item>
       </template>
 
