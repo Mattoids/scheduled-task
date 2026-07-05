@@ -213,7 +213,7 @@ class NotificationEventListenerTest {
     }
 
     @Test
-    void emailRuleWithInlineResults_appendsHtmlTable() throws Exception {
+    void emailRuleWithInlineResults_doesNotAppendTable() throws Exception {
         NotificationRule rule = new NotificationRule();
         rule.setId(7L);
         rule.setEventType("TASK_COMPLETED");
@@ -257,6 +257,6 @@ class NotificationEventListenerTest {
         listener.onTaskExecutionEvent(event);
 
         verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(),
-                argThat((String body) -> body.contains("<table") && body.contains("Alice")), anyList());
+                argThat((String body) -> !body.contains("<table")), anyList());
     }
 }

@@ -100,19 +100,19 @@ public class NotificationEventListener {
                 ? PlaceholderUtils.replacePlaceholders(rule.getBody(), data)
                 : buildDefaultSummary(event);
 
-        if (!event.getInlineResults().isEmpty()) {
-            body = body + "<br><br>" + formatInlineResultsHtml(event.getInlineResults());
-        }
-
         if (rule.getAiOptimizeNotify() != null && rule.getAiOptimizeNotify() == 1) {
-            String context = buildAiNotificationContext(event.getTask(), event);
-            AiAssistantService.NotificationContent optimized = aiAssistantService.optimizeNotification(subject, body, context, rule.getAiConfigId());
+            AiAssistantService.NotificationContent optimized = optimizeNotify(rule, event, subject, body);
             subject = optimized.subject();
             body = optimized.body();
-            log.info("通知规则 {} 已使用 AI 优化邮件通知内容", rule.getId());
+            log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
         emailSenderService.sendEmail(config, toList, subject, body, event.getReportFiles());
+    }
+
+    private AiAssistantService.NotificationContent optimizeNotify(NotificationRule rule, TaskExecutionEvent event, String subject, String body) {
+        String context = buildAiNotificationContext(event.getTask(), event);
+        return aiAssistantService.optimizeNotification(subject, body, context, rule.getAiConfigId());
     }
 
     private String buildAiNotificationContext(TaskConfig task, TaskExecutionEvent event) {
@@ -178,8 +178,12 @@ public class NotificationEventListener {
                 ? PlaceholderUtils.replacePlaceholders(rule.getContent(), data)
                 : buildDefaultSummary(event);
 
-        if (!event.getInlineResults().isEmpty()) {
-            content = content + "\n\n" + formatInlineResultsText(event.getInlineResults());
+        if (rule.getAiOptimizeNotify() != null && rule.getAiOptimizeNotify() == 1) {
+            AiAssistantService.NotificationContent optimized = optimizeNotify(rule, event,
+                    StringUtils.hasText(rule.getSubject()) ? rule.getSubject() : event.getTask().getTaskName(),
+                    content);
+            content = optimized.body();
+            log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
         weComAppManager.sendText(rule.getConfigId(), toUser, content);
@@ -221,8 +225,12 @@ public class NotificationEventListener {
                 ? PlaceholderUtils.replacePlaceholders(rule.getContent(), data)
                 : buildDefaultSummary(event);
 
-        if (!event.getInlineResults().isEmpty()) {
-            content = content + "\n\n" + formatInlineResultsText(event.getInlineResults());
+        if (rule.getAiOptimizeNotify() != null && rule.getAiOptimizeNotify() == 1) {
+            AiAssistantService.NotificationContent optimized = optimizeNotify(rule, event,
+                    StringUtils.hasText(rule.getSubject()) ? rule.getSubject() : event.getTask().getTaskName(),
+                    content);
+            content = optimized.body();
+            log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
         List<String> mentionedList = parseMentionedList(rule.getWecomToUser());
@@ -272,62 +280,6 @@ public class NotificationEventListener {
         return urls;
     }
 
-    private String formatInlineResultsHtml(List<InlineSqlResult> inlineResults) {
-        if (inlineResults == null || inlineResults.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder("<h3>SQL 查询结果</h3>");
-        for (InlineSqlResult result : inlineResults) {
-            sb.append("<h4>").append(escapeHtml(result.sqlName())).append("</h4>");
-            if (result.data() == null || result.data().isEmpty()) {
-                sb.append("<p>无数据</p>");
-                continue;
-            }
-            List<String> headers = new ArrayList<>(result.data().get(0).keySet());
-            sb.append("<table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;'>");
-            sb.append("<tr>");
-            for (String header : headers) {
-                sb.append("<th>").append(escapeHtml(header)).append("</th>");
-            }
-            sb.append("</tr>");
-            for (Map<String, Object> row : result.data()) {
-                sb.append("<tr>");
-                for (String header : headers) {
-                    Object value = row.get(header);
-                    sb.append("<td>").append(escapeHtml(value != null ? value.toString() : "")).append("</td>");
-                }
-                sb.append("</tr>");
-            }
-            sb.append("</table>");
-        }
-        return sb.toString();
-    }
-
-    private String formatInlineResultsText(List<InlineSqlResult> inlineResults) {
-        if (inlineResults == null || inlineResults.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder("SQL 查询结果：");
-        for (InlineSqlResult result : inlineResults) {
-            sb.append("\n\n【").append(result.sqlName()).append("】");
-            if (result.data() == null || result.data().isEmpty()) {
-                sb.append("\n无数据");
-                continue;
-            }
-            List<String> headers = new ArrayList<>(result.data().get(0).keySet());
-            sb.append("\n").append(String.join("\t", headers));
-            for (Map<String, Object> row : result.data()) {
-                List<String> values = new ArrayList<>();
-                for (String header : headers) {
-                    Object value = row.get(header);
-                    values.add(value != null ? value.toString() : "");
-                }
-                sb.append("\n").append(String.join("\t", values));
-            }
-        }
-        return sb.toString();
-    }
-
     private Map<String, Object> buildInlineResultContext(List<InlineSqlResult> inlineResults) {
         if (inlineResults == null || inlineResults.isEmpty()) {
             return Collections.emptyMap();
@@ -358,17 +310,6 @@ public class NotificationEventListener {
             context.put(result.sqlName() + "_count", rows.size());
         }
         return context;
-    }
-
-    private String escapeHtml(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
     }
 
     private String buildDefaultSubject(TaskExecutionEvent event) {

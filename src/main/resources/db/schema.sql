@@ -1,7 +1,9 @@
+-- scheduled_task 完整建库脚本（包含所有表结构，幂等）
 CREATE DATABASE IF NOT EXISTS scheduled_task DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE scheduled_task;
 
--- 系统用户
+-- ===================== 系统认证 =====================
+
 CREATE TABLE IF NOT EXISTS sys_user (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(64) NOT NULL UNIQUE,
@@ -14,7 +16,6 @@ CREATE TABLE IF NOT EXISTS sys_user (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 角色
 CREATE TABLE IF NOT EXISTS sys_role (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     role_code VARCHAR(64) NOT NULL UNIQUE,
@@ -25,7 +26,6 @@ CREATE TABLE IF NOT EXISTS sys_role (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 权限
 CREATE TABLE IF NOT EXISTS sys_permission (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     permission_code VARCHAR(128) NOT NULL UNIQUE,
@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS sys_permission (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 用户角色关联
 CREATE TABLE IF NOT EXISTS sys_user_role (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL,
@@ -49,7 +48,6 @@ CREATE TABLE IF NOT EXISTS sys_user_role (
     UNIQUE KEY uk_user_role (user_id, role_id)
 );
 
--- 角色权限关联
 CREATE TABLE IF NOT EXISTS sys_role_permission (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     role_id BIGINT NOT NULL,
@@ -59,7 +57,8 @@ CREATE TABLE IF NOT EXISTS sys_role_permission (
     UNIQUE KEY uk_role_permission (role_id, permission_id)
 );
 
--- 数据源配置
+-- ===================== 数据源 =====================
+
 CREATE TABLE IF NOT EXISTS datasource_config (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(128) NOT NULL,
@@ -85,18 +84,20 @@ CREATE TABLE IF NOT EXISTS datasource_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 通知配置
+-- ===================== 统一通知配置 =====================
+
 CREATE TABLE IF NOT EXISTS notification_config (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     config_name VARCHAR(255) NOT NULL COMMENT '配置名称',
-    config_type VARCHAR(32) NOT NULL COMMENT '配置类型：EMAIL / WECOM_APP / WECOM_BOT / WECOM_INTELLIGENT_BOT',
+    config_type VARCHAR(32) NOT NULL COMMENT 'EMAIL / WECOM_APP / WECOM_BOT / WECOM_INTELLIGENT_BOT',
     config_json TEXT NOT NULL COMMENT '类型相关 JSON 配置',
     status TINYINT DEFAULT 1 COMMENT '状态：1 启用，0 禁用',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 收件人分组
+-- ===================== 邮件 =====================
+
 CREATE TABLE IF NOT EXISTS email_recipient_group (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     group_name VARCHAR(128) NOT NULL,
@@ -107,7 +108,6 @@ CREATE TABLE IF NOT EXISTS email_recipient_group (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 收件人
 CREATE TABLE IF NOT EXISTS email_recipient (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     recipient_name VARCHAR(128),
@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS email_recipient (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 报表模板
+-- ===================== 报表模板 =====================
+
 CREATE TABLE IF NOT EXISTS report_template (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     template_name VARCHAR(128) NOT NULL,
@@ -132,7 +133,41 @@ CREATE TABLE IF NOT EXISTS report_template (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 定时任务配置
+-- ===================== 存储配置 =====================
+
+CREATE TABLE IF NOT EXISTS storage_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_name VARCHAR(128) NOT NULL COMMENT '配置名称',
+    storage_type VARCHAR(32) NOT NULL COMMENT '存储类型：LOCAL / OSS / S3 / WEBDAV',
+    config_json TEXT COMMENT '配置 JSON',
+    status TINYINT DEFAULT 1 COMMENT '状态：1 启用，0 禁用',
+    is_default TINYINT DEFAULT 0 COMMENT '是否默认：1 默认，0 非默认',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- ===================== AI 配置 =====================
+
+CREATE TABLE IF NOT EXISTS ai_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_name VARCHAR(128) NOT NULL COMMENT '配置名称',
+    provider VARCHAR(64) NOT NULL COMMENT '厂商：OPENAI / ANTHROPIC / AZURE_OPENAI / OLLAMA / CUSTOM',
+    api_key VARCHAR(512) COMMENT 'API Key',
+    base_url VARCHAR(256) COMMENT '基础 URL，支持自定义代理或私有部署',
+    model VARCHAR(128) NOT NULL COMMENT '模型名称',
+    temperature DECIMAL(3, 2) DEFAULT 0.7 COMMENT '温度参数',
+    max_tokens INT DEFAULT 2048 COMMENT '单次最大 token 数',
+    timeout_seconds INT DEFAULT 60 COMMENT '请求超时秒数',
+    is_default TINYINT DEFAULT 0 COMMENT '是否为默认配置：1 是，0 否',
+    status TINYINT DEFAULT 1 COMMENT '状态：1 启用，0 禁用',
+    remark VARCHAR(512) COMMENT '备注',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_ai_config_name (config_name)
+);
+
+-- ===================== 定时任务 =====================
+
 CREATE TABLE IF NOT EXISTS task_config (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     task_name VARCHAR(128) NOT NULL,
@@ -145,7 +180,6 @@ CREATE TABLE IF NOT EXISTS task_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 任务执行日志
 CREATE TABLE IF NOT EXISTS task_log (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     task_id BIGINT NOT NULL,
@@ -160,7 +194,8 @@ CREATE TABLE IF NOT EXISTS task_log (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- SQL 分组
+-- ===================== SQL 分组与配置 =====================
+
 CREATE TABLE IF NOT EXISTS task_sql_group (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     group_name VARCHAR(128) NOT NULL,
@@ -172,7 +207,6 @@ CREATE TABLE IF NOT EXISTS task_sql_group (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- SQL 语句模块
 CREATE TABLE IF NOT EXISTS task_sql_config (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     sql_name VARCHAR(128) NOT NULL,
@@ -190,7 +224,8 @@ CREATE TABLE IF NOT EXISTS task_sql_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 任务与 SQL 关联
+CREATE INDEX IF NOT EXISTS idx_task_sql_group_id ON task_sql_config(group_id);
+
 CREATE TABLE IF NOT EXISTS task_sql_relation (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     task_id BIGINT NOT NULL,
@@ -201,12 +236,14 @@ CREATE TABLE IF NOT EXISTS task_sql_relation (
     UNIQUE KEY uk_task_sql (task_id, sql_id)
 );
 
--- 全局通知规则
+-- ===================== 通知规则 =====================
+
 CREATE TABLE IF NOT EXISTS notification_rule (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     event_type VARCHAR(32) NOT NULL COMMENT 'TASK_SUCCESS / TASK_FAILURE / TASK_COMPLETED',
     channel VARCHAR(32) NOT NULL COMMENT 'EMAIL / WECOM_APP / WECOM_BOT / WECOM_INTELLIGENT_BOT',
     config_id BIGINT COMMENT '对应 notification_config 的 id',
+    task_id BIGINT NULL COMMENT '关联任务 ID，为空时为全局规则',
     recipient_ids VARCHAR(1024) COMMENT 'EMAIL 渠道：收件人 id，逗号分隔',
     recipient_group_ids VARCHAR(1024) COMMENT 'EMAIL 渠道：收件人群组 id，逗号分隔',
     wecom_to_user VARCHAR(500) COMMENT 'WeCom 渠道：接收人 / 被提及用户',
@@ -215,28 +252,17 @@ CREATE TABLE IF NOT EXISTS notification_rule (
     content TEXT COMMENT 'WeCom 文本模板',
     ai_optimize_notify TINYINT DEFAULT 0 COMMENT '是否启用 AI 优化通知内容：1 启用，0 禁用',
     ai_config_id BIGINT NULL COMMENT 'AI 配置 ID，为空时使用默认配置',
+    storage_config_id BIGINT NULL COMMENT '存储配置 ID，为空时直接发送文件，不为空时上传到存储系统后发链接',
     enabled TINYINT DEFAULT 1,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- AI 配置表
-CREATE TABLE IF NOT EXISTS ai_config (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    config_name VARCHAR(128) NOT NULL COMMENT '配置名称',
-    provider VARCHAR(64) NOT NULL COMMENT '厂商：OPENAI / ANTHROPIC / AZURE_OPENAI / OLLAMA / CUSTOM',
-    api_key VARCHAR(512) COMMENT 'API Key',
-    base_url VARCHAR(256) COMMENT '基础 URL',
-    model VARCHAR(128) NOT NULL COMMENT '模型名称',
-    temperature DECIMAL(3, 2) DEFAULT 0.7 COMMENT '温度参数',
-    max_tokens INT DEFAULT 2048 COMMENT '单次最大 token 数',
-    timeout_seconds INT DEFAULT 60 COMMENT '请求超时秒数',
-    is_default TINYINT DEFAULT 0 COMMENT '是否为默认配置：1 是，0 否',
-    status TINYINT DEFAULT 1 COMMENT '状态：1 启用，0 禁用',
-    remark VARCHAR(512) COMMENT '备注',
-    create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_ai_config_name (config_name)
-);
+CREATE INDEX IF NOT EXISTS idx_notification_rule_task_id ON notification_rule(task_id);
 
--- 初始化数据在 InitDataRunner 中完成
+-- ===================== 数据初始化 =====================
+
+-- AI 配置默认示例
+INSERT INTO ai_config (config_name, provider, model, status, is_default, remark)
+VALUES ('默认 OpenAI 配置', 'OPENAI', 'gpt-4o-mini', 0, 1, '请在页面中配置真实 API Key 后启用')
+ON DUPLICATE KEY UPDATE id = id;
