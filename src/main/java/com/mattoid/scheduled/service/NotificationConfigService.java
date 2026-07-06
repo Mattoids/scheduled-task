@@ -11,6 +11,7 @@ import com.mattoid.scheduled.entity.WeComBotConfig;
 import com.mattoid.scheduled.mapper.NotificationConfigMapper;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
+import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
 import com.mattoid.scheduled.util.CryptoUtil;
 import jakarta.mail.MessagingException;
 import lombok.extern.slf4j.Slf4j;
@@ -28,11 +29,14 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WeComAppManager weComAppManager;
     private final WeComBotClient weComBotClient;
+    private final WeComIntelligentBotClient weComIntelligentBotClient;
 
     public NotificationConfigService(WeComAppManager weComAppManager,
-                                     WeComBotClient weComBotClient) {
+                                     WeComBotClient weComBotClient,
+                                     WeComIntelligentBotClient weComIntelligentBotClient) {
         this.weComAppManager = weComAppManager;
         this.weComBotClient = weComBotClient;
+        this.weComIntelligentBotClient = weComIntelligentBotClient;
     }
 
     @Override
@@ -157,24 +161,13 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             temp.setAesKey(botConfig.getAesKey());
             weComAppManager.buildTempService(temp).getAccessToken();
         } else {
-            // 长链模式：通过 botId/botSecret 获取 access token
+            // 长链模式：通过 WebSocket + aibot_subscribe 测试订阅是否成功
             if (StringUtils.hasText(botConfig.getBotSecret())) {
                 botConfig.setBotSecret(CryptoUtil.decryptIfNeeded(botConfig.getBotSecret()));
             }
-            me.chanjar.weixin.cp.api.WxCpService service = buildIntelligentBotService(botConfig);
-            service.getAccessToken();
+            weComIntelligentBotClient.testConnection(botConfig);
         }
         return TestConnectionResult.ok();
-    }
-
-    private me.chanjar.weixin.cp.api.WxCpService buildIntelligentBotService(com.mattoid.scheduled.entity.WeComIntelligentBotConfig config) {
-        me.chanjar.weixin.cp.config.impl.WxCpDefaultConfigImpl storage = new me.chanjar.weixin.cp.config.impl.WxCpDefaultConfigImpl();
-        storage.setCorpId(config.getCorpId());
-        storage.setAgentId(Integer.valueOf(config.getBotId()));
-        storage.setCorpSecret(config.getBotSecret());
-        me.chanjar.weixin.cp.api.impl.WxCpServiceImpl impl = new me.chanjar.weixin.cp.api.impl.WxCpServiceImpl();
-        impl.setWxCpConfigStorage(storage);
-        return impl;
     }
 
     public <T> T parseConfigJson(String configJson, Class<T> clazz) throws JsonProcessingException {

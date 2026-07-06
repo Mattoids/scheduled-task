@@ -259,19 +259,8 @@ public class NotificationEventListener {
                 }
             }
         } else {
-            weComIntelligentBotClient.sendMarkdown(rule.getConfigId(), formatWeComMarkdown(content, event.getTask().getTaskName()), toUser);
-            List<File> reportFiles = event.getReportFiles();
-            if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
-                List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
-                if (!urls.isEmpty()) {
-                    String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                    weComIntelligentBotClient.sendText(rule.getConfigId(), urlContent, toUser);
-                }
-            } else {
-                for (File file : reportFiles) {
-                    weComIntelligentBotClient.sendFile(rule.getConfigId(), file, toUser);
-                }
-            }
+            // 长链模式仅支持被动回复用户消息，无法主动推送任务通知
+            log.warn("智能机器人长链模式不支持主动推送通知，请将通知规则 {} 切换到 CALLBACK 模式", rule.getId());
         }
     }
 

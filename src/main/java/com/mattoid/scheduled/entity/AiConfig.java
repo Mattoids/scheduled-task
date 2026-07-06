@@ -32,5 +32,10 @@ public class AiConfig extends BaseEntity {
 
     private Integer status;
 
+    /**
+     * 系统提示词，用于定义 AI 角色、功能等
+     */
+    private String systemPrompt;
+
     private String remark;
 }

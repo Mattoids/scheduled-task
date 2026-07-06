@@ -205,6 +205,7 @@ export interface AiConfig {
   timeoutSeconds?: number
   isDefault?: number
   status?: number
+  systemPrompt?: string
   remark?: string
   createTime?: string
   updateTime?: string

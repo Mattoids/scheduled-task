@@ -2,9 +2,11 @@ package com.mattoid.scheduled.service.wecom;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.dto.IntentResult;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
+import com.mattoid.scheduled.service.AiAssistantService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskExecutionService;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,7 @@ import org.springframework.util.StringUtils;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -27,13 +30,16 @@ public class WeComCommandHandler {
     private final TaskConfigService taskConfigService;
     private final TaskExecutionService taskExecutionService;
     private final TaskLogMapper taskLogMapper;
+    private final AiAssistantService aiAssistantService;
 
     public WeComCommandHandler(TaskConfigService taskConfigService,
                                TaskExecutionService taskExecutionService,
-                               TaskLogMapper taskLogMapper) {
+                               TaskLogMapper taskLogMapper,
+                               AiAssistantService aiAssistantService) {
         this.taskConfigService = taskConfigService;
         this.taskExecutionService = taskExecutionService;
         this.taskLogMapper = taskLogMapper;
+        this.aiAssistantService = aiAssistantService;
     }
 
     public String handle(WxCpXmlMessage message, Long configId) {
@@ -45,7 +51,11 @@ public class WeComCommandHandler {
         }
 
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
-        return processCommand(command);
+        String result = processCommand(command);
+        if (result != null && result.startsWith("未知指令")) {
+            return handleAiFallback(command);
+        }
+        return result;
     }
 
     /**
@@ -55,7 +65,12 @@ public class WeComCommandHandler {
         if (!StringUtils.hasText(content)) {
             return "无法识别指令，请发送\"帮助\"查看可用指令。";
         }
-        return processCommand(content.trim());
+        String command = content.trim();
+        String result = processCommand(command);
+        if (result != null && result.startsWith("未知指令")) {
+            return handleAiFallback(command);
+        }
+        return result;
     }
 
     private String processCommand(String command) {
@@ -92,6 +107,85 @@ public class WeComCommandHandler {
             log.error("企业微信指令处理失败: {}", command, e);
             return "指令处理失败: " + e.getMessage();
         }
+    }
+
+    private String handleAiFallback(String content) {
+        try {
+            IntentResult intent = aiAssistantService.parseIntent(content);
+            if (intent != null && intent.isRecognized()) {
+                return executeIntent(intent, content);
+            }
+            return aiAssistantService.chatReply(content);
+        } catch (Exception e) {
+            log.error("AI 分析企业微信消息失败: {}", content, e);
+            return "AI 处理失败，请稍后再试。";
+        }
+    }
+
+    private String executeIntent(IntentResult intent, String originalContent) {
+        String action = intent.getAction();
+        Map<String, String> params = intent.getParams();
+        if (!StringUtils.hasText(action)) {
+            return aiAssistantService.chatReply(originalContent);
+        }
+        try {
+            return switch (action) {
+                case "VIEW_TASKS" -> handleViewTasksIntent(params);
+                case "TRIGGER_TASK" -> handleTriggerTaskIntent(params);
+                case "VIEW_LOGS" -> handleViewLogsIntent(params);
+                case "CREATE_TASK" -> "创建任务请使用格式：\n创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2";
+                default -> aiAssistantService.chatReply(originalContent);
+            };
+        } catch (Exception e) {
+            log.error("AI 意图执行失败: action={}, params={}", action, params, e);
+            return "指令执行失败: " + e.getMessage();
+        }
+    }
+
+    private String handleViewTasksIntent(Map<String, String> params) {
+        String keyword = params.get("keyword");
+        if (StringUtils.hasText(keyword)) {
+            var query = taskConfigService.lambdaQuery()
+                    .like(TaskConfig::getTaskName, keyword);
+            String status = params.get("status");
+            if (StringUtils.hasText(status)) {
+                query.eq(TaskConfig::getStatus, status);
+            }
+            List<TaskConfig> tasks = query.orderByDesc(TaskConfig::getCreateTime).list();
+            if (tasks.isEmpty()) {
+                return "未找到匹配的任务: " + keyword;
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("找到 ").append(tasks.size()).append(" 个匹配任务：\n");
+            for (TaskConfig task : tasks) {
+                sb.append(task.getId()).append(". ")
+                        .append(task.getTaskName()).append(" [")
+                        .append(task.getStatus()).append("]\n");
+            }
+            sb.append("\n回复\"运行 {ID 或 任务名称}\"触发任务。");
+            return sb.toString();
+        }
+        return handleQueryTasks("任务列表");
+    }
+
+    private String handleTriggerTaskIntent(Map<String, String> params) {
+        String taskId = params.get("taskId");
+        String taskName = params.get("taskName");
+        if (StringUtils.hasText(taskId)) {
+            return handleQuickRun("RUN_TASK_" + taskId);
+        }
+        if (StringUtils.hasText(taskName)) {
+            return handleRunTask("运行 " + taskName);
+        }
+        return "请指定任务 ID 或任务名称。";
+    }
+
+    private String handleViewLogsIntent(Map<String, String> params) {
+        String taskId = params.get("taskId");
+        if (StringUtils.hasText(taskId)) {
+            return handleTaskLogs("任务日志 " + taskId);
+        }
+        return "请指定任务 ID 查看日志。";
     }
 
     private String handleViewTask(String command) {

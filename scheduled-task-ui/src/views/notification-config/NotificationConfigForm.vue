@@ -354,9 +354,6 @@ const handleTest = async () => {
         </el-form-item>
 
         <template v-if="form.configJson.mode === 'LONGCHAIN'">
-          <el-form-item label="企业 ID" required>
-            <el-input v-model="form.configJson.corpId" placeholder="企业微信 CorpID" />
-          </el-form-item>
           <el-form-item label="机器人 ID" required>
             <el-input v-model="form.configJson.botId" placeholder="智能机器人的 BotId" />
           </el-form-item>

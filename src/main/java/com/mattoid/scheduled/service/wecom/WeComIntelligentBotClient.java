@@ -6,10 +6,6 @@ import com.mattoid.scheduled.entity.WeComIntelligentBotConfig;
 import com.mattoid.scheduled.mapper.NotificationConfigMapper;
 import com.mattoid.scheduled.util.CryptoUtil;
 import lombok.extern.slf4j.Slf4j;
-import me.chanjar.weixin.cp.api.WxCpService;
-import me.chanjar.weixin.cp.api.impl.WxCpServiceImpl;
-import me.chanjar.weixin.cp.bean.message.WxCpMessage;
-import me.chanjar.weixin.cp.config.impl.WxCpDefaultConfigImpl;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.WebSocketHandler;
@@ -19,27 +15,48 @@ import org.springframework.web.socket.client.WebSocketClient;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.time.Instant;
-import java.util.Base64;
+import java.io.IOException;
+import java.net.URI;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Component
 public class WeComIntelligentBotClient {
 
-    private static final String WSS_URL_TEMPLATE = "wss://qyapi.weixin.qq.com/cgi-bin/webhook/easy_robots?wskey=%s";
-    private static final int RECONNECT_DELAY_SECONDS = 5;
-    private static final int RECONNECT_MAX_DELAY_SECONDS = 60;
+    /**
+     * 企业微信智能机器人长连接官方地址
+     */
+    private static final String DEFAULT_LONG_CONNECTION_URL = "wss://openws.work.weixin.qq.com";
+
+    private static final String CMD_SUBSCRIBE = "aibot_subscribe";
+    private static final String CMD_PING = "ping";
+    private static final String CMD_RESPONSE = "aibot_respond_msg";
+    private static final String CMD_MSG_CALLBACK = "aibot_msg_callback";
+    private static final String CMD_EVENT_CALLBACK = "aibot_event_callback";
+
+    private static final long PING_INTERVAL_MS = 30_000;
+    private static final long TEST_TIMEOUT_MS = 10_000;
+    private static final long RECONNECT_DELAY_SECONDS = 5;
+    private static final long RECONNECT_MAX_DELAY_SECONDS = 60;
 
     private final NotificationConfigMapper notificationConfigMapper;
     private final WeComCommandHandler weComCommandHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebSocketClient webSocketClient;
     private final Map<Long, BotConnection> connections = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatExecutor = Executors.newScheduledThreadPool(2, r -> {
+        Thread t = new Thread(r, "wecom-intelligent-bot-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
 
     public WeComIntelligentBotClient(NotificationConfigMapper notificationConfigMapper,
                                      WeComCommandHandler weComCommandHandler) {
@@ -49,25 +66,103 @@ public class WeComIntelligentBotClient {
     }
 
     /**
+     * 测试智能机器人长连接配置是否可用
+     */
+    public void testConnection(WeComIntelligentBotConfig config) throws Exception {
+        validateLongConnectionConfig(config);
+        String decryptedSecret = CryptoUtil.decryptIfNeeded(config.getBotSecret());
+
+        CountDownLatch subscribedLatch = new CountDownLatch(1);
+        AtomicReference<String> errorRef = new AtomicReference<>();
+
+        WebSocketHandler handler = new WebSocketHandler() {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                log.info("智能机器人测试连接已建立");
+                sendSubscribe(session, config.getBotId(), decryptedSecret);
+            }
+
+            @Override
+            public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws Exception {
+                String payload = getTextPayload(message);
+                log.debug("智能机器人测试连接收到消息: {}", truncate(payload, 500));
+                try {
+                    Map<String, Object> msg = objectMapper.readValue(payload, Map.class);
+                    String cmd = (String) msg.get("cmd");
+                    Map<String, Object> headers = (Map<String, Object>) msg.get("headers");
+                    String reqId = headers != null ? (String) headers.get("req_id") : null;
+
+                    if (isSubscribeResponse(cmd, reqId)) {
+                        int errcode = extractErrcode(msg);
+                        String errmsg = extractErrmsg(msg);
+                        if (errcode == 0) {
+                            log.info("智能机器人测试订阅成功");
+                            subscribedLatch.countDown();
+                        } else {
+                            log.error("智能机器人测试订阅失败, errcode={}, errmsg={}", errcode, errmsg);
+                            errorRef.set("智能机器人订阅失败, errcode=" + errcode + ", errmsg=" + errmsg);
+                            subscribedLatch.countDown();
+                        }
+                        safeClose(session);
+                    }
+                } catch (Exception e) {
+                    log.warn("智能机器人测试连接处理消息失败", e);
+                }
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, org.springframework.web.socket.CloseStatus status) {
+                // 测试连接无需处理关闭事件
+            }
+
+            @Override
+            public void handleTransportError(WebSocketSession session, Throwable error) {
+                errorRef.set("智能机器人测试连接传输错误: " + error.getMessage());
+                subscribedLatch.countDown();
+            }
+
+            @Override
+            public boolean supportsPartialMessages() {
+                return false;
+            }
+        };
+
+        WebSocketSession session = webSocketClient.execute(handler, new org.springframework.web.socket.WebSocketHttpHeaders(), URI.create(DEFAULT_LONG_CONNECTION_URL)).get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        boolean success = subscribedLatch.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        safeClose(session);
+
+        if (!success) {
+            throw new IllegalStateException("智能机器人测试连接超时");
+        }
+        String error = errorRef.get();
+        if (error != null) {
+            throw new IllegalStateException(error);
+        }
+    }
+
+    /**
      * 通过通知配置 ID 连接智能机器人长链
      */
     public void connect(Long configId) {
         BotConnection existing = connections.get(configId);
-        if (existing != null && existing.isConnected()) {
-            log.info("智能机器人连接已存在: configId={}", configId);
-            return;
+        if (existing != null) {
+            if (existing.isConnected()) {
+                log.info("智能机器人连接已存在: configId={}", configId);
+                return;
+            }
+            // 旧连接未就绪，先清理
+            existing.stop();
+            connections.remove(configId);
         }
 
         try {
             WeComIntelligentBotConfig config = loadConfig(configId);
-            String wsKey = buildWsKey(config);
-            String url = String.format(WSS_URL_TEMPLATE, wsKey);
-            log.info("智能机器人长链连接: configId={}, url={}", configId, maskUrl(url));
+            log.info("智能机器人长链连接: configId={}, botId={}", configId, maskBotId(config.getBotId()));
 
             BotConnection connection = new BotConnection(configId);
             connections.put(configId, connection);
             WebSocketHandler handler = createHandler(configId, config, connection);
-            webSocketClient.doHandshake(handler, url).get(10, TimeUnit.SECONDS);
+            webSocketClient.execute(handler, new org.springframework.web.socket.WebSocketHttpHeaders(), URI.create(DEFAULT_LONG_CONNECTION_URL)).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.error("智能机器人长链连接失败: configId={}", configId, e);
             connections.remove(configId);
@@ -78,16 +173,9 @@ public class WeComIntelligentBotClient {
      * 断开指定配置的智能机器人连接
      */
     public void disconnect(Long configId) {
-        BotConnection conn = connections.get(configId);
+        BotConnection conn = connections.remove(configId);
         if (conn != null) {
-            try {
-                if (conn.getSession() != null && conn.getSession().isOpen()) {
-                    conn.getSession().close();
-                }
-            } catch (Exception e) {
-                log.warn("关闭智能机器人连接时出错: configId={}", configId, e);
-            }
-            connections.remove(configId);
+            conn.stop();
             log.info("智能机器人长链已断开: configId={}", configId);
         }
     }
@@ -99,152 +187,151 @@ public class WeComIntelligentBotClient {
         for (Long configId : connections.keySet()) {
             disconnect(configId);
         }
+        heartbeatExecutor.shutdown();
     }
 
     /**
-     * 通过应用消息 API 发送文本消息
+     * 通过智能机器人长链发送文本消息。
+     * 注意：官方长连接模式下机器人只能被动回复用户消息，不支持主动向指定用户发送消息。
      */
     public void sendText(Long configId, String content) throws Exception {
-        sendText(configId, content, null);
-    }
-
-    public void sendText(Long configId, String content, String toUser) throws Exception {
-        if (!StringUtils.hasText(content)) {
-            return;
-        }
-        WeComIntelligentBotConfig config = loadConfig(configId);
-        WxCpService service = buildTempService(config);
-        WxCpMessage message = WxCpMessage.TEXT()
-                .toUser(toUser != null ? toUser : "@all")
-                .content(content)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("智能机器人发送文本消息: configId={}, toUser={}, result={}", configId, toUser, result);
+        throw new UnsupportedOperationException(
+                "智能机器人长链模式仅支持被动回复用户消息，不支持主动发送消息。如需主动推送通知，请使用 CALLBACK 模式。");
     }
 
     /**
-     * 通过应用消息 API 发送 Markdown 消息
+     * 通过智能机器人长链发送文本消息。
+     * 注意：官方长连接模式下机器人只能被动回复用户消息，不支持主动向指定用户发送消息。
+     */
+    public void sendText(Long configId, String content, String toUser) throws Exception {
+        throw new UnsupportedOperationException(
+                "智能机器人长链模式仅支持被动回复用户消息，不支持主动发送消息。如需主动推送通知，请使用 CALLBACK 模式。");
+    }
+
+    /**
+     * 通过智能机器人长链发送 Markdown 消息。
+     * 注意：官方长连接模式下机器人只能被动回复用户消息，不支持主动向指定用户发送消息。
      */
     public void sendMarkdown(Long configId, String content, String toUser) throws Exception {
-        if (!StringUtils.hasText(content)) {
-            return;
-        }
-        WeComIntelligentBotConfig config = loadConfig(configId);
-        WxCpService service = buildTempService(config);
-        WxCpMessage message = WxCpMessage.MARKDOWN()
-                .toUser(toUser != null ? toUser : "@all")
-                .content(content)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("智能机器人发送 Markdown 消息: configId={}, toUser={}, result={}", configId, toUser, result);
+        throw new UnsupportedOperationException(
+                "智能机器人长链模式仅支持被动回复用户消息，不支持主动发送消息。如需主动推送通知，请使用 CALLBACK 模式。");
     }
 
     /**
-     * 通过应用消息 API 发送文件消息
+     * 通过智能机器人长链发送文件消息。
+     * 注意：官方长连接模式下机器人只能被动回复用户消息，不支持主动向指定用户发送消息。
      */
     public void sendFile(Long configId, File file, String toUser) throws Exception {
-        if (file == null || !file.exists()) {
-            throw new IllegalArgumentException("文件不存在: " + (file == null ? "null" : file.getAbsolutePath()));
-        }
-        WeComIntelligentBotConfig config = loadConfig(configId);
-        WxCpService service = buildTempService(config);
-        String mediaId;
-        try (FileInputStream fis = new FileInputStream(file)) {
-            var uploadResult = service.getMediaService().upload("file", file.getCanonicalPath(), fis);
-            mediaId = uploadResult.getMediaId();
-        }
-        WxCpMessage message = WxCpMessage.FILE()
-                .toUser(toUser != null ? toUser : "@all")
-                .mediaId(mediaId)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("智能机器人发送文件消息: configId={}, toUser={}, fileName={}, result={}", configId, toUser, file.getName(), result);
+        throw new UnsupportedOperationException(
+                "智能机器人长链模式仅支持被动回复用户消息，不支持主动发送消息。如需主动推送通知，请使用 CALLBACK 模式。");
     }
 
-    /**
-     * 构建长链 wskey: Base64(corpId + "\n" + botId + "\n" + timestamp + "\n" + nonce)
-     */
-    private String buildWsKey(WeComIntelligentBotConfig config) {
-        String timestamp = String.valueOf(Instant.now().getEpochSecond());
-        String nonce = java.util.UUID.randomUUID().toString().substring(0, 8);
-        String raw = config.getCorpId() + "\n" + config.getBotId() + "\n" + timestamp + "\n" + nonce;
-        return Base64.getEncoder().encodeToString(raw.getBytes());
-    }
-
-    /**
-     * 创建 WebSocket 处理器
-     */
     private WebSocketHandler createHandler(Long configId, WeComIntelligentBotConfig config, BotConnection connection) {
-        AtomicBoolean firstFrame = new AtomicBoolean(true);
+        String decryptedSecret = CryptoUtil.decryptIfNeeded(config.getBotSecret());
 
         return new WebSocketHandler() {
             @Override
             public void afterConnectionEstablished(WebSocketSession session) throws Exception {
                 connection.setSession(session);
+                connection.clearReconnectTask();
                 log.info("智能机器人长链连接成功: configId={}", configId);
+                sendSubscribe(session, config.getBotId(), decryptedSecret);
             }
 
             @Override
             public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws Exception {
-                if (message instanceof org.springframework.web.socket.TextMessage textMsg) {
-                    String payload = textMsg.getPayload();
-                    log.debug("智能机器人收到消息: configId={}, payload={}", configId, truncate(payload, 500));
+                String payload = getTextPayload(message);
 
-                    try {
-                        // 第一个消息是鉴权响应
-                        if (firstFrame.compareAndSet(true, false)) {
-                            Map<String, Object> authResult = objectMapper.readValue(payload, Map.class);
-                            int errcode = ((Number) authResult.getOrDefault("errcode", 0)).intValue();
-                            if (errcode != 0) {
-                                log.error("智能机器人长链鉴权失败: configId={}, response={}", configId, payload);
-                                return;
-                            }
-                            log.info("智能机器人长链鉴权成功: configId={}", configId);
+                try {
+                    Map<String, Object> msg = objectMapper.readValue(payload, Map.class);
+                    String cmd = (String) msg.get("cmd");
+                    Map<String, Object> headers = (Map<String, Object>) msg.get("headers");
+                    String reqId = headers != null ? (String) headers.get("req_id") : null;
+
+                    if (isSubscribeResponse(cmd, reqId)) {
+                        int errcode = extractErrcode(msg);
+                        String errmsg = extractErrmsg(msg);
+                        if (errcode == 0) {
+                            connection.setSubscribed(true);
+                            connection.setConnected(true);
+                            connection.setReconnectAttempts(0);
+                            startHeartbeat(configId, connection);
+                            log.info("智能机器人长链订阅成功: configId={}", configId);
+                        } else {
+                            log.error("智能机器人长链订阅失败: configId={}, errcode={}, errmsg={}", configId, errcode, errmsg);
+                            scheduleReconnect(configId, connection);
+                        }
+                        return;
+                    }
+
+                    if (CMD_PING.equals(cmd) || (reqId != null && reqId.startsWith(CMD_PING + "_"))) {
+                        log.debug("智能机器人长链收到心跳响应: configId={}", configId);
+                        return;
+                    }
+
+                    if (!connection.isSubscribed()) {
+                        log.warn("智能机器人长链尚未订阅成功，忽略消息: configId={}", configId);
+                        return;
+                    }
+
+                    if (CMD_MSG_CALLBACK.equals(cmd) || CMD_EVENT_CALLBACK.equals(cmd)) {
+                        Map<String, Object> body = (Map<String, Object>) msg.get("body");
+                        if (body == null) {
+                            log.warn("智能机器人长链收到回调但无 body: configId={}", configId);
                             return;
                         }
-
-                        // 普通消息处理
-                        Map<String, Object> msgMap = objectMapper.readValue(payload, Map.class);
-                        String msgType = (String) msgMap.get("msgtype");
+                        String msgType = (String) body.get("msgtype");
                         if (!StringUtils.hasText(msgType)) {
+                            log.warn("智能机器人长链收到回调但无 msgtype: configId={}", configId);
                             return;
                         }
 
                         String content = "";
                         if ("text".equals(msgType)) {
-                            content = (String) msgMap.getOrDefault("content", "");
+                            content = (String) body.getOrDefault("content", "");
                         } else if ("markdown".equals(msgType)) {
-                            content = objectMapper.writeValueAsString(msgMap.get("markdown"));
+                            content = objectMapper.writeValueAsString(body.get("markdown"));
                         }
 
-                        String fromUser = (String) msgMap.getOrDefault("from", "");
+                        String fromUser = (String) body.getOrDefault("from", "");
+                        log.info("智能机器人长链收到消息: configId={}, msgType={}, fromUser={}, content={}",
+                                configId, msgType, fromUser, truncate(content, 200));
+
                         String reply = "";
                         if (StringUtils.hasText(content)) {
                             reply = weComCommandHandler.handleText(content.trim());
                         }
                         if (StringUtils.hasText(reply)) {
-                            sendText(configId, reply, fromUser);
+                            log.info("智能机器人长链准备回复: configId={}, fromUser={}, reply={}",
+                                    configId, fromUser, truncate(reply, 200));
+                            sendResponse(session, reqId, reply, false);
+                        } else {
+                            log.info("智能机器人长链无需回复: configId={}, fromUser={}", configId, fromUser);
                         }
-                    } catch (Exception e) {
-                        log.error("智能机器人消息处理失败: configId={}", configId, e);
+                    } else {
+                        log.debug("智能机器人长链收到其他消息: configId={}, cmd={}", configId, cmd);
                     }
+                } catch (Exception e) {
+                    log.error("智能机器人消息处理失败: configId={}, payload={}", configId, truncate(payload, 500), e);
                 }
             }
 
             @Override
             public void afterConnectionClosed(WebSocketSession session, org.springframework.web.socket.CloseStatus status) {
                 log.info("智能机器人长链断开: configId={}, status={}", configId, status);
-                connections.remove(configId);
-
-                // 自动重连
-                scheduleReconnect(configId, config);
+                connection.setConnected(false);
+                connection.setSubscribed(false);
+                connection.stopHeartbeat();
+                scheduleReconnect(configId, connection);
             }
 
             @Override
             public void handleTransportError(WebSocketSession session, Throwable error) {
                 log.error("智能机器人长链传输错误: configId={}", configId, error);
-                connections.remove(configId);
-                scheduleReconnect(configId, config);
+                connection.setConnected(false);
+                connection.setSubscribed(false);
+                connection.stopHeartbeat();
+                scheduleReconnect(configId, connection);
             }
 
             @Override
@@ -254,37 +341,102 @@ public class WeComIntelligentBotClient {
         };
     }
 
-    private void scheduleReconnect(Long configId, WeComIntelligentBotConfig config) {
-        new Thread(() -> {
-            int delay = RECONNECT_DELAY_SECONDS;
-            while (delay <= RECONNECT_MAX_DELAY_SECONDS) {
-                try {
-                    Thread.sleep(delay * 1000L);
-                    log.info("智能机器人尝试重连: configId={}, delay={}s", configId, delay);
-                    // Check config is still enabled
-                    NotificationConfig nc = notificationConfigMapper.selectById(configId);
-                    if (nc != null && nc.getStatus() != null && nc.getStatus() == 1) {
-                        connect(configId);
-                        return;
-                    }
-                    log.info("配置已禁用，停止重连: configId={}", configId);
-                    return;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.info("智能机器人重连中断: configId={}", configId);
-                    return;
-                } catch (Exception e) {
-                    log.error("智能机器人重连失败: configId={}, delay={}s", configId, delay, e);
-                }
-                delay = Math.min(delay * 2, RECONNECT_MAX_DELAY_SECONDS);
-            }
-            log.error("智能机器人重连超时: configId={}", configId);
-        }, "wecom-bot-reconnect-" + configId).start();
+    private void sendSubscribe(WebSocketSession session, String botId, String secret) throws IOException {
+        Map<String, Object> payload = Map.of(
+                "cmd", CMD_SUBSCRIBE,
+                "headers", Map.of("req_id", CMD_SUBSCRIBE + "_" + UUID.randomUUID().toString().replace("-", "")),
+                "body", Map.of("bot_id", botId, "secret", secret)
+        );
+        sendJson(session, payload);
     }
 
-    /**
-     * 加载配置
-     */
+    private void sendPing(WebSocketSession session, String reqId) throws IOException {
+        Map<String, Object> payload = Map.of(
+                "cmd", CMD_PING,
+                "headers", Map.of("req_id", CMD_PING + "_" + reqId)
+        );
+        sendJson(session, payload);
+    }
+
+    private void sendResponse(WebSocketSession session, String reqId, String content, boolean finish) throws IOException {
+        Map<String, Object> stream = new java.util.HashMap<>();
+        stream.put("content", content);
+        stream.put("finish", finish);
+        Map<String, Object> payload = Map.of(
+                "cmd", CMD_RESPONSE,
+                "headers", Map.of("req_id", reqId),
+                "body", Map.of("stream", stream)
+        );
+        sendJson(session, payload);
+    }
+
+    private void sendJson(WebSocketSession session, Map<String, Object> payload) throws IOException {
+        if (session == null || !session.isOpen()) {
+            throw new IllegalStateException("WebSocket 未连接");
+        }
+        String cmd = extractCmd(payload);
+        String reqId = extractReqId(payload);
+        String json = objectMapper.writeValueAsString(payload);
+        try {
+            log.info("智能机器人长链发送消息: cmd={}, reqId={}", cmd, reqId);
+            session.sendMessage(new org.springframework.web.socket.TextMessage(json));
+            log.info("智能机器人长链发送成功: cmd={}, reqId={}", cmd, reqId);
+        } catch (IOException e) {
+            log.error("智能机器人长链发送失败: cmd={}, reqId={}", cmd, reqId, e);
+            throw e;
+        }
+    }
+
+    private String extractCmd(Map<String, Object> payload) {
+        Object cmd = payload != null ? payload.get("cmd") : null;
+        return cmd != null ? cmd.toString() : "";
+    }
+
+    private String extractReqId(Map<String, Object> payload) {
+        if (payload == null) {
+            return "";
+        }
+        Object headers = payload.get("headers");
+        if (headers instanceof Map<?, ?> h) {
+            Object reqId = h.get("req_id");
+            return reqId != null ? reqId.toString() : "";
+        }
+        return "";
+    }
+
+    private String getTextPayload(WebSocketMessage<?> message) {
+        if (message instanceof org.springframework.web.socket.TextMessage textMsg) {
+            return textMsg.getPayload();
+        }
+        return String.valueOf(message.getPayload());
+    }
+
+    private void startHeartbeat(Long configId, BotConnection connection) {
+        connection.stopHeartbeat();
+        connection.setHeartbeatTask(heartbeatExecutor.scheduleAtFixedRate(() -> {
+            try {
+                WebSocketSession session = connection.getSession();
+                if (session != null && session.isOpen()) {
+                    sendPing(session, UUID.randomUUID().toString().replace("-", ""));
+                } else {
+                    log.warn("智能机器人长链心跳时连接已断开: configId={}", configId);
+                    scheduleReconnect(configId, connection);
+                }
+            } catch (Exception e) {
+                log.warn("智能机器人长链心跳失败: configId={}", configId, e);
+            }
+        }, PING_INTERVAL_MS, PING_INTERVAL_MS, TimeUnit.MILLISECONDS));
+    }
+
+    private void validateLongConnectionConfig(WeComIntelligentBotConfig config) {
+        if (!StringUtils.hasText(config.getBotId())) {
+            throw new IllegalArgumentException("智能机器人 BotId 不能为空");
+        }
+        if (!StringUtils.hasText(config.getBotSecret())) {
+            throw new IllegalArgumentException("智能机器人 Secret 不能为空");
+        }
+    }
+
     private WeComIntelligentBotConfig loadConfig(Long configId) throws Exception {
         NotificationConfig nc = notificationConfigMapper.selectById(configId);
         if (nc == null) {
@@ -297,29 +449,18 @@ public class WeComIntelligentBotClient {
             throw new IllegalArgumentException("配置已禁用: " + configId);
         }
         WeComIntelligentBotConfig config = objectMapper.readValue(nc.getConfigJson(), WeComIntelligentBotConfig.class);
+        validateLongConnectionConfig(config);
         if (StringUtils.hasText(config.getBotSecret())) {
             config.setBotSecret(CryptoUtil.decryptIfNeeded(config.getBotSecret()));
         }
         return config;
     }
 
-    /**
-     * 构建临时 WxCpService（智能机器人使用 botSecret 和 botId）
-     */
-    private WxCpService buildTempService(WeComIntelligentBotConfig config) {
-        WxCpDefaultConfigImpl storage = new WxCpDefaultConfigImpl();
-        storage.setCorpId(config.getCorpId());
-        storage.setAgentId(Integer.valueOf(config.getBotId()));
-        storage.setCorpSecret(config.getBotSecret());
-        storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
-        WxCpServiceImpl impl = new WxCpServiceImpl();
-        impl.setWxCpConfigStorage(storage);
-        return impl;
-    }
-
-    private String maskUrl(String url) {
-        if (url == null) return null;
-        return url.replaceAll("wskey=[^&]+", "wskey=***");
+    private String maskBotId(String botId) {
+        if (!StringUtils.hasText(botId) || botId.length() <= 8) {
+            return "***";
+        }
+        return botId.substring(0, 4) + "***" + botId.substring(botId.length() - 4);
     }
 
     private String truncate(String value, int maxLength) {
@@ -327,13 +468,66 @@ public class WeComIntelligentBotClient {
         return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
     }
 
+    private void safeClose(WebSocketSession session) {
+        if (session != null && session.isOpen()) {
+            try {
+                session.close();
+            } catch (IOException e) {
+                log.debug("关闭测试连接失败", e);
+            }
+        }
+    }
+
+    private boolean isSubscribeResponse(String cmd, String reqId) {
+        return CMD_SUBSCRIBE.equals(cmd) || (reqId != null && reqId.startsWith(CMD_SUBSCRIBE + "_"));
+    }
+
+    private int extractErrcode(Map<String, Object> msg) {
+        Map<String, Object> body = (Map<String, Object>) msg.get("body");
+        Number errcodeNum = body != null ? (Number) body.get("errcode") : null;
+        if (errcodeNum == null) {
+            errcodeNum = (Number) msg.get("errcode");
+        }
+        return errcodeNum != null ? errcodeNum.intValue() : -1;
+    }
+
+    private String extractErrmsg(Map<String, Object> msg) {
+        Map<String, Object> body = (Map<String, Object>) msg.get("body");
+        String errmsg = body != null ? (String) body.get("errmsg") : null;
+        if (errmsg == null) {
+            errmsg = (String) msg.get("errmsg");
+        }
+        return errmsg;
+    }
+
     /**
      * 连接句柄
      */
+    private void scheduleReconnect(Long configId, BotConnection connection) {
+        if (connection.isStopped()) {
+            return;
+        }
+        connection.incrementReconnectAttempts();
+        long delay = Math.min(RECONNECT_DELAY_SECONDS * (1L << Math.min(connection.getReconnectAttempts(), 10)),
+                RECONNECT_MAX_DELAY_SECONDS);
+        log.info("智能机器人长链计划重连: configId={}, delay={}s", configId, delay);
+        java.util.concurrent.ScheduledFuture<?> task = heartbeatExecutor.schedule(() -> {
+            if (!connection.isStopped()) {
+                connect(configId);
+            }
+        }, delay, TimeUnit.SECONDS);
+        connection.setReconnectTask(task);
+    }
+
     private static class BotConnection {
         private final Long configId;
-        private final AtomicBoolean connected = new AtomicBoolean(true);
+        private final AtomicBoolean connected = new AtomicBoolean(false);
+        private final AtomicBoolean subscribed = new AtomicBoolean(false);
         private WebSocketSession session;
+        private java.util.concurrent.ScheduledFuture<?> heartbeatTask;
+        private java.util.concurrent.ScheduledFuture<?> reconnectTask;
+        private int reconnectAttempts = 0;
+        private volatile boolean stopped = false;
 
         BotConnection(Long configId) {
             this.configId = configId;
@@ -343,12 +537,76 @@ public class WeComIntelligentBotClient {
             return connected.get();
         }
 
+        void setConnected(boolean connected) {
+            this.connected.set(connected);
+        }
+
+        boolean isSubscribed() {
+            return subscribed.get();
+        }
+
+        void setSubscribed(boolean subscribed) {
+            this.subscribed.set(subscribed);
+        }
+
         WebSocketSession getSession() {
             return session;
         }
 
         void setSession(WebSocketSession session) {
             this.session = session;
+        }
+
+        int getReconnectAttempts() {
+            return reconnectAttempts;
+        }
+
+        void incrementReconnectAttempts() {
+            this.reconnectAttempts++;
+        }
+
+        void setReconnectAttempts(int reconnectAttempts) {
+            this.reconnectAttempts = reconnectAttempts;
+        }
+
+        void setHeartbeatTask(java.util.concurrent.ScheduledFuture<?> task) {
+            this.heartbeatTask = task;
+        }
+
+        void stopHeartbeat() {
+            if (heartbeatTask != null) {
+                heartbeatTask.cancel(false);
+                heartbeatTask = null;
+            }
+        }
+
+        void setReconnectTask(java.util.concurrent.ScheduledFuture<?> task) {
+            clearReconnectTask();
+            this.reconnectTask = task;
+        }
+
+        void clearReconnectTask() {
+            if (reconnectTask != null) {
+                reconnectTask.cancel(false);
+                reconnectTask = null;
+            }
+        }
+
+        boolean isStopped() {
+            return stopped;
+        }
+
+        void stop() {
+            stopped = true;
+            stopHeartbeat();
+            clearReconnectTask();
+            if (session != null && session.isOpen()) {
+                try {
+                    session.close();
+                } catch (IOException e) {
+                    log.debug("关闭连接失败", e);
+                }
+            }
         }
     }
 }

@@ -41,6 +41,12 @@ public class AiAssistantService {
             返回格式：{"subject":"优化后的标题","body":"优化后的正文"}
             """;
 
+    private static final String SYSTEM_PROMPT_CHAT = """
+            你是企业微信智能助手，服务于定时任务报表系统。
+            请根据用户消息给出简洁、友好、专业的中文回复。
+            如果用户询问系统功能，可提示可用指令，例如：帮助、任务列表、运行 {任务ID}、任务日志 {任务ID}。
+            """;
+
     private final AiConfigService aiConfigService;
     private final AiClientFactory aiClientFactory;
 
@@ -109,6 +115,31 @@ public class AiAssistantService {
         }
 
         return parseNotificationJson(response.getContent(), subject, body);
+    }
+
+    /**
+     * 根据用户消息生成自然语言回复（用于非指令消息）
+     */
+    public String chatReply(String userInput) {
+        AiConfig config = aiConfigService.getDefaultConfig();
+        if (config == null) {
+            return "未配置默认 AI，无法回复。";
+        }
+
+        List<AiMessage> messages = new ArrayList<>();
+        String systemPrompt = StringUtils.hasText(config.getSystemPrompt())
+                ? config.getSystemPrompt()
+                : SYSTEM_PROMPT_CHAT;
+        messages.add(AiMessage.system(systemPrompt));
+        messages.add(AiMessage.user(userInput));
+
+        AiClient client = aiClientFactory.createClient(config);
+        AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+        if (!response.isSuccess()) {
+            log.error("AI 闲聊回复失败: {}", response.getErrorMessage());
+            return "AI 回复失败，请稍后再试。";
+        }
+        return response.getContent();
     }
 
     private IntentResult parseIntentJson(String content) {

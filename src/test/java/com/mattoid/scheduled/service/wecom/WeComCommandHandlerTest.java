@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapp
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
+import com.mattoid.scheduled.service.AiAssistantService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskExecutionService;
 import me.chanjar.weixin.cp.bean.message.WxCpXmlMessage;
@@ -32,6 +33,9 @@ class WeComCommandHandlerTest {
 
     @Mock
     private TaskLogMapper taskLogMapper;
+
+    @Mock
+    private AiAssistantService aiAssistantService;
 
     @InjectMocks
     private WeComCommandHandler handler;

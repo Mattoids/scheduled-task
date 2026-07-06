@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS ai_config (
     timeout_seconds INT DEFAULT 60 COMMENT '请求超时秒数',
     is_default TINYINT DEFAULT 0 COMMENT '是否为默认配置：1 是，0 否',
     status TINYINT DEFAULT 1 COMMENT '状态：1 启用，0 禁用',
+    system_prompt TEXT COMMENT '系统提示词，用于定义 AI 角色和功能',
     remark VARCHAR(512) COMMENT '备注',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

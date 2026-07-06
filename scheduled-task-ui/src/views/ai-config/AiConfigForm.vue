@@ -41,6 +41,7 @@ const form = ref<AiConfig>({
   timeoutSeconds: 60,
   isDefault: 0,
   status: 1,
+  systemPrompt: "",
   remark: "",
 });
 
@@ -65,6 +66,7 @@ const resetForm = () => {
     timeoutSeconds: 60,
     isDefault: 0,
     status: 1,
+    systemPrompt: "",
     remark: "",
   };
 };
@@ -229,6 +231,15 @@ const handleTest = async () => {
           type="textarea"
           :rows="3"
           placeholder="配置用途说明"
+        />
+      </el-form-item>
+
+      <el-form-item label="系统提示词">
+        <el-input
+          v-model="form.systemPrompt"
+          type="textarea"
+          :rows="4"
+          placeholder="定义 AI 的角色、功能等，留空则使用默认提示词。例如：你是一名专业的数据分析师，擅长用简洁的中文回答企业微信用户的问题。"
         />
       </el-form-item>
 
