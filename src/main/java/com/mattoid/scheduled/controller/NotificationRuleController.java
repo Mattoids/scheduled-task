@@ -1,6 +1,7 @@
 package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
@@ -60,8 +61,23 @@ public class NotificationRuleController {
     @PreAuthorize("hasAuthority('notificationRule:edit')")
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody NotificationRule rule) {
-        rule.setId(id);
-        return Result.ok(notificationRuleService.updateById(rule));
+        boolean updated = notificationRuleService.update(new LambdaUpdateWrapper<NotificationRule>()
+                .set(NotificationRule::getEventType, rule.getEventType())
+                .set(NotificationRule::getChannel, rule.getChannel())
+                .set(NotificationRule::getConfigId, rule.getConfigId())
+                .set(NotificationRule::getTaskId, rule.getTaskId())
+                .set(NotificationRule::getRecipientIds, rule.getRecipientIds())
+                .set(NotificationRule::getRecipientGroupIds, rule.getRecipientGroupIds())
+                .set(NotificationRule::getWecomToUser, rule.getWecomToUser())
+                .set(NotificationRule::getSubject, rule.getSubject())
+                .set(NotificationRule::getBody, rule.getBody())
+                .set(NotificationRule::getContent, rule.getContent())
+                .set(NotificationRule::getAiOptimizeNotify, rule.getAiOptimizeNotify())
+                .set(NotificationRule::getAiConfigId, rule.getAiConfigId())
+                .set(NotificationRule::getStorageConfigId, rule.getStorageConfigId())
+                .set(NotificationRule::getEnabled, rule.getEnabled())
+                .eq(NotificationRule::getId, id));
+        return Result.ok(updated);
     }
 
     @PreAuthorize("hasAuthority('notificationRule:delete')")
