@@ -1,1 +1,0 @@
-import{Q as e}from"./index-B-kaLAH7.js";function t(t=20){let n=e(1),r=e(t),i=e(0),a=e(0),o=e([]);return{current:n,size:r,total:i,pages:a,records:o,buildQuery:(e={})=>({current:n.value,size:r.value,...e}),setPageResult:e=>{i.value=e.total,a.value=e.pages,n.value=e.current,r.value=e.size,o.value=e.records},reset:()=>{n.value=1,r.value=t,i.value=0,a.value=0,o.value=[]}}}export{t};
