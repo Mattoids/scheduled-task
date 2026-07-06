@@ -29,6 +29,7 @@ target/
 .vscode/
 
 ### local config ###
+application-test.yml
 application-prod.yml
 application-local.yml
 *.log
