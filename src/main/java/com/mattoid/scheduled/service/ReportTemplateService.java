@@ -40,7 +40,7 @@ public class ReportTemplateService extends ServiceImpl<ReportTemplateMapper, Rep
         template.setTemplateName(templateName);
         template.setTemplateCode(templateCode);
         template.setTemplateType(detectType(ext));
-        template.setFilePath(filePath.toString());
+        template.setFilePath("templates/" + fileName);
         template.setFileName(originalName);
         template.setDescription(description);
         template.setStatus(1);

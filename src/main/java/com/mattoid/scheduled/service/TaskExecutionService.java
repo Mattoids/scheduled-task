@@ -187,7 +187,7 @@ public class TaskExecutionService {
     private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs) throws Exception {
         String templateType = template.getTemplateType();
         TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
-        File templateFile = new File(template.getFilePath());
+        File templateFile = resolveTemplateFile(template.getFilePath());
         String extension = resolveExtension(templateType, sqlConfigs.get(0).getFileSuffix());
         String outputFileName = buildOutputPath(task, sqlConfigs.get(0), extension);
 
@@ -205,6 +205,17 @@ public class TaskExecutionService {
             previousTempFile = isLast ? null : currentFile;
         }
         return new File(outputFileName);
+    }
+
+    private File resolveTemplateFile(String filePath) {
+        if (!StringUtils.hasText(filePath)) {
+            throw new IllegalArgumentException("模板文件路径为空");
+        }
+        Path path = Paths.get(filePath);
+        if (path.isAbsolute()) {
+            return path.toFile();
+        }
+        return Paths.get(uploadPath, filePath).toFile();
     }
 
     private File generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {
