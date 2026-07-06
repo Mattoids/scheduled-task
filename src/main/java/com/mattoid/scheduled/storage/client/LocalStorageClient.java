@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Slf4j
@@ -30,13 +32,14 @@ public class LocalStorageClient implements StorageClient {
             filename = file.getName();
         }
         filename = sanitizeFilename(filename);
+        String dateFolder = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String folder = UUID.randomUUID().toString();
         String prefix = StringUtils.hasText(config.getStoragePath()) ? config.getStoragePath().trim() : "storage";
         if (prefix.startsWith("/")) {
             prefix = prefix.substring(1);
         }
 
-        Path targetDir = Paths.get(uploadRoot, prefix, folder);
+        Path targetDir = Paths.get(uploadRoot, prefix, dateFolder, folder);
         if (!Files.exists(targetDir)) {
             Files.createDirectories(targetDir);
         }
@@ -47,7 +50,7 @@ public class LocalStorageClient implements StorageClient {
         if (urlBase.endsWith("/")) {
             urlBase = urlBase.substring(0, urlBase.length() - 1);
         }
-        return urlBase + "/" + prefix + "/" + folder + "/" + filename;
+        return urlBase + "/" + prefix + "/" + dateFolder + "/" + folder + "/" + filename;
     }
 
     @Override
