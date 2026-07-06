@@ -34,9 +34,12 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
             int columnCount = sheet.getRow(startRow) != null ? sheet.getRow(startRow).getLastCellNum() : 0;
             String[] headers = readHeaders(sheet, startRow, columnCount);
 
-            // 处理占位符替换
+            // 处理占位符替换（标题行等）
             Map<String, Object> placeholderData = data.isEmpty() ? Collections.emptyMap() : data.get(0);
             replacePlaceholdersInSheet(sheet, placeholderData, cleanPlaceholders);
+
+            // 表头行只去掉 ${}，不替换成数据，避免和数据第一行重复
+            cleanHeaderRow(sheet, startRow, headers);
 
             // 在数据行追加数据
             if (!data.isEmpty() && headers != null) {
@@ -89,6 +92,17 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
             }
         }
         return headers;
+    }
+
+    private void cleanHeaderRow(Sheet sheet, int startRow, String[] headers) {
+        Row row = sheet.getRow(startRow);
+        if (row == null || headers == null) return;
+        for (int c = 0; c < headers.length; c++) {
+            Cell cell = row.getCell(c);
+            if (cell != null && headers[c] != null) {
+                setCellValue(cell, headers[c]);
+            }
+        }
     }
 
     private void copyCellStyle(Sheet sheet, int sourceRow, int sourceCol, Cell targetCell) {

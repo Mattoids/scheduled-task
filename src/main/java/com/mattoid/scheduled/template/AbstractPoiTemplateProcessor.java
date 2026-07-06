@@ -408,7 +408,7 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             run.setText(text);
             return;
         }
-        runs.get(0).setText(text, 0);
+        runs.get(0).setText(text);
         for (int i = runs.size() - 1; i > 0; i--) {
             paragraph.removeRun(i);
         }
