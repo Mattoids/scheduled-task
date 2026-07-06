@@ -1,7 +1,5 @@
 package com.mattoid.scheduled.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
@@ -11,7 +9,6 @@ import com.mattoid.scheduled.entity.EmailRecipientGroup;
 import com.mattoid.scheduled.service.EmailRecipientGroupService;
 import com.mattoid.scheduled.service.EmailRecipientService;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -34,12 +31,7 @@ public class EmailRecipientController {
     public Result<PageResult<EmailRecipient>> page(PageQuery query,
                                                    @RequestParam(required = false) Long groupId,
                                                    @RequestParam(required = false) String recipientName) {
-        LambdaQueryWrapper<EmailRecipient> wrapper = new LambdaQueryWrapper<EmailRecipient>()
-                .like(StringUtils.hasText(recipientName), EmailRecipient::getRecipientName, recipientName)
-                .eq(groupId != null, EmailRecipient::getGroupId, groupId)
-                .orderByDesc(EmailRecipient::getCreateTime);
-        Page<EmailRecipient> page = emailRecipientService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
-        return Result.ok(PageUtil.convert(page));
+        return Result.ok(PageUtil.convert(emailRecipientService.pageRecipients(query, groupId, recipientName)));
     }
 
     @PreAuthorize("hasAuthority('email:view')")

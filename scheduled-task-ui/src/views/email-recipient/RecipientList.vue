@@ -71,7 +71,7 @@ const openRecipientForm = (row?: EmailRecipient) => {
   recipientFormId.value = row?.id;
   recipientForm.value = row
     ? { ...row }
-    : { email: "", recipientName: "", groupId: undefined, status: 1 };
+    : { email: "", recipientName: "", groupIds: [], status: 1 };
   recipientFormVisible.value = true;
 };
 const saveRecipient = async () => {
@@ -199,11 +199,17 @@ onMounted(() => {
             min-width="140"
           />
           <el-table-column prop="email" label="邮箱" min-width="180" />
-          <el-table-column label="分组" min-width="140">
+          <el-table-column label="分组" min-width="180">
             <template #default="{ row }">
-              {{
-                groupOptions.find((g) => g.id === row.groupId)?.groupName || "-"
-              }}
+              <el-tag
+                v-for="gid in row.groupIds || []"
+                :key="gid"
+                size="small"
+                class="group-tag"
+              >
+                {{ groupOptions.find((g) => g.id === gid)?.groupName || gid }}
+              </el-tag>
+              <span v-if="!(row.groupIds || []).length">-</span>
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="90">
@@ -321,9 +327,12 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="所属分组">
           <el-select
-            v-model="recipientForm.groupId"
+            v-model="recipientForm.groupIds"
             placeholder="请选择"
             clearable
+            multiple
+            collapse-tags
+            style="width: 100%"
           >
             <el-option
               v-for="g in groupOptions"
@@ -387,3 +396,10 @@ onMounted(() => {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.group-tag {
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+</style>

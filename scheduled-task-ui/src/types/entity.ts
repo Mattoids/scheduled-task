@@ -133,7 +133,7 @@ export interface EmailRecipient {
   id?: number
   recipientName?: string
   email: string
-  groupId?: number
+  groupIds?: number[]
   status?: number
   createTime?: string
 }
