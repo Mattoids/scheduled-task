@@ -25,6 +25,7 @@
         <jwt.version>0.12.5</jwt.version>
         <commons-csv.version>1.10.0</commons-csv.version>
         <weixin-java-cp.version>4.6.0</weixin-java-cp.version>
+        <jsoup.version>1.17.2</jsoup.version>
         <aliyun-sdk-oss.version>3.17.4</aliyun-sdk-oss.version>
         <aws-java-sdk-s3.version>1.12.715</aws-java-sdk-s3.version>
         <sardine.version>5.10</sardine.version>
@@ -161,6 +162,13 @@
             <groupId>com.github.lookfirst</groupId>
             <artifactId>sardine</artifactId>
             <version>${sardine.version}</version>
+        </dependency>
+
+        <!-- Jsoup for HTML to Markdown conversion -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
         </dependency>
 
         <!-- Markdown to HTML conversion for email body -->

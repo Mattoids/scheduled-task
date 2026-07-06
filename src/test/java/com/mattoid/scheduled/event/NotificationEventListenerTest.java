@@ -118,7 +118,7 @@ class NotificationEventListenerTest {
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(weComAppManager, times(1)).sendMarkdown(eq(2L), eq("user1"), anyString());
+        verify(weComAppManager, times(1)).sendText(eq(2L), eq("user1"), anyString());
     }
 
     @Test

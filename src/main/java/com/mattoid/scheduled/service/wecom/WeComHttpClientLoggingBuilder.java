@@ -122,11 +122,26 @@ public class WeComHttpClientLoggingBuilder implements ApacheHttpClientBuilder {
 
             if (request instanceof HttpEntityEnclosingRequest enclosing) {
                 HttpEntity entity = enclosing.getEntity();
-                log.info("企业微信应用 API 请求: method={}, uri={}, entityContentType={}, entityLength={}",
-                        method,
-                        uri,
-                        entity != null && entity.getContentType() != null ? entity.getContentType().getValue() : null,
-                        entity != null ? entity.getContentLength() : 0);
+                String contentType = entity != null && entity.getContentType() != null ? entity.getContentType().getValue() : null;
+                long contentLength = entity != null ? entity.getContentLength() : 0;
+                String bodyLog = null;
+                if (entity != null && isTextContent(contentType)) {
+                    try {
+                        BufferedHttpEntity buffered = new BufferedHttpEntity(entity);
+                        enclosing.setEntity(buffered);
+                        String body = EntityUtils.toString(buffered, StandardCharsets.UTF_8);
+                        bodyLog = body.length() > 2000 ? body.substring(0, 2000) + "..." : body;
+                    } catch (Exception e) {
+                        log.warn("读取企业微信应用 API 请求体失败: method={}, uri={}", method, uri, e);
+                    }
+                }
+                if (bodyLog != null) {
+                    log.info("企业微信应用 API 请求: method={}, uri={}, entityContentType={}, entityLength={}, body={}",
+                            method, uri, contentType, contentLength, bodyLog);
+                } else {
+                    log.info("企业微信应用 API 请求: method={}, uri={}, entityContentType={}, entityLength={}",
+                            method, uri, contentType, contentLength);
+                }
             } else {
                 log.info("企业微信应用 API 请求: method={}, uri={}", method, uri);
             }
@@ -177,6 +192,14 @@ public class WeComHttpClientLoggingBuilder implements ApacheHttpClientBuilder {
         @Override
         public ClientConnectionManager getConnectionManager() {
             return delegate.getConnectionManager();
+        }
+
+        private static boolean isTextContent(String contentType) {
+            if (contentType == null) {
+                return false;
+            }
+            String lower = contentType.toLowerCase();
+            return lower.contains("json") || lower.contains("text") || lower.contains("xml") || lower.contains("urlencoded");
         }
 
         private static String sanitizeUri(String uri) {

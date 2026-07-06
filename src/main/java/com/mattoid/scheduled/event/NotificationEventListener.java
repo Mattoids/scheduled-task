@@ -7,6 +7,8 @@ import com.mattoid.scheduled.service.wecom.WeComBotClient;
 import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
 import com.mattoid.scheduled.storage.client.StorageClient;
 import com.mattoid.scheduled.storage.service.StorageConfigService;
+import com.mattoid.scheduled.util.HtmlToMarkdownConverter;
+import com.mattoid.scheduled.util.MarkdownUtils;
 import com.mattoid.scheduled.util.PlaceholderUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -190,13 +192,16 @@ public class NotificationEventListener {
             log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
-        weComAppManager.sendMarkdown(rule.getConfigId(), toUser, formatWeComMarkdown(content, event.getTask().getTaskName()));
+        content = HtmlToMarkdownConverter.convert(content);
+        content = MarkdownUtils.toPlainText(content);
+
+        weComAppManager.sendText(rule.getConfigId(), toUser, formatWeComText(content, event.getTask().getTaskName()));
         List<File> reportFiles = event.getReportFiles();
         if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
                 String urlContent = "文件下载地址：\n" + String.join("\n", urls);
-                weComAppManager.sendMarkdown(rule.getConfigId(), toUser, urlContent);
+                weComAppManager.sendText(rule.getConfigId(), toUser, urlContent);
             }
         } else {
             for (File file : reportFiles) {
@@ -236,8 +241,11 @@ public class NotificationEventListener {
             log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
 
+        content = HtmlToMarkdownConverter.convert(content);
+
         if ("CALLBACK".equals(mode)) {
-            weComAppManager.sendMarkdown(rule.getConfigId(), toUser, formatWeComMarkdown(content, event.getTask().getTaskName()));
+            String textContent = MarkdownUtils.toPlainText(content);
+            weComAppManager.sendText(rule.getConfigId(), toUser, formatWeComText(textContent, event.getTask().getTaskName()));
             List<File> reportFiles = event.getReportFiles();
             if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
                 List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
@@ -290,6 +298,8 @@ public class NotificationEventListener {
             content = optimized.body();
             log.info("通知规则 {} 已使用 AI 优化通知内容", rule.getId());
         }
+
+        content = HtmlToMarkdownConverter.convert(content);
 
         List<String> mentionedList = parseMentionedList(rule.getWecomToUser());
         weComBotClient.sendMarkdown(config.getWebhookKey(), formatWeComMarkdown(content, event.getTask().getTaskName()));
@@ -375,6 +385,12 @@ public class NotificationEventListener {
     }
 
     private String formatWeComMarkdown(String content, String title) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(title).append("\n\n").append(content);
+        return sb.toString();
+    }
+
+    private String formatWeComText(String content, String title) {
         StringBuilder sb = new StringBuilder();
         sb.append(title).append("\n\n").append(content);
         return sb.toString();
