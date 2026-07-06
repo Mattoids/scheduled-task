@@ -20,8 +20,11 @@ import org.springframework.util.StringUtils;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -92,30 +95,34 @@ public class WeComAppManager {
         if (!StringUtils.hasText(content)) {
             return;
         }
-        log.info("企业微信应用发送文本消息: configId={}, toUser={}, contentLength={}, content={}",
-                configId, toUser, content.length(), truncate(content, 500));
         WxCpService service = getService(configId);
-        WxCpMessage message = WxCpMessage.TEXT()
-                .toUser(toUser)
-                .content(content)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, toUser, result);
+        for (String user : splitToUsers(toUser)) {
+            log.info("企业微信应用发送文本消息: configId={}, toUser={}, contentLength={}, content={}",
+                    configId, user, content.length(), truncate(content, 500));
+            WxCpMessage message = WxCpMessage.TEXT()
+                    .toUser(user)
+                    .content(content)
+                    .build();
+            var result = service.getMessageService().send(message);
+            log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+        }
     }
 
     public void sendMarkdown(Long configId, String toUser, String content) throws Exception {
         if (!StringUtils.hasText(content)) {
             return;
         }
-        log.info("企业微信应用发送 Markdown 消息: configId={}, toUser={}, contentLength={}, content={}",
-                configId, toUser, content.length(), truncate(content, 500));
         WxCpService service = getService(configId);
-        WxCpMessage message = WxCpMessage.MARKDOWN()
-                .toUser(toUser)
-                .content(content)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("企业微信应用 Markdown 消息发送完成: configId={}, toUser={}, result={}", configId, toUser, result);
+        for (String user : splitToUsers(toUser)) {
+            log.info("企业微信应用发送 Markdown 消息: configId={}, toUser={}, contentLength={}, content={}",
+                    configId, user, content.length(), truncate(content, 500));
+            WxCpMessage message = WxCpMessage.MARKDOWN()
+                    .toUser(user)
+                    .content(content)
+                    .build();
+            var result = service.getMessageService().send(message);
+            log.info("企业微信应用 Markdown 消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+        }
     }
 
     public void sendFile(Long configId, String toUser, File file) throws Exception {
@@ -134,13 +141,15 @@ public class WeComAppManager {
                     mediaId != null ? mediaId.length() : 0,
                     uploadResult.getType());
         }
-        WxCpMessage message = WxCpMessage.FILE()
-                .toUser(toUser)
-                .mediaId(mediaId)
-                .build();
-        var result = service.getMessageService().send(message);
-        log.info("企业微信应用文件消息发送完成: configId={}, toUser={}, fileName={}, result={}",
-                configId, toUser, file.getName(), result);
+        for (String user : splitToUsers(toUser)) {
+            WxCpMessage message = WxCpMessage.FILE()
+                    .toUser(user)
+                    .mediaId(mediaId)
+                    .build();
+            var result = service.getMessageService().send(message);
+            log.info("企业微信应用文件消息发送完成: configId={}, toUser={}, fileName={}, result={}",
+                    configId, user, file.getName(), result);
+        }
     }
 
     public String verifyUrl(Long configId, String signature, String timestamp, String nonce, String echostr) throws Exception {
@@ -210,6 +219,19 @@ public class WeComAppManager {
         }
         storage.setApacheHttpClientBuilder(new WeComHttpClientLoggingBuilder());
         return storage;
+    }
+
+    private List<String> splitToUsers(String toUser) {
+        if (!StringUtils.hasText(toUser)) {
+            return List.of("@all");
+        }
+        if ("@all".equals(toUser.trim())) {
+            return List.of("@all");
+        }
+        return Arrays.stream(toUser.split("\\|"))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toList());
     }
 
     private String truncate(String value, int maxLength) {
