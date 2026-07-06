@@ -34,6 +34,8 @@ public class SpaController {
             "/email-recipient/**",
             "/template",
             "/template/**",
+            "/storage-config",
+            "/storage-config/**",
             "/wecom",
             "/wecom/**",
             "/system",

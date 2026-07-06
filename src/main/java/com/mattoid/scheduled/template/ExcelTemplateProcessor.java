@@ -38,20 +38,40 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
             Map<String, Object> placeholderData = data.isEmpty() ? Collections.emptyMap() : data.get(0);
             replacePlaceholdersInSheet(sheet, placeholderData, cleanPlaceholders);
 
-            // 表头行只去掉 ${}，不替换成数据，避免和数据第一行重复
-            cleanHeaderRow(sheet, startRow, headers);
-
-            // 在数据行追加数据
+            // 在原表头行直接填充数据，表头行本身作为第一行数据
             if (!data.isEmpty() && headers != null) {
                 for (int i = 0; i < data.size(); i++) {
-                    Row row = sheet.createRow(startRow + 1 + i);
+                    Row row = sheet.getRow(startRow + i);
+                    if (row == null) {
+                        row = sheet.createRow(startRow + i);
+                    }
                     Map<String, Object> rowData = data.get(i);
                     for (int c = 0; c < headers.length; c++) {
-                        Cell cell = row.createCell(c);
+                        Cell cell = row.getCell(c);
+                        if (cell == null) {
+                            cell = row.createCell(c);
+                        }
                         String header = headers[c];
                         Object value = isSequenceHeader(header) ? i + 1 : rowData.get(header);
                         setCellValue(cell, value);
-                        copyCellStyle(sheet, startRow, c, cell);
+                        if (i > 0) {
+                            copyCellStyle(sheet, startRow, c, cell);
+                        }
+                    }
+                    // 清除该行中超出 headers 长度的旧单元格
+                    for (int c = headers.length; c < row.getLastCellNum(); c++) {
+                        Cell cell = row.getCell(c);
+                        if (cell != null) {
+                            row.removeCell(cell);
+                        }
+                    }
+                }
+                // 删除超出数据范围的多余行
+                int lastDataRow = startRow + data.size() - 1;
+                for (int r = sheet.getLastRowNum(); r > lastDataRow; r--) {
+                    Row row = sheet.getRow(r);
+                    if (row != null) {
+                        sheet.removeRow(row);
                     }
                 }
             }
@@ -92,17 +112,6 @@ public class ExcelTemplateProcessor extends AbstractPoiTemplateProcessor {
             }
         }
         return headers;
-    }
-
-    private void cleanHeaderRow(Sheet sheet, int startRow, String[] headers) {
-        Row row = sheet.getRow(startRow);
-        if (row == null || headers == null) return;
-        for (int c = 0; c < headers.length; c++) {
-            Cell cell = row.getCell(c);
-            if (cell != null && headers[c] != null) {
-                setCellValue(cell, headers[c]);
-            }
-        }
     }
 
     private void copyCellStyle(Sheet sheet, int sourceRow, int sourceCol, Cell targetCell) {
