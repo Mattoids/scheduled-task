@@ -355,7 +355,11 @@ public class TaskExecutionService {
             }
         }
         if (!StringUtils.hasText(pattern)) {
-            pattern = "report_{yyyyMMddHHmmss}";
+            if (sqlConfig != null && StringUtils.hasText(sqlConfig.getSqlName())) {
+                pattern = sqlConfig.getSqlName();
+            } else {
+                pattern = "report_{yyyyMMddHHmmss}";
+            }
         }
         String fileName = PlaceholderUtils.replacePlaceholders(pattern);
         return UNSAFE_FILENAME_CHAR_PATTERN.matcher(fileName).replaceAll("_");

@@ -14,6 +14,7 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const loading = ref(false);
 const queryForm = reactive({ templateName: "" });
 const uploadVisible = ref(false);
+const uploadRef = ref<any>(null);
 const uploadForm = reactive({
   templateName: "",
   templateCode: "",
@@ -73,6 +74,7 @@ const handleUpload = async () => {
   uploadForm.templateCode = "";
   uploadForm.description = "";
   uploadForm.file = null;
+  uploadRef.value?.clearFiles();
   loadPage();
 };
 
@@ -151,7 +153,7 @@ onMounted(loadPage);
       @change="handlePageChange"
     />
 
-    <el-dialog v-model="uploadVisible" title="上传模板" width="520px">
+    <el-dialog v-model="uploadVisible" title="上传模板" width="520px" destroy-on-close>
       <el-form class="dialog-form" label-width="100px">
         <el-form-item label="模板名称">
           <el-input v-model="uploadForm.templateName" placeholder="模板名称" />
@@ -169,6 +171,7 @@ onMounted(loadPage);
         </el-form-item>
         <el-form-item label="模板文件">
           <el-upload
+            ref="uploadRef"
             accept=".xls,.xlsx,.doc,.docx,.ppt,.pptx,.csv,.txt"
             :auto-upload="false"
             :limit="1"
