@@ -225,7 +225,14 @@ CREATE TABLE IF NOT EXISTS task_sql_config (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_task_sql_group_id ON task_sql_config(group_id);
+SET @idx_exists = (SELECT COUNT(1) FROM information_schema.statistics
+                   WHERE table_schema = DATABASE()
+                   AND table_name = 'task_sql_config'
+                   AND index_name = 'idx_task_sql_group_id');
+SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_task_sql_group_id ON task_sql_config(group_id)', 'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS task_sql_relation (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -259,11 +266,11 @@ CREATE TABLE IF NOT EXISTS notification_rule (
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_notification_rule_task_id ON notification_rule(task_id);
-
--- ===================== 数据初始化 =====================
-
--- AI 配置默认示例
-INSERT INTO ai_config (config_name, provider, model, status, is_default, remark)
-VALUES ('默认 OpenAI 配置', 'OPENAI', 'gpt-4o-mini', 0, 1, '请在页面中配置真实 API Key 后启用')
-ON DUPLICATE KEY UPDATE id = id;
+SET @idx_exists = (SELECT COUNT(1) FROM information_schema.statistics
+                   WHERE table_schema = DATABASE()
+                   AND table_name = 'notification_rule'
+                   AND index_name = 'idx_notification_rule_task_id');
+SET @sql = IF(@idx_exists = 0, 'CREATE INDEX idx_notification_rule_task_id ON notification_rule(task_id)', 'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;

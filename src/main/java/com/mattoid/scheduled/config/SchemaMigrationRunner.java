@@ -3,6 +3,7 @@ package com.mattoid.scheduled.config;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.core.Ordered;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.io.support.ResourcePatternResolver;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
-public class SchemaMigrationRunner implements BeanPostProcessor {
+public class SchemaMigrationRunner implements BeanPostProcessor, Ordered {
 
     private static final String MIGRATION_LOCATION = "classpath:db/migration/V*__*.sql";
     private static final String VERSION_TABLE = "schema_version";
@@ -36,7 +37,7 @@ public class SchemaMigrationRunner implements BeanPostProcessor {
     private static final int ER_CANT_DROP_FIELD_OR_KEY = 1091;
 
     @Override
-    public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
         if (bean instanceof DataSource dataSource && !MIGRATED.get()) {
             try {
                 runMigrations(dataSource);
@@ -46,6 +47,11 @@ public class SchemaMigrationRunner implements BeanPostProcessor {
             }
         }
         return bean;
+    }
+
+    @Override
+    public int getOrder() {
+        return Ordered.HIGHEST_PRECEDENCE;
     }
 
     private void runMigrations(DataSource dataSource) throws Exception {
