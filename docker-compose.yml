@@ -1,0 +1,45 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: scheduled-task-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: scheduled_task_root
+      MYSQL_DATABASE: scheduled_task
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pscheduled_task_root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  scheduled-task:
+    image: eclipse-temurin:17-jre-alpine
+    container_name: scheduled-task-app
+    ports:
+      - "1236:1236"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/scheduled_task?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: scheduled_task_root
+      REPORT_JWT_SECRET: change-this-secret-in-production
+      REPORT_UPLOAD_PATH: /app/uploads
+    volumes:
+      - ./target/scheduled-task-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+      - ./uploads:/app/uploads
+    working_dir: /app
+    command: ["java", "-jar", "app.jar"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
