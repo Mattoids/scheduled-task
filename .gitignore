@@ -29,6 +29,7 @@ target/
 .vscode/
 
 ### local config ###
+application-prod.yml
 application-local.yml
 *.log
 uploads/
