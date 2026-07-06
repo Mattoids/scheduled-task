@@ -8,6 +8,7 @@ import com.mattoid.scheduled.util.CryptoUtil;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.common.bean.menu.WxMenu;
 import me.chanjar.weixin.common.util.crypto.SHA1;
+import me.chanjar.weixin.common.error.WxErrorException;
 import me.chanjar.weixin.cp.api.WxCpService;
 import me.chanjar.weixin.cp.api.impl.WxCpServiceImpl;
 import me.chanjar.weixin.cp.bean.message.WxCpMessage;
@@ -97,14 +98,18 @@ public class WeComAppManager {
         }
         WxCpService service = getService(configId);
         for (String user : splitToUsers(toUser)) {
-            log.info("企业微信应用发送文本消息: configId={}, toUser={}, contentLength={}, content={}",
-                    configId, user, content.length(), truncate(content, 500));
-            WxCpMessage message = WxCpMessage.TEXT()
-                    .toUser(user)
-                    .content(content)
-                    .build();
-            var result = service.getMessageService().send(message);
-            log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+            try {
+                log.info("企业微信应用发送文本消息: configId={}, toUser={}, contentLength={}, content={}",
+                        configId, user, content.length(), truncate(content, 500));
+                WxCpMessage message = WxCpMessage.TEXT()
+                        .toUser(user)
+                        .content(content)
+                        .build();
+                var result = service.getMessageService().send(message);
+                log.info("企业微信应用文本消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+            } catch (WxErrorException e) {
+                log.warn("企业微信应用发送文本消息失败: configId={}, toUser={}, error={}", configId, user, e.getMessage());
+            }
         }
     }
 
@@ -114,14 +119,18 @@ public class WeComAppManager {
         }
         WxCpService service = getService(configId);
         for (String user : splitToUsers(toUser)) {
-            log.info("企业微信应用发送 Markdown 消息: configId={}, toUser={}, contentLength={}, content={}",
-                    configId, user, content.length(), truncate(content, 500));
-            WxCpMessage message = WxCpMessage.MARKDOWN()
-                    .toUser(user)
-                    .content(content)
-                    .build();
-            var result = service.getMessageService().send(message);
-            log.info("企业微信应用 Markdown 消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+            try {
+                log.info("企业微信应用发送 Markdown 消息: configId={}, toUser={}, contentLength={}, content={}",
+                        configId, user, content.length(), truncate(content, 500));
+                WxCpMessage message = WxCpMessage.MARKDOWN()
+                        .toUser(user)
+                        .content(content)
+                        .build();
+                var result = service.getMessageService().send(message);
+                log.info("企业微信应用 Markdown 消息发送完成: configId={}, toUser={}, result={}", configId, user, result);
+            } catch (WxErrorException e) {
+                log.warn("企业微信应用发送 Markdown 消息失败: configId={}, toUser={}, error={}", configId, user, e.getMessage());
+            }
         }
     }
 
@@ -142,13 +151,18 @@ public class WeComAppManager {
                     uploadResult.getType());
         }
         for (String user : splitToUsers(toUser)) {
-            WxCpMessage message = WxCpMessage.FILE()
-                    .toUser(user)
-                    .mediaId(mediaId)
-                    .build();
-            var result = service.getMessageService().send(message);
-            log.info("企业微信应用文件消息发送完成: configId={}, toUser={}, fileName={}, result={}",
-                    configId, user, file.getName(), result);
+            try {
+                WxCpMessage message = WxCpMessage.FILE()
+                        .toUser(user)
+                        .mediaId(mediaId)
+                        .build();
+                var result = service.getMessageService().send(message);
+                log.info("企业微信应用文件消息发送完成: configId={}, toUser={}, fileName={}, result={}",
+                        configId, user, file.getName(), result);
+            } catch (WxErrorException e) {
+                log.warn("企业微信应用发送文件消息失败: configId={}, toUser={}, fileName={}, error={}",
+                        configId, user, file.getName(), e.getMessage());
+            }
         }
     }
 
