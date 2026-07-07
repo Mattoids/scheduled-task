@@ -86,7 +86,7 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 - `TASK_FAILURE` — 任务执行失败
 - `TASK_COMPLETED` — 任务执行完成（无论成功或失败）
 
-规则可全局生效（`task_id` 为空），也可绑定到指定任务。
+规则可全局生效（`task_code` 为空），也可绑定到指定任务（按 `task_code` 关联）。
 
 ### 企业微信消息格式
 
@@ -198,7 +198,7 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 
 ## SQL 模块
 
-一个任务可以关联一条或多条 SQL。每条 SQL 独立配置数据源、输出格式、文件名规则与模板。
+一个任务可以关联一条或多条 SQL。任务通过 `task_code` 与 SQL 的 `sql_code` 进行编码级关联，不再依赖数据库自增 ID。每条 SQL 独立配置数据源、输出格式、文件名规则与模板。
 
 ### SQL 分组
 
@@ -283,9 +283,11 @@ WHERE date >= '${firstDayOfLastMonth:yyyy/MM/dd}'
 | 格式 | 说明 |
 |------|------|
 | CSV | 默认，使用 SQL 列别名作为表头 |
-| EXCEL | 生成 `.xlsx`，使用 SQL 列别名作为表头 |
+| EXCEL | 生成 `.xlsx`，使用 SQL 列别名作为表头；支持按 `_sheet_name` 列分 sheet |
 | TXT | 按模板中 `${字段名}` 逐行渲染 |
 | WORD / PPT | 无模板时无法生成有效文件，自动回退为 CSV |
+
+**Excel 分 sheet**：当 SQL 结果中包含名为 `_sheet_name` 的列时，Excel 输出会自动按该列值分组，每个分组生成一个独立 sheet，sheet 名即为该列值。输出时 `_sheet_name` 列不会作为数据写入单元格。若不存在该列，则默认只生成一个名为 `数据` 的 sheet。
 
 ### SQL 图表生成
 
