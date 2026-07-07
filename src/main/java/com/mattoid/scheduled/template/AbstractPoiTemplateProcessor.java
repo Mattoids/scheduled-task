@@ -353,8 +353,8 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             }
 
             boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(table.getRow(templateRowIndex - 1));
-            // 没有显示表头且只有一行数据时，按普通占位符处理（兼容旧模板）
-            if (!hasDisplayHeader && data.size() <= 1) {
+            // 只有一行数据时，按普通占位符处理，避免把固定布局表格误判为数据表
+            if (data.size() <= 1) {
                 continue;
             }
 
@@ -458,8 +458,8 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
                 }
 
                 boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(rows.get(templateRowIndex - 1));
-                // 没有显示表头且只有一行数据时，按普通占位符处理（兼容旧模板）
-                if (!hasDisplayHeader && data.size() <= 1) {
+                // 只有一行数据时，按普通占位符处理，避免把固定布局表格误判为数据表
+                if (data.size() <= 1) {
                     continue;
                 }
 

@@ -1165,6 +1165,61 @@ class WordPptTemplateProcessorTest {
         }
     }
 
+    @Test
+    void pptSingleRowWithDisplayHeaderAndFixedLabelsDoesNotExpand() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(4, 2);
+
+            table.getRows().get(0).getCells().get(0).setText("会员积分等级");
+            table.getRows().get(0).getCells().get(1).setText("用户总数");
+
+            table.getRows().get(1).getCells().get(0).setText("羽道萌新（0-500积分）");
+            table.getRows().get(1).getCells().get(1).setText("${newbie}");
+
+            table.getRows().get(2).getCells().get(0).setText("羽道高手（500-1500积分）");
+            table.getRows().get(2).getCells().get(1).setText("${expert}");
+
+            table.getRows().get(3).getCells().get(0).setText("羽道王者（>1500积分）");
+            table.getRows().get(3).getCells().get(1).setText("${king}");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(Map.of(
+                "newbie", "16374",
+                "expert", "8921",
+                "king", "3456"
+        ));
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            XSLFTable table = (XSLFTable) slide.getShapes().get(0);
+            assertEquals(4, table.getNumberOfRows(), "单行数据不应展开表格，应保持原有 4 行");
+
+            assertEquals("会员积分等级", getCellText(table.getRows().get(0).getCells().get(0)));
+            assertEquals("用户总数", getCellText(table.getRows().get(0).getCells().get(1)));
+
+            assertEquals("羽道萌新（0-500积分）", getCellText(table.getRows().get(1).getCells().get(0)));
+            assertEquals("16374", getCellText(table.getRows().get(1).getCells().get(1)));
+
+            assertEquals("羽道高手（500-1500积分）", getCellText(table.getRows().get(2).getCells().get(0)));
+            assertEquals("8921", getCellText(table.getRows().get(2).getCells().get(1)));
+
+            assertEquals("羽道王者（>1500积分）", getCellText(table.getRows().get(3).getCells().get(0)));
+            assertEquals("3456", getCellText(table.getRows().get(3).getCells().get(1)));
+        }
+    }
+
     private String getCellText(XSLFTableCell cell) {
         StringBuilder sb = new StringBuilder();
         cell.getTextParagraphs().forEach(p ->
