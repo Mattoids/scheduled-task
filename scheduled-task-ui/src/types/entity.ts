@@ -6,6 +6,7 @@ export interface TaskConfig {
   triggerType: 'CRON' | 'ONCE'
   triggerConfig: string
   status: 'ENABLE' | 'DISABLE'
+  taskType?: 'SQL' | 'CRAWL'
   createTime?: string
   updateTime?: string
 }
@@ -84,9 +85,83 @@ export interface NotificationRule {
   updateTime?: string
 }
 
+export interface TaskWebCrawlConfig {
+  id?: number
+  crawlName: string
+  crawlCode: string
+  requestUrl: string
+  requestMethod?: string
+  requestHeaders?: string
+  requestParams?: string
+  requestBody?: string
+  requestContentType?: string
+  cookies?: string
+  authType?: 'NONE' | 'BASIC' | 'FORM' | 'TOKEN' | 'OAUTH2'
+  authConfig?: string
+  sshEnabled?: number
+  sshHost?: string
+  sshPort?: number
+  sshUsername?: string
+  sshPassword?: string
+  sshPrivateKey?: string
+  sshPassphrase?: string
+  sshRemoteHost?: string
+  sshRemotePort?: number
+  sshLocalPort?: number
+  renderType?: 'STATIC' | 'DYNAMIC'
+  driverConfig?: string
+  outputFormat?: string
+  templateId?: number
+  templateCode?: string
+  fileSuffix?: string
+  fileNamePattern?: string
+  description?: string
+  customParams?: string
+  status?: number
+  paginationEnabled?: number
+  paginationType?: string
+  paginationSelector?: string
+  paginationUrlTemplate?: string
+  paginationMaxPages?: number
+  mediaEnabled?: number
+  mediaSelector?: string
+  mediaFileTypes?: string
+  mediaStorageConfigId?: number
+  mediaOutputMode?: 'ATTACH' | 'ZIP' | 'STORE_ONLY' | 'ATTACH_ZIP'
+  mediaZipNamePattern?: string
+  mediaFilterConfig?: string
+  chartEnabled?: number
+  chartType?: string
+  chartTitle?: string
+  chartAutoMerge?: number
+  chartLabelRotation?: string
+  chartBackgroundColor?: string
+  selectors?: TaskWebCrawlSelector[]
+  sortOrder?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface TaskWebCrawlSelector {
+  id?: number
+  crawlConfigId?: number
+  crawlCode?: string
+  fieldName?: string
+  isRowSelector?: number
+  selectorType: 'CSS' | 'XPATH' | 'REGEX'
+  selectorValue: string
+  attribute?: string
+  dataType?: 'STRING' | 'NUMBER' | 'DATE' | 'LINK' | 'HTML'
+  defaultValue?: string
+  sortOrder?: number
+  createTime?: string
+  updateTime?: string
+}
+
 export interface TaskConfigRequest {
   task: TaskConfig
   sqlCodes?: string[]
+  crawlCodes?: string[]
 }
 
 export interface TaskLog {

@@ -6,5 +6,16 @@ import java.util.Map;
 /**
  * SQL 内联结果，用于直接将查询结果嵌入通知/邮件内容，不生成文件。
  */
-public record InlineSqlResult(String sqlName, String sqlCode, List<Map<String, Object>> data) {
+public record InlineSqlResult(String sqlName, String sqlCode, List<Map<String, Object>> data)
+        implements InlineResult {
+
+    @Override
+    public String name() {
+        return sqlName;
+    }
+
+    @Override
+    public String code() {
+        return sqlCode;
+    }
 }

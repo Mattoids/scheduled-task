@@ -13,7 +13,7 @@ import java.nio.file.Path;
 @Data
 public class SshTunnel {
 
-    private final Long datasourceId;
+    private final String tunnelId;
     private final SSHClient client;
     private final LocalPortForwarder forwarder;
     private final Thread forwarderThread;
@@ -21,9 +21,9 @@ public class SshTunnel {
     private final String localHost;
     private Path keyFilePath;
 
-    public SshTunnel(Long datasourceId, SSHClient client, LocalPortForwarder forwarder,
+    public SshTunnel(String tunnelId, SSHClient client, LocalPortForwarder forwarder,
                      Thread forwarderThread, int localPort, String localHost) {
-        this.datasourceId = datasourceId;
+        this.tunnelId = tunnelId;
         this.client = client;
         this.forwarder = forwarder;
         this.forwarderThread = forwarderThread;
@@ -40,7 +40,7 @@ public class SshTunnel {
             try {
                 forwarder.close();
             } catch (Exception e) {
-                log.warn("关闭 SSH 端口转发失败: {}", datasourceId, e);
+                log.warn("关闭 SSH 端口转发失败: {}", tunnelId, e);
             }
         }
         if (forwarderThread != null) {
@@ -50,7 +50,7 @@ public class SshTunnel {
             try {
                 client.disconnect();
             } catch (Exception e) {
-                log.warn("断开 SSH 连接失败: {}", datasourceId, e);
+                log.warn("断开 SSH 连接失败: {}", tunnelId, e);
             }
         }
         if (keyFilePath != null) {

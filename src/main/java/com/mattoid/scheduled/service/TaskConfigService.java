@@ -7,6 +7,8 @@ import com.mattoid.scheduled.entity.TaskDependency;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.entity.TaskSqlRelation;
+import com.mattoid.scheduled.entity.TaskWebCrawlConfig;
+import com.mattoid.scheduled.entity.TaskWebCrawlRelation;
 import com.mattoid.scheduled.event.TaskExecutionEvent;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.task.TaskSchedulerService;
@@ -31,6 +33,8 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
     private final TaskExecutionService taskExecutionService;
     private final TaskSqlConfigService taskSqlConfigService;
     private final TaskSqlRelationService taskSqlRelationService;
+    private final TaskWebCrawlConfigService taskWebCrawlConfigService;
+    private final TaskWebCrawlRelationService taskWebCrawlRelationService;
     private final TaskDependencyService taskDependencyService;
     private final TaskLogService taskLogService;
 
@@ -38,12 +42,16 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
                              TaskExecutionService taskExecutionService,
                              TaskSqlConfigService taskSqlConfigService,
                              TaskSqlRelationService taskSqlRelationService,
+                             TaskWebCrawlConfigService taskWebCrawlConfigService,
+                             TaskWebCrawlRelationService taskWebCrawlRelationService,
                              TaskDependencyService taskDependencyService,
                              TaskLogService taskLogService) {
         this.taskSchedulerService = taskSchedulerService;
         this.taskExecutionService = taskExecutionService;
         this.taskSqlConfigService = taskSqlConfigService;
         this.taskSqlRelationService = taskSqlRelationService;
+        this.taskWebCrawlConfigService = taskWebCrawlConfigService;
+        this.taskWebCrawlRelationService = taskWebCrawlRelationService;
         this.taskDependencyService = taskDependencyService;
         this.taskLogService = taskLogService;
     }
@@ -69,17 +77,24 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes) throws Exception {
-        return saveOrUpdateTask(task, sqlCodes, null);
+    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes, List<String> crawlCodes) throws Exception {
+        return saveOrUpdateTask(task, sqlCodes, crawlCodes, null);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes, List<Long> dependencyIds) throws Exception {
+    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes,
+                                    List<String> crawlCodes, List<Long> dependencyIds) throws Exception {
         boolean result = saveOrUpdate(task);
         Long taskId = task.getId();
         String taskCode = task.getTaskCode();
         if (StringUtils.hasText(taskCode)) {
-            saveTaskSqlRelations(taskCode, sqlCodes);
+            if ("CRAWL".equalsIgnoreCase(task.getTaskType())) {
+                saveTaskSqlRelations(taskCode, Collections.emptyList());
+                saveTaskCrawlRelations(taskCode, crawlCodes);
+            } else {
+                saveTaskCrawlRelations(taskCode, Collections.emptyList());
+                saveTaskSqlRelations(taskCode, sqlCodes);
+            }
             if (dependencyIds != null) {
                 taskDependencyService.saveDependencies(taskId, dependencyIds);
             }
@@ -135,6 +150,47 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         return task != null ? taskSqlConfigService.listByTaskCode(task.getTaskCode()) : Collections.emptyList();
     }
 
+    private void saveTaskCrawlRelations(String taskCode, List<String> crawlCodes) {
+        taskWebCrawlRelationService.lambdaUpdate()
+                .eq(TaskWebCrawlRelation::getTaskCode, taskCode)
+                .remove();
+        if (CollectionUtils.isEmpty(crawlCodes)) {
+            return;
+        }
+        List<String> distinctCrawlCodes = crawlCodes.stream()
+                .distinct()
+                .collect(Collectors.toList());
+        List<TaskWebCrawlRelation> relations = IntStream.range(0, distinctCrawlCodes.size())
+                .mapToObj(i -> {
+                    TaskWebCrawlRelation relation = new TaskWebCrawlRelation();
+                    relation.setTaskCode(taskCode);
+                    relation.setCrawlCode(distinctCrawlCodes.get(i));
+                    relation.setSortOrder(i);
+                    return relation;
+                })
+                .collect(Collectors.toList());
+        taskWebCrawlRelationService.saveBatch(relations);
+    }
+
+    public List<String> getTaskCrawlCodes(String taskCode) {
+        if (!StringUtils.hasText(taskCode)) {
+            return Collections.emptyList();
+        }
+        return taskWebCrawlRelationService.lambdaQuery()
+                .eq(TaskWebCrawlRelation::getTaskCode, taskCode)
+                .orderByAsc(TaskWebCrawlRelation::getSortOrder)
+                .list()
+                .stream()
+                .map(TaskWebCrawlRelation::getCrawlCode)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toList());
+    }
+
+    public List<TaskWebCrawlConfig> getTaskWebCrawlConfigs(Long taskId) {
+        TaskConfig task = getById(taskId);
+        return task != null ? taskWebCrawlConfigService.listByTaskCode(task.getTaskCode()) : Collections.emptyList();
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public boolean updateStatus(Long taskId, String status) throws Exception {
         TaskConfig task = getById(taskId);
@@ -160,6 +216,9 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         taskSchedulerService.removeTask(taskId);
         taskSqlRelationService.lambdaUpdate()
                 .eq(TaskSqlRelation::getTaskCode, task.getTaskCode())
+                .remove();
+        taskWebCrawlRelationService.lambdaUpdate()
+                .eq(TaskWebCrawlRelation::getTaskCode, task.getTaskCode())
                 .remove();
         taskDependencyService.removeByTaskId(taskId);
         return removeById(taskId);

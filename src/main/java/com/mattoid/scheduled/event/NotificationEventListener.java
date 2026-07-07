@@ -220,7 +220,7 @@ public class NotificationEventListener {
 
     private String buildAiNotificationContext(TaskConfig task, TaskExecutionEvent event) {
         List<File> reportFiles = event.getReportFiles();
-        List<InlineSqlResult> inlineResults = event.getInlineResults();
+        List<? extends InlineResult> inlineResults = event.getInlineResults();
         StringBuilder sb = new StringBuilder();
         sb.append("任务名称: ").append(task.getTaskName()).append("\n");
         sb.append("任务编码: ").append(task.getTaskCode()).append("\n");
@@ -236,10 +236,10 @@ public class NotificationEventListener {
         }
         sb.append("内联 SQL 结果数量: ").append(inlineResults != null ? inlineResults.size() : 0).append("\n");
         if (inlineResults != null) {
-            for (InlineSqlResult result : inlineResults) {
-                sb.append("  - ").append(result.sqlName())
+            for (InlineResult result : inlineResults) {
+                sb.append("  - ").append(result.name())
                         .append("(")
-                        .append(result.sqlCode())
+                        .append(result.code())
                         .append("): ")
                         .append(result.data().size())
                         .append(" 行\n");
@@ -604,12 +604,12 @@ public class NotificationEventListener {
         return urls;
     }
 
-    private Map<String, Object> buildInlineResultContext(List<InlineSqlResult> inlineResults) {
+    private Map<String, Object> buildInlineResultContext(List<? extends InlineResult> inlineResults) {
         if (inlineResults == null || inlineResults.isEmpty()) {
             return Collections.emptyMap();
         }
         Map<String, Object> context = new LinkedHashMap<>();
-        for (InlineSqlResult result : inlineResults) {
+        for (InlineResult result : inlineResults) {
             if (result.data() == null || result.data().isEmpty()) {
                 continue;
             }
@@ -630,8 +630,8 @@ public class NotificationEventListener {
                     context.put(col, values);
                 }
             }
-            // Also add total row count for the SQL
-            context.put(result.sqlName() + "_count", rows.size());
+            // Also add total row count for the result
+            context.put(result.name() + "_count", rows.size());
         }
         return context;
     }

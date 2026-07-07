@@ -118,7 +118,11 @@ public class InitDataRunner implements CommandLineRunner {
                 createPermission(46L, "storageConfig:create", "存储配置创建", "BUTTON", 45L, 121),
                 createPermission(47L, "storageConfig:edit", "存储配置编辑", "BUTTON", 45L, 122),
                 createPermission(48L, "storageConfig:delete", "存储配置删除", "BUTTON", 45L, 123),
-                createPermission(49L, "auditLog:view", "审计日志查看", "MENU", 0L, 130)
+                createPermission(49L, "auditLog:view", "审计日志查看", "MENU", 0L, 130),
+                createPermission(50L, "taskCrawl:view", "网页爬取配置查看", "MENU", 0L, 140),
+                createPermission(51L, "taskCrawl:create", "网页爬取配置创建", "BUTTON", 50L, 141),
+                createPermission(52L, "taskCrawl:edit", "网页爬取配置编辑", "BUTTON", 50L, 142),
+                createPermission(53L, "taskCrawl:delete", "网页爬取配置删除", "BUTTON", 50L, 143)
         );
         for (SysPermission permission : permissions) {
             if (sysPermissionMapper.selectById(permission.getId()) == null) {

@@ -4,6 +4,7 @@ import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.util.CryptoUtil;
 import lombok.extern.slf4j.Slf4j;
 import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.common.LoggerFactory;
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder;
 import net.schmizz.sshj.connection.channel.direct.Parameters;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
@@ -13,7 +14,6 @@ import net.schmizz.sshj.userauth.keyprovider.OpenSSHKeyFile;
 import net.schmizz.sshj.userauth.keyprovider.PKCS8KeyFile;
 import net.schmizz.sshj.userauth.password.PasswordFinder;
 import net.schmizz.sshj.userauth.password.PasswordUtils;
-import net.schmizz.sshj.common.LoggerFactory;
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile;
 import org.springframework.stereotype.Component;
 
@@ -31,18 +31,17 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class SshTunnelManager {
 
-    private final Map<Long, SshTunnel> tunnels = new ConcurrentHashMap<>();
+    private final Map<String, SshTunnel> tunnels = new ConcurrentHashMap<>();
 
     public boolean testConnection(DatasourceConfig config) throws Exception {
-        Long datasourceId = config.getId() != null ? config.getId() : Long.valueOf(-1);
-        closeTunnel(datasourceId);
+        return testConnection(toSshConfig(config), buildDatasourceTunnelId(config));
+    }
 
-        Path keyPath = writeKeyFile(config, datasourceId);
+    public boolean testConnection(SshConfig config, String tunnelId) throws Exception {
+        closeTunnel(tunnelId);
+        Path keyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
         try (SSHClient client = createClient()) {
-            client.connect(
-                    config.getSshHost(),
-                    config.getSshPort() == null ? 22 : config.getSshPort()
-            );
+            client.connect(config.getHost(), config.getPort() == null ? 22 : config.getPort());
             authenticate(client, config, keyPath);
             return client.isAuthenticated();
         } finally {
@@ -53,22 +52,24 @@ public class SshTunnelManager {
     }
 
     public SshTunnel createTunnel(DatasourceConfig config) throws Exception {
-        Long datasourceId = config.getId() != null ? config.getId() : Long.valueOf(-1);
-        closeTunnel(datasourceId);
+        SshConfig sshConfig = toSshConfig(config);
+        sshConfig.setRemoteHost(config.getHost());
+        sshConfig.setRemotePort(config.getPort());
+        return createTunnel(sshConfig, buildDatasourceTunnelId(config));
+    }
 
-        Path keyPath = writeKeyFile(config, datasourceId);
+    public SshTunnel createTunnel(SshConfig config, String tunnelId) throws Exception {
+        closeTunnel(tunnelId);
+        Path keyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
         SSHClient client = createClient();
         try {
-            client.connect(
-                    config.getSshHost(),
-                    config.getSshPort() == null ? 22 : config.getSshPort()
-            );
+            client.connect(config.getHost(), config.getPort() == null ? 22 : config.getPort());
             authenticate(client, config, keyPath);
 
-            int localPort = config.getSshLocalPort() != null && config.getSshLocalPort() > 0
-                    ? config.getSshLocalPort() : findAvailablePort();
-            String remoteHost = config.getHost();
-            int remotePort = config.getPort();
+            int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
+                    ? config.getLocalPort() : findAvailablePort();
+            String remoteHost = config.getRemoteHost();
+            int remotePort = config.getRemotePort() == null ? 0 : config.getRemotePort();
 
             ServerSocket serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
@@ -85,19 +86,19 @@ public class SshTunnelManager {
                     forwarder.listen();
                 } catch (IOException e) {
                     if (!"Socket closed".equals(e.getMessage())) {
-                        log.error("SSH 隧道监听线程异常: {}", datasourceId, e);
+                        log.error("SSH 隧道监听线程异常: {}", tunnelId, e);
                     }
                 }
-            }, "ssh-tunnel-" + datasourceId);
+            }, "ssh-tunnel-" + tunnelId);
             forwarderThread.setDaemon(true);
             forwarderThread.start();
 
-            SshTunnel tunnel = new SshTunnel(datasourceId, client, forwarder, forwarderThread,
+            SshTunnel tunnel = new SshTunnel(tunnelId, client, forwarder, forwarderThread,
                     serverSocket.getLocalPort(), "127.0.0.1");
             tunnel.setKeyFilePath(keyPath);
-            tunnels.put(datasourceId, tunnel);
-            log.info("SSH tunnel created for datasource {}: 127.0.0.1:{} -> {}:{}",
-                    datasourceId, tunnel.getLocalPort(), remoteHost, remotePort);
+            tunnels.put(tunnelId, tunnel);
+            log.info("SSH tunnel created for {}: 127.0.0.1:{} -> {}:{}",
+                    tunnelId, tunnel.getLocalPort(), remoteHost, remotePort);
             return tunnel;
         } catch (Exception e) {
             if (keyPath != null) {
@@ -109,18 +110,26 @@ public class SshTunnelManager {
     }
 
     public void closeTunnel(Long datasourceId) {
-        if (datasourceId == null) {
+        closeTunnel(buildDatasourceTunnelId(datasourceId));
+    }
+
+    public void closeTunnel(String tunnelId) {
+        if (tunnelId == null) {
             return;
         }
-        SshTunnel tunnel = tunnels.remove(datasourceId);
+        SshTunnel tunnel = tunnels.remove(tunnelId);
         if (tunnel != null) {
             tunnel.disconnect();
-            log.info("SSH tunnel closed for datasource {}", datasourceId);
+            log.info("SSH tunnel closed for {}", tunnelId);
         }
     }
 
     public SshTunnel getTunnel(Long datasourceId) {
-        return tunnels.get(datasourceId);
+        return tunnels.get(buildDatasourceTunnelId(datasourceId));
+    }
+
+    public SshTunnel getTunnel(String tunnelId) {
+        return tunnels.get(tunnelId);
     }
 
     private SSHClient createClient() {
@@ -130,14 +139,13 @@ public class SshTunnelManager {
         return client;
     }
 
-    private Path writeKeyFile(DatasourceConfig config, Long datasourceId) throws IOException {
-        String privateKey = config.getSshPrivateKey();
+    private Path writeKeyFile(String privateKey, String tunnelId) throws IOException {
         if (privateKey == null || privateKey.isBlank()) {
             return null;
         }
         String decrypted = CryptoUtil.decryptIfNeeded(privateKey);
         String normalized = normalizePrivateKey(decrypted);
-        Path keyPath = Files.createTempFile("ssh-key-" + datasourceId, ".key");
+        Path keyPath = Files.createTempFile("ssh-key-" + sanitizeTunnelId(tunnelId), ".key");
         Files.writeString(keyPath, normalized);
         return keyPath;
     }
@@ -150,14 +158,14 @@ public class SshTunnelManager {
                 .trim();
     }
 
-    private void authenticate(SSHClient client, DatasourceConfig config, Path keyPath) throws Exception {
+    private void authenticate(SSHClient client, SshConfig config, Path keyPath) throws Exception {
         if (keyPath != null) {
-            KeyProvider keyProvider = createKeyProvider(client, keyPath, config.getSshPassphrase());
-            client.authPublickey(config.getSshUsername(), keyProvider);
+            KeyProvider keyProvider = createKeyProvider(client, keyPath, config.getPassphrase());
+            client.authPublickey(config.getUsername(), keyProvider);
         } else {
-            String sshPassword = config.getSshPassword();
+            String sshPassword = config.getPassword();
             if (sshPassword != null && !sshPassword.isBlank()) {
-                client.authPassword(config.getSshUsername(), CryptoUtil.decryptIfNeeded(sshPassword));
+                client.authPassword(config.getUsername(), CryptoUtil.decryptIfNeeded(sshPassword));
             } else {
                 throw new IllegalArgumentException("SSH 密码和私钥至少填写一个");
             }
@@ -220,5 +228,32 @@ public class SshTunnelManager {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         }
+    }
+
+    private SshConfig toSshConfig(DatasourceConfig config) {
+        SshConfig sshConfig = new SshConfig();
+        sshConfig.setHost(config.getSshHost());
+        sshConfig.setPort(config.getSshPort());
+        sshConfig.setUsername(config.getSshUsername());
+        sshConfig.setPassword(config.getSshPassword());
+        sshConfig.setPrivateKey(config.getSshPrivateKey());
+        sshConfig.setPassphrase(config.getSshPassphrase());
+        sshConfig.setLocalPort(config.getSshLocalPort());
+        return sshConfig;
+    }
+
+    private String buildDatasourceTunnelId(DatasourceConfig config) {
+        return buildDatasourceTunnelId(config.getId() != null ? config.getId() : -1L);
+    }
+
+    private String buildDatasourceTunnelId(Long datasourceId) {
+        return "datasource_" + datasourceId;
+    }
+
+    private String sanitizeTunnelId(String tunnelId) {
+        if (tunnelId == null) {
+            return "unknown";
+        }
+        return tunnelId.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
 }

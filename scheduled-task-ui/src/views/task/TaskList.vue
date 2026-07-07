@@ -155,6 +155,12 @@ onMounted(() => {
           <el-tag v-else type="info">单次</el-tag>
         </template>
       </el-table-column>
+      <el-table-column prop="taskType" label="任务类型" width="100">
+        <template #default="{ row }">
+          <el-tag v-if="row.taskType === 'CRAWL'" type="warning">网页爬取</el-tag>
+          <el-tag v-else type="success">SQL</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column
         prop="triggerConfig"
         label="触发配置"

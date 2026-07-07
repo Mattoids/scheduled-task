@@ -12,5 +12,7 @@ public class TaskConfigRequest {
 
     private List<String> sqlCodes;
 
+    private List<String> crawlCodes;
+
     private List<Long> dependencyIds;
 }

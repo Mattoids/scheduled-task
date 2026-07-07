@@ -16,7 +16,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
     private final TaskConfig task;
     private final TaskLog taskLog;
     private final List<File> reportFiles;
-    private final List<InlineSqlResult> inlineResults;
+    private final List<? extends InlineResult> inlineResults;
     private final Map<String, File> chartFiles;
     private final EventType eventType;
 
@@ -32,7 +32,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
                               TaskConfig task,
                               TaskLog taskLog,
                               List<File> reportFiles,
-                              List<InlineSqlResult> inlineResults,
+                              List<? extends InlineResult> inlineResults,
                               EventType eventType) {
         this(source, task, taskLog, reportFiles, inlineResults, Collections.emptyMap(), eventType);
     }
@@ -41,7 +41,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
                               TaskConfig task,
                               TaskLog taskLog,
                               List<File> reportFiles,
-                              List<InlineSqlResult> inlineResults,
+                              List<? extends InlineResult> inlineResults,
                               Map<String, File> chartFiles,
                               EventType eventType) {
         super(source);

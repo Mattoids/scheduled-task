@@ -2,8 +2,12 @@ package com.mattoid.scheduled.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mattoid.scheduled.entity.*;
+import com.mattoid.scheduled.event.InlineResult;
+import com.mattoid.scheduled.event.InlineCrawlResult;
 import com.mattoid.scheduled.event.InlineSqlResult;
 import com.mattoid.scheduled.event.TaskExecutionEvent;
+import com.mattoid.scheduled.task.WebCrawlExecutor;
+import com.mattoid.scheduled.task.WebCrawlResult;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.task.SqlExecutor;
@@ -43,6 +47,8 @@ public class TaskExecutionService {
     private final SqlExecutor sqlExecutor;
     private final ReportTemplateService reportTemplateService;
     private final TaskSqlConfigService taskSqlConfigService;
+    private final TaskWebCrawlConfigService taskWebCrawlConfigService;
+    private final WebCrawlExecutor webCrawlExecutor;
     private final TemplateProcessorFactory templateProcessorFactory;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskSqlGroupService taskSqlGroupService;
@@ -55,6 +61,8 @@ public class TaskExecutionService {
                                 SqlExecutor sqlExecutor,
                                 ReportTemplateService reportTemplateService,
                                 TaskSqlConfigService taskSqlConfigService,
+                                TaskWebCrawlConfigService taskWebCrawlConfigService,
+                                WebCrawlExecutor webCrawlExecutor,
                                 TemplateProcessorFactory templateProcessorFactory,
                                 ApplicationEventPublisher eventPublisher,
                                 TaskSqlGroupService taskSqlGroupService,
@@ -66,6 +74,8 @@ public class TaskExecutionService {
         this.sqlExecutor = sqlExecutor;
         this.reportTemplateService = reportTemplateService;
         this.taskSqlConfigService = taskSqlConfigService;
+        this.taskWebCrawlConfigService = taskWebCrawlConfigService;
+        this.webCrawlExecutor = webCrawlExecutor;
         this.templateProcessorFactory = templateProcessorFactory;
         this.eventPublisher = eventPublisher;
         this.taskSqlGroupService = taskSqlGroupService;
@@ -110,23 +120,34 @@ public class TaskExecutionService {
         }
 
         List<File> reportFiles = new ArrayList<>();
-        List<InlineSqlResult> inlineResults = new ArrayList<>();
+        List<InlineResult> inlineResults = new ArrayList<>();
         Map<String, File> chartFiles = new LinkedHashMap<>();
         try {
             String taskCode = task.getTaskCode();
-            List<TaskSqlConfig> sqlConfigs = taskSqlConfigService.listByTaskCode(taskCode);
-            if (sqlConfigs.isEmpty()) {
-                throw new IllegalArgumentException("任务未配置 SQL 模块");
-            }
+            if ("CRAWL".equalsIgnoreCase(task.getTaskType())) {
+                List<TaskWebCrawlConfig> crawlConfigs = taskWebCrawlConfigService.listByTaskCode(taskCode);
+                if (crawlConfigs.isEmpty()) {
+                    throw new IllegalArgumentException("任务未配置网页爬取模块");
+                }
+                CrawlExecutionResults results = executeCrawlConfigs(task, crawlConfigs, params);
+                reportFiles = results.getFiles();
+                inlineResults = results.getInlineResults();
+                chartFiles = results.getChartFiles();
+            } else {
+                List<TaskSqlConfig> sqlConfigs = taskSqlConfigService.listByTaskCode(taskCode);
+                if (sqlConfigs.isEmpty()) {
+                    throw new IllegalArgumentException("任务未配置 SQL 模块");
+                }
 
-            SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs, params);
-            reportFiles = results.getFiles();
-            inlineResults = results.getInlineResults();
-            chartFiles = results.getChartFiles();
+                SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs, params);
+                reportFiles = results.getFiles();
+                inlineResults = results.getInlineResults();
+                chartFiles = results.getChartFiles();
+            }
             StringBuilder resultMsg = new StringBuilder("生成 ")
                     .append(reportFiles.size()).append(" 个报表文件");
             if (!inlineResults.isEmpty()) {
-                resultMsg.append("，").append(inlineResults.size()).append(" 个 SQL 结果内联发送");
+                resultMsg.append("，").append(inlineResults.size()).append(" 个结果内联发送");
             }
             if (!chartFiles.isEmpty()) {
                 resultMsg.append("，").append(chartFiles.size()).append(" 个图表");
@@ -153,7 +174,7 @@ public class TaskExecutionService {
     }
 
     private void publishTaskExecutionEvents(TaskConfig task, TaskLog logEntity, List<File> reportFiles,
-                                            List<InlineSqlResult> inlineResults, Map<String, File> chartFiles) {
+                                            List<InlineResult> inlineResults, Map<String, File> chartFiles) {
         String status = logEntity.getStatus();
         if ("SUCCESS".equals(status)) {
             eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_SUCCESS));
@@ -308,14 +329,14 @@ public class TaskExecutionService {
 
     private static class SqlExecutionResults {
         private final List<File> files = new ArrayList<>();
-        private final List<InlineSqlResult> inlineResults = new ArrayList<>();
+        private final List<InlineResult> inlineResults = new ArrayList<>();
         private final Map<String, File> chartFiles = new LinkedHashMap<>();
 
         public void addFile(File file) {
             files.add(file);
         }
 
-        public void addInline(InlineSqlResult inlineResult) {
+        public void addInline(InlineResult inlineResult) {
             inlineResults.add(inlineResult);
         }
 
@@ -329,13 +350,180 @@ public class TaskExecutionService {
             return files;
         }
 
-        public List<InlineSqlResult> getInlineResults() {
+        public List<InlineResult> getInlineResults() {
             return inlineResults;
         }
 
         public Map<String, File> getChartFiles() {
             return chartFiles;
         }
+    }
+
+    private CrawlExecutionResults executeCrawlConfigs(TaskConfig task, List<TaskWebCrawlConfig> crawlConfigs,
+                                                      Map<String, Object> params) throws Exception {
+        Map<String, List<TaskWebCrawlConfig>> groups = new LinkedHashMap<>();
+        for (TaskWebCrawlConfig crawl : crawlConfigs) {
+            String key = StringUtils.hasText(crawl.getTemplateCode()) ? crawl.getTemplateCode() : "crawl_" + crawl.getId();
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(crawl);
+        }
+
+        CrawlExecutionResults results = new CrawlExecutionResults();
+        for (Map.Entry<String, List<TaskWebCrawlConfig>> entry : groups.entrySet()) {
+            List<TaskWebCrawlConfig> group = entry.getValue();
+            if (StringUtils.hasText(group.get(0).getTemplateCode())) {
+                String templateCode = group.get(0).getTemplateCode();
+                ReportTemplate template = reportTemplateService.getByCode(templateCode);
+                if (template == null) {
+                    throw new IllegalArgumentException("模板编码不存在: " + templateCode);
+                }
+                results.addFile(processTemplateChain(task, template, group, params, results));
+            } else {
+                for (TaskWebCrawlConfig crawl : group) {
+                    WebCrawlResult crawlResult = webCrawlExecutor.execute(crawl, params);
+                    List<Map<String, Object>> data = crawlResult.data();
+                    if ("INLINE".equalsIgnoreCase(crawl.getOutputFormat())) {
+                        results.addInline(new InlineCrawlResult(crawl.getCrawlName(), crawl.getCrawlCode(), data));
+                    } else {
+                        results.addFile(generateCrawlOutputFile(task, crawl, data));
+                    }
+                    File chartFile = generateChartFile(task, crawl, data);
+                    if (chartFile != null) {
+                        results.addChartFile(crawl.getCrawlCode(), chartFile);
+                    }
+                    if (crawlResult.mediaFiles() != null && !crawlResult.mediaFiles().isEmpty()) {
+                        crawlResult.mediaFiles().forEach(results::addFile);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    private static class CrawlExecutionResults {
+        private final List<File> files = new ArrayList<>();
+        private final List<InlineResult> inlineResults = new ArrayList<>();
+        private final Map<String, File> chartFiles = new LinkedHashMap<>();
+
+        public void addFile(File file) {
+            files.add(file);
+        }
+
+        public void addInline(InlineResult inlineResult) {
+            inlineResults.add(inlineResult);
+        }
+
+        public void addChartFile(String crawlCode, File chartFile) {
+            if (chartFile != null) {
+                chartFiles.put(crawlCode, chartFile);
+            }
+        }
+
+        public List<File> getFiles() {
+            return files;
+        }
+
+        public List<InlineResult> getInlineResults() {
+            return inlineResults;
+        }
+
+        public Map<String, File> getChartFiles() {
+            return chartFiles;
+        }
+    }
+
+    private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskWebCrawlConfig> crawlConfigs,
+                                      Map<String, Object> params, CrawlExecutionResults results) throws Exception {
+        String templateType = template.getTemplateType();
+        TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
+        File templateFile = resolveTemplateFile(template.getFilePath());
+        String extension = resolveExtension(templateType, crawlConfigs.get(0).getFileSuffix());
+        String outputFileName = buildOutputPath(task, crawlConfigs.get(0), extension);
+
+        File currentFile = templateFile;
+        File previousTempFile = null;
+        for (int i = 0; i < crawlConfigs.size(); i++) {
+            TaskWebCrawlConfig crawl = crawlConfigs.get(i);
+            WebCrawlResult crawlResult = webCrawlExecutor.execute(crawl, params);
+            List<Map<String, Object>> data = crawlResult.data();
+            File chartFile = generateChartFile(task, crawl, data);
+            if (chartFile != null) {
+                results.addChartFile(crawl.getCrawlCode(), chartFile);
+            }
+            boolean isLast = i == crawlConfigs.size() - 1;
+            String stepOutput = isLast ? outputFileName : buildTempOutputPath(task.getId(), templateType, i);
+            Map<String, Object> context = buildProcessorContext(crawl, chartFile);
+            currentFile = processor.process(currentFile, data, stepOutput, isLast, context);
+            if (crawlResult.mediaFiles() != null && !crawlResult.mediaFiles().isEmpty()) {
+                crawlResult.mediaFiles().forEach(results::addFile);
+            }
+            if (previousTempFile != null) {
+                Files.deleteIfExists(previousTempFile.toPath());
+            }
+            previousTempFile = isLast ? null : currentFile;
+        }
+        return new File(outputFileName);
+    }
+
+    private File generateCrawlOutputFile(TaskConfig task, TaskWebCrawlConfig crawlConfig,
+                                         List<Map<String, Object>> data) throws Exception {
+        String outputFormat = StringUtils.hasText(crawlConfig.getOutputFormat()) ? crawlConfig.getOutputFormat() : "CSV";
+        String upperFormat = outputFormat.toUpperCase();
+        String extension = resolveExtension(upperFormat, crawlConfig.getFileSuffix());
+        String outputPath = buildOutputPath(task, crawlConfig, extension);
+
+        return switch (upperFormat) {
+            case "CSV" -> templateProcessorFactory.getProcessor("CSV")
+                    .process(createTempCsvTemplate(data), data, outputPath);
+            case "EXCEL" -> {
+                String sheetName = StringUtils.hasText(crawlConfig.getFileNamePattern())
+                        ? crawlConfig.getFileNamePattern() : crawlConfig.getCrawlName();
+                yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName);
+            }
+            case "TXT" -> {
+                File templateFile = createTempTemplate(upperFormat, data);
+                yield templateProcessorFactory.getProcessor(upperFormat)
+                        .process(templateFile, data, outputPath, true);
+            }
+            default -> {
+                String csvPath = buildOutputPath(task, crawlConfig, resolveExtension("CSV", null));
+                yield templateProcessorFactory.getProcessor("CSV")
+                        .process(createTempCsvTemplate(data), data, csvPath);
+            }
+        };
+    }
+
+    private File generateChartFile(TaskConfig task, TaskWebCrawlConfig crawlConfig, List<Map<String, Object>> data) {
+        if (crawlConfig.getChartEnabled() == null || crawlConfig.getChartEnabled() != 1) {
+            return null;
+        }
+        if (data == null || data.isEmpty()) {
+            log.warn("爬取 {} 启用图表但结果为空，跳过生成", crawlConfig.getCrawlCode());
+            return null;
+        }
+        String chartType = StringUtils.hasText(crawlConfig.getChartType()) ? crawlConfig.getChartType() : "BAR";
+        String title = StringUtils.hasText(crawlConfig.getChartTitle()) ? crawlConfig.getChartTitle() : crawlConfig.getCrawlName();
+        boolean autoMerge = crawlConfig.getChartAutoMerge() == null || crawlConfig.getChartAutoMerge() == 1;
+        String labelRotation = StringUtils.hasText(crawlConfig.getChartLabelRotation()) ? crawlConfig.getChartLabelRotation() : "AUTO";
+        File chartFile = chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation, crawlConfig.getChartBackgroundColor());
+        if (chartFile == null) {
+            log.warn("爬取 {} 图表生成失败", crawlConfig.getCrawlCode());
+        } else {
+            log.info("爬取 {} 图表生成成功: {}", crawlConfig.getCrawlCode(), chartFile.getAbsolutePath());
+        }
+        return chartFile;
+    }
+
+    private Map<String, Object> buildProcessorContext(TaskWebCrawlConfig crawl, File chartFile) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("crawlId", crawl.getId());
+        context.put("crawlCode", crawl.getCrawlCode());
+        context.put("crawlName", crawl.getCrawlName());
+        context.put("chartEnabled", crawl.getChartEnabled());
+        context.put("chartType", crawl.getChartType());
+        context.put("chartTitle", crawl.getChartTitle());
+        context.put("chartBackgroundColor", crawl.getChartBackgroundColor());
+        context.put("chartFile", chartFile);
+        return context;
     }
 
     private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs,
@@ -500,6 +688,32 @@ public class TaskExecutionService {
         String ext = resolveExtension(templateType, null);
         String name = "temp_" + stepIndex + "_" + System.currentTimeMillis() + "." + ext;
         return outputDir.resolve(name).toString();
+    }
+
+    private String buildOutputPath(TaskConfig task, TaskWebCrawlConfig crawlConfig, String extension) throws Exception {
+        Path outputDir = Paths.get(uploadPath, "reports", String.valueOf(task.getId()));
+        if (!Files.exists(outputDir)) {
+            Files.createDirectories(outputDir);
+        }
+        String fileName = buildFileName(task, crawlConfig);
+        fileName = ensureExtension(fileName, extension);
+        return outputDir.resolve(fileName).toString();
+    }
+
+    private String buildFileName(TaskConfig task, TaskWebCrawlConfig crawlConfig) {
+        String pattern = null;
+        if (crawlConfig != null) {
+            pattern = crawlConfig.getFileNamePattern();
+        }
+        if (!StringUtils.hasText(pattern)) {
+            if (crawlConfig != null && StringUtils.hasText(crawlConfig.getCrawlName())) {
+                pattern = crawlConfig.getCrawlName();
+            } else {
+                pattern = "report_{yyyyMMddHHmmss}";
+            }
+        }
+        String fileName = PlaceholderUtils.replacePlaceholders(pattern);
+        return UNSAFE_FILENAME_CHAR_PATTERN.matcher(fileName).replaceAll("_");
     }
 
     private String buildFileName(TaskConfig task, TaskSqlConfig sqlConfig) {

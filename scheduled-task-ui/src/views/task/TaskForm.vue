@@ -3,10 +3,12 @@ import { ref, watch, computed, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import { createTask, getTask, updateTask } from "@/api/task";
 import { listTaskSql } from "@/api/taskSql";
+import { listTaskCrawl } from "@/api/taskCrawl";
 import type {
   TaskConfig,
   TaskConfigRequest,
   TaskSqlConfig,
+  TaskWebCrawlConfig,
 } from "@/types/entity";
 import { validateCron, getNextExecutions } from "@/utils/cron";
 
@@ -34,10 +36,13 @@ const form = ref<TaskConfig>({
   triggerType: "CRON",
   triggerConfig: "",
   status: "ENABLE",
+  taskType: "SQL",
 });
 
 const sqlOptions = ref<TaskSqlConfig[]>([]);
+const crawlOptions = ref<TaskWebCrawlConfig[]>([]);
 const selectedSqlCodes = ref<string[]>([]);
+const selectedCrawlCodes = ref<string[]>([]);
 const treeSelectedKeys = ref<string[]>([]);
 
 watch(
@@ -46,6 +51,15 @@ watch(
     selectedSqlCodes.value = keys.filter((k) => !k.startsWith("group_"));
   },
   { deep: true },
+);
+
+watch(
+  () => form.value.taskType,
+  () => {
+    selectedSqlCodes.value = [];
+    selectedCrawlCodes.value = [];
+    treeSelectedKeys.value = [];
+  },
 );
 
 const rules = {
@@ -66,6 +80,12 @@ const selectedSqlList = computed(() => {
   return selectedSqlCodes.value
     .map((code) => sqlOptions.value.find((sql) => sql.sqlCode === code))
     .filter((sql): sql is TaskSqlConfig => !!sql);
+});
+
+const selectedCrawlList = computed(() => {
+  return selectedCrawlCodes.value
+    .map((code) => crawlOptions.value.find((crawl) => crawl.crawlCode === code))
+    .filter((crawl): crawl is TaskWebCrawlConfig => !!crawl);
 });
 
 const groupedSqlOptions = computed(() => {
@@ -152,8 +172,12 @@ const handleTreeChange = () => {
 };
 
 const loadOptions = async () => {
-  const sqlRes = await listTaskSql().catch(() => []);
+  const [sqlRes, crawlRes] = await Promise.all([
+    listTaskSql().catch(() => []),
+    listTaskCrawl().catch(() => []),
+  ]);
   sqlOptions.value = sqlRes || [];
+  crawlOptions.value = crawlRes || [];
 };
 
 const resetForm = () => {
@@ -163,8 +187,10 @@ const resetForm = () => {
     triggerType: "CRON",
     triggerConfig: "",
     status: "ENABLE",
+    taskType: "SQL",
   };
   selectedSqlCodes.value = [];
+  selectedCrawlCodes.value = [];
   treeSelectedKeys.value = [];
 };
 
@@ -179,8 +205,10 @@ const loadDetail = async () => {
       triggerType: "CRON",
       triggerConfig: "",
       status: "ENABLE",
+      taskType: "SQL",
     };
     selectedSqlCodes.value = res.sqlCodes || [];
+    selectedCrawlCodes.value = res.crawlCodes || [];
     treeSelectedKeys.value = [...selectedSqlCodes.value];
   } finally {
     loading.value = false;
@@ -223,12 +251,43 @@ const removeSql = (index: number) => {
   selectedSqlCodes.value = arr;
 };
 
+const moveCrawlUp = (index: number) => {
+  if (index <= 0) return;
+  const arr = [...selectedCrawlCodes.value];
+  const temp = arr[index];
+  arr[index] = arr[index - 1];
+  arr[index - 1] = temp;
+  selectedCrawlCodes.value = arr;
+};
+
+const moveCrawlDown = (index: number) => {
+  if (index >= selectedCrawlCodes.value.length - 1) return;
+  const arr = [...selectedCrawlCodes.value];
+  const temp = arr[index];
+  arr[index] = arr[index + 1];
+  arr[index + 1] = temp;
+  selectedCrawlCodes.value = arr;
+};
+
+const removeCrawl = (index: number) => {
+  const arr = [...selectedCrawlCodes.value];
+  arr.splice(index, 1);
+  selectedCrawlCodes.value = arr;
+};
+
 const handleSubmit = async () => {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
 
-  if (selectedSqlCodes.value.length === 0) {
+  if (form.value.taskType === "SQL" && selectedSqlCodes.value.length === 0) {
     ElMessage.warning("请选择至少一条 SQL");
+    return;
+  }
+  if (
+    form.value.taskType === "CRAWL" &&
+    selectedCrawlCodes.value.length === 0
+  ) {
+    ElMessage.warning("请选择至少一个爬取配置");
     return;
   }
 
@@ -236,7 +295,9 @@ const handleSubmit = async () => {
   try {
     const request: TaskConfigRequest = {
       task: form.value,
-      sqlCodes: selectedSqlCodes.value,
+      sqlCodes: form.value.taskType === "SQL" ? selectedSqlCodes.value : [],
+      crawlCodes:
+        form.value.taskType === "CRAWL" ? selectedCrawlCodes.value : [],
     };
     if (isEdit.value) {
       await updateTask(props.id!, request);
@@ -325,7 +386,26 @@ onMounted(() => {
         </el-col>
       </el-row>
 
-      <el-form-item label="选择 SQL" required>
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="任务类型">
+            <el-radio-group v-model="form.taskType">
+              <el-radio label="SQL">SQL</el-radio>
+              <el-radio label="CRAWL">网页爬取</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="状态">
+            <el-radio-group v-model="form.status">
+              <el-radio label="ENABLE">启用</el-radio>
+              <el-radio label="DISABLE">禁用</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <el-form-item v-if="form.taskType === 'SQL'" label="选择 SQL" required>
         <el-tree-select
           ref="treeSelectRef"
           v-model="treeSelectedKeys"
@@ -394,6 +474,83 @@ onMounted(() => {
                 >下移</el-button
               >
               <el-button link type="danger" @click="removeSql($index)"
+                >删除</el-button
+              >
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-form-item>
+
+      <el-form-item v-if="form.taskType === 'CRAWL'" label="选择爬取配置" required>
+        <el-select
+          v-model="selectedCrawlCodes"
+          multiple
+          filterable
+          placeholder="请选择要执行的爬取配置"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="item in crawlOptions"
+            :key="item.crawlCode"
+            :label="`${item.crawlName} (${item.crawlCode})`"
+            :value="item.crawlCode!"
+          />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item v-if="form.taskType === 'CRAWL' && selectedCrawlList.length > 0" label="执行顺序">
+        <el-table :data="selectedCrawlList" border size="small">
+          <el-table-column
+            type="index"
+            label="序号"
+            width="60"
+            align="center"
+          />
+          <el-table-column
+            prop="crawlName"
+            label="爬取名称"
+            min-width="160"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="crawlCode"
+            label="爬取编码"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="outputFormat"
+            label="输出格式"
+            min-width="100"
+            show-overflow-tooltip
+          />
+          <el-table-column label="模板" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.templateCode ? "有" : "无" }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="操作"
+            width="150"
+            align="center"
+            fixed="right"
+          >
+            <template #default="{ $index }">
+              <el-button
+                link
+                type="primary"
+                :disabled="$index === 0"
+                @click="moveCrawlUp($index)"
+                >上移</el-button
+              >
+              <el-button
+                link
+                type="primary"
+                :disabled="$index === selectedCrawlList.length - 1"
+                @click="moveCrawlDown($index)"
+                >下移</el-button
+              >
+              <el-button link type="danger" @click="removeCrawl($index)"
                 >删除</el-button
               >
             </template>

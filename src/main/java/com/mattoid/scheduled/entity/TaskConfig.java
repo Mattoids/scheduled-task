@@ -28,4 +28,9 @@ public class TaskConfig extends BaseEntity {
      */
     private String status;
 
+    /**
+     * SQL / CRAWL
+     */
+    private String taskType;
+
 }

@@ -261,7 +261,7 @@ public class WeComCommandHandler {
             task.setTriggerType(triggerType.toUpperCase());
             task.setTriggerConfig(triggerConfig.trim());
             task.setStatus("ENABLE");
-            taskConfigService.saveOrUpdateTask(task, sqlCodes);
+            taskConfigService.saveOrUpdateTask(task, sqlCodes, null);
             return new CommandResult("任务创建成功: " + task.getTaskName() + " (ID: " + task.getId() + ")");
         } catch (Exception e) {
             log.error("AI 创建任务失败: params={}", params, e);
@@ -637,7 +637,7 @@ public class WeComCommandHandler {
         task.setTriggerType(triggerConfig.contains(" ") ? "CRON" : "ONCE");
         task.setTriggerConfig(triggerConfig);
         task.setStatus("ENABLE");
-        taskConfigService.saveOrUpdateTask(task, sqlCodes);
+        taskConfigService.saveOrUpdateTask(task, sqlCodes, null);
         return "任务创建成功: " + task.getTaskName() + " (ID: " + task.getId() + ")";
     }
 
