@@ -283,7 +283,11 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
     }
 
     protected void expandTablesInPpt(XMLSlideShow ppt, List<Map<String, Object>> data) {
-        if (data == null || data.isEmpty()) {
+        if (data == null) {
+            return;
+        }
+        if (data.isEmpty()) {
+            removeEmptyDataTablesInPpt(ppt);
             return;
         }
         // 单行数据按普通占位符处理，多行数据才展开表格
@@ -380,6 +384,45 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             }
             slideIndex++;
         }
+    }
+
+    /**
+     * 当 SQL 结果为空时，移除 PPT 中所有数据表格（表头包含 ${字段名} 占位符的表格）。
+     */
+    private void removeEmptyDataTablesInPpt(XMLSlideShow ppt) {
+        int slideIndex = 0;
+        for (XSLFSlide slide : ppt.getSlides()) {
+            List<XSLFShape> shapes = new ArrayList<>(slide.getShapes());
+            for (XSLFShape shape : shapes) {
+                if (!(shape instanceof XSLFTable table)) {
+                    continue;
+                }
+                if (isDataTable(table)) {
+                    String shapeName = shape.getShapeName();
+                    slide.removeShape(shape);
+                    log.debug("SQL 结果为空，移除 PPT 数据表格: slide={}, shape={}", slideIndex, shapeName);
+                }
+            }
+            slideIndex++;
+        }
+    }
+
+    /**
+     * 判断表格是否为数据表格（任意一行表头单元格包含 ${字段名} 占位符）。
+     */
+    private boolean isDataTable(XSLFTable table) {
+        for (XSLFTableRow row : table.getRows()) {
+            if (row == null) {
+                continue;
+            }
+            for (XSLFTableCell cell : row.getCells()) {
+                String text = getTextShapeText(cell);
+                if (text != null && text.trim().startsWith("${") && text.trim().endsWith("}")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String getTextShapeText(XSLFTextShape textShape) {

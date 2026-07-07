@@ -659,6 +659,72 @@ class WordPptTemplateProcessorTest {
     }
 
     @Test
+    void pptEmptyDataRemovesDataTable() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(2, 2);
+
+            XSLFTableRow headerRow = table.getRows().get(0);
+            headerRow.getCells().get(0).setText("${name}");
+            headerRow.getCells().get(1).setText("${age}");
+
+            XSLFTableRow sampleRow = table.getRows().get(1);
+            sampleRow.getCells().get(0).setText("sample");
+            sampleRow.getCells().get(1).setText("0");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of();
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            long tableCount = slide.getShapes().stream().filter(s -> s instanceof XSLFTable).count();
+            assertEquals(0, tableCount, "SQL 结果为空时应移除数据表格");
+        }
+    }
+
+    @Test
+    void pptEmptyDataKeepsNonDataTable() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(1, 2);
+
+            XSLFTableRow row = table.getRows().get(0);
+            row.getCells().get(0).setText("Summary");
+            row.getCells().get(1).setText("Value");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of();
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            long tableCount = slide.getShapes().stream().filter(s -> s instanceof XSLFTable).count();
+            assertEquals(1, tableCount, "非数据表格在 SQL 结果为空时应保留");
+        }
+    }
+
+    @Test
     void pptChartPlaceholderReplacedWithPicture() throws Exception {
         ChartGenerationService realChartService = new ChartGenerationService();
         List<Map<String, Object>> data = List.of(

@@ -67,9 +67,7 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
         try (FileInputStream fis = new FileInputStream(templateFile);
              XMLSlideShow ppt = new XMLSlideShow(fis)) {
 
-            if (!data.isEmpty()) {
-                expandTablesInPpt(ppt, data);
-            }
+            expandTablesInPpt(ppt, data);
 
             if (context != null && !data.isEmpty()) {
                 insertCharts(ppt, data, context);
