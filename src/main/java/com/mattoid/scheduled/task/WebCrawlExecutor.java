@@ -180,6 +180,38 @@ public class WebCrawlExecutor {
         }
     }
 
+    public ResourceResponse fetchResource(TaskWebCrawlConfig config, String targetUrl) throws Exception {
+        if (config == null || !StringUtils.hasText(targetUrl)) {
+            throw new IllegalArgumentException("配置或资源 URL 不能为空");
+        }
+        decryptSensitiveFields(config);
+        Map<String, Object> mergedParams = mergeParams(config, null);
+
+        String tunnelId = null;
+        SshTunnel tunnel = null;
+        WebCrawlProxyHelper.bindAuth(config);
+        try {
+            if (Integer.valueOf(1).equals(config.getSshEnabled())) {
+                SshConfig sshConfig = buildSshConfig(config);
+                tunnelId = "crawl_resource_" + System.currentTimeMillis();
+                tunnel = sshTunnelManager.createTunnel(sshConfig, tunnelId);
+            }
+
+            String actualUrl = applySshTunnelToUrl(targetUrl, tunnel);
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
+            Connection.Response response = connection.execute();
+            return new ResourceResponse(response.contentType(), response.bodyAsBytes());
+        } finally {
+            WebCrawlProxyHelper.unbindAuth();
+            if (tunnelId != null) {
+                sshTunnelManager.closeTunnel(tunnelId);
+            }
+        }
+    }
+
+    public record ResourceResponse(String contentType, byte[] body) {
+    }
+
     private Document fetchDocument(TaskWebCrawlConfig config, String url,
                                    Map<String, Object> params, SshTunnel tunnel) throws Exception {
         String actualUrl = applySshTunnelToUrl(url, tunnel);

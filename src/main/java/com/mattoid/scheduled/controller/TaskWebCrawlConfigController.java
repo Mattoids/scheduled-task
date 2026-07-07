@@ -14,12 +14,18 @@ import com.mattoid.scheduled.service.ReportTemplateService;
 import com.mattoid.scheduled.service.TaskWebCrawlConfigService;
 import com.mattoid.scheduled.service.TaskWebCrawlSelectorService;
 import com.mattoid.scheduled.task.WebCrawlExecutor;
+import com.mattoid.scheduled.task.WebCrawlPreviewProxyService;
 import com.mattoid.scheduled.task.WebCrawlPreviewResult;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 
@@ -31,15 +37,18 @@ public class TaskWebCrawlConfigController {
     private final TaskWebCrawlSelectorService taskWebCrawlSelectorService;
     private final ReportTemplateService reportTemplateService;
     private final WebCrawlExecutor webCrawlExecutor;
+    private final WebCrawlPreviewProxyService previewProxyService;
 
     public TaskWebCrawlConfigController(TaskWebCrawlConfigService taskWebCrawlConfigService,
                                         TaskWebCrawlSelectorService taskWebCrawlSelectorService,
                                         ReportTemplateService reportTemplateService,
-                                        WebCrawlExecutor webCrawlExecutor) {
+                                        WebCrawlExecutor webCrawlExecutor,
+                                        WebCrawlPreviewProxyService previewProxyService) {
         this.taskWebCrawlConfigService = taskWebCrawlConfigService;
         this.taskWebCrawlSelectorService = taskWebCrawlSelectorService;
         this.reportTemplateService = reportTemplateService;
         this.webCrawlExecutor = webCrawlExecutor;
+        this.previewProxyService = previewProxyService;
     }
 
     @PreAuthorize("hasAuthority('taskCrawl:view')")
@@ -67,6 +76,51 @@ public class TaskWebCrawlConfigController {
     @PostMapping("/preview")
     public Result<WebCrawlPreviewResult> preview(@RequestBody TaskWebCrawlConfig config) {
         return Result.ok(webCrawlExecutor.preview(config, null));
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @PostMapping(value = "/preview-rewrite", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> previewRewrite(@RequestBody TaskWebCrawlConfig config) {
+        WebCrawlPreviewProxyService.PreviewHtmlResult result = previewProxyService.rewrite(config);
+        if (!result.success()) {
+            return ResponseEntity.status(result.statusCode() >= 200 ? result.statusCode() : 500)
+                    .body("<html><body><h1>预览失败</h1><p>" + escapeHtml(result.message()) + "</p></body></html>");
+        }
+        return ResponseEntity.ok(result.html());
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @GetMapping("/preview-resource")
+    public ResponseEntity<byte[]> previewResource(@RequestParam String token, @RequestParam(required = false) String url) throws Exception {
+        String targetUrl = url;
+        if (StringUtils.hasText(url)) {
+            try {
+                targetUrl = new String(Base64.getUrlDecoder().decode(url), StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                targetUrl = URLDecoder.decode(url, StandardCharsets.UTF_8);
+            }
+        }
+        if (!StringUtils.hasText(targetUrl)) {
+            return ResponseEntity.badRequest().body("缺少 url 参数".getBytes(StandardCharsets.UTF_8));
+        }
+        WebCrawlPreviewProxyService.ResourceProxyResult result = previewProxyService.proxyResource(token, targetUrl);
+        MediaType mediaType = StringUtils.hasText(result.contentType())
+                ? MediaType.parseMediaType(result.contentType())
+                : MediaType.APPLICATION_OCTET_STREAM;
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .body(result.body());
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#x27;");
     }
 
     @PreAuthorize("hasAuthority('taskCrawl:view')")

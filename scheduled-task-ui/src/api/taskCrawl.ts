@@ -37,3 +37,9 @@ export const deleteTaskCrawl = (id: number) => {
 export const previewTaskCrawl = (data: TaskWebCrawlConfig) => {
   return request.post<WebCrawlPreviewResult>('/task-crawl/preview', data)
 }
+
+export const previewRewriteTaskCrawl = (data: TaskWebCrawlConfig) => {
+  return request.post<string>('/task-crawl/preview-rewrite', data, {
+    responseType: 'text',
+  })
+}

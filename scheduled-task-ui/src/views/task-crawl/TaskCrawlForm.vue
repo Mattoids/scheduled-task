@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewTaskCrawl } from '@/api/taskCrawl'
+import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewRewriteTaskCrawl } from '@/api/taskCrawl'
+import { useUserStore } from '@/stores/user'
 import type { TaskWebCrawlConfig, TaskWebCrawlSelector } from '@/types/entity'
 
 const props = defineProps<{
@@ -169,14 +170,14 @@ const handlePreview = async () => {
   }
   previewing.value = true
   try {
-    const res = await previewTaskCrawl(form)
-    if (res.success) {
-      previewTitle.value = res.title || '网页预览'
-      previewContent.value = res.content || ''
-      previewVisible.value = true
-    } else {
-      ElMessage.error(`预览失败：${res.message || '未知错误'}`)
+    const html = await previewRewriteTaskCrawl(form)
+    const userStore = useUserStore()
+    if (userStore.token) {
+      document.cookie = `accessToken=${userStore.token}; path=/; max-age=600`
     }
+    previewTitle.value = '网页预览'
+    previewContent.value = html || ''
+    previewVisible.value = true
   } catch (e: any) {
     ElMessage.error(`预览失败：${e?.message || '未知错误'}`)
   } finally {

@@ -27,6 +27,10 @@ instance.interceptors.request.use(
 
 instance.interceptors.response.use(
   (response) => {
+    const contentType = String(response.headers['content-type'] || '')
+    if (contentType.includes('text/html')) {
+      return response.data
+    }
     const res = response.data
     if (res.code !== 200) {
       ElMessage.error(res.message || '请求失败')
