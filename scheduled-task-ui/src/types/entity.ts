@@ -109,6 +109,11 @@ export interface TaskWebCrawlConfig {
   sshRemoteHost?: string
   sshRemotePort?: number
   sshLocalPort?: number
+  proxyEnabled?: number
+  proxyHost?: string
+  proxyPort?: number
+  proxyUsername?: string
+  proxyPassword?: string
   renderType?: 'STATIC' | 'DYNAMIC'
   driverConfig?: string
   outputFormat?: string

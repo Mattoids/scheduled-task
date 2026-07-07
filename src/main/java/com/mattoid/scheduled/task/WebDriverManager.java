@@ -42,9 +42,9 @@ public class WebDriverManager {
         options.addArguments("--disable-gpu");
         options.addArguments("--window-size=" + driverConfig.getOrDefault("windowSize", "1920,1080"));
 
-        String proxy = (String) driverConfig.get("proxy");
-        if (StringUtils.hasText(proxy)) {
-            options.addArguments("--proxy-server=" + proxy);
+        String proxyArg = buildProxyArg(config, driverConfig);
+        if (StringUtils.hasText(proxyArg)) {
+            options.addArguments("--proxy-server=" + proxyArg);
         }
 
         String browserPath = (String) driverConfig.get("browserPath");
@@ -86,6 +86,18 @@ public class WebDriverManager {
         } finally {
             driver.quit();
         }
+    }
+
+    private String buildProxyArg(TaskWebCrawlConfig config, Map<String, Object> driverConfig) {
+        if (WebCrawlProxyHelper.isProxyEnabled(config)) {
+            StringBuilder sb = new StringBuilder("http://");
+            if (StringUtils.hasText(config.getProxyUsername()) && StringUtils.hasText(config.getProxyPassword())) {
+                sb.append(config.getProxyUsername()).append(":").append(config.getProxyPassword()).append("@");
+            }
+            sb.append(config.getProxyHost()).append(":").append(config.getProxyPort());
+            return sb.toString();
+        }
+        return (String) driverConfig.get("proxy");
     }
 
     private Map<String, Object> parseDriverConfig(String json) {

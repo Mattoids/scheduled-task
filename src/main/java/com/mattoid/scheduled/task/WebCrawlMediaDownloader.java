@@ -20,7 +20,9 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.net.Proxy;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -67,19 +69,25 @@ public class WebCrawlMediaDownloader {
         }
 
         MediaFilter filter = parseMediaFilter(config.getMediaFilterConfig());
+        Proxy proxy = WebCrawlProxyHelper.createProxy(config);
+        WebCrawlProxyHelper.bindAuth(config);
         List<File> downloaded = new ArrayList<>();
-        for (String mediaUrl : urls) {
-            String actualUrl = applySshTunnelToUrl(mediaUrl, tunnel);
-            try {
-                File file = downloadFile(actualUrl);
-                if (!filter.accept(file, mediaUrl)) {
-                    Files.deleteIfExists(file.toPath());
-                    continue;
+        try {
+            for (String mediaUrl : urls) {
+                String actualUrl = applySshTunnelToUrl(mediaUrl, tunnel);
+                try {
+                    File file = downloadFile(actualUrl, proxy);
+                    if (!filter.accept(file, mediaUrl)) {
+                        Files.deleteIfExists(file.toPath());
+                        continue;
+                    }
+                    downloaded.add(file);
+                } catch (Exception e) {
+                    log.warn("下载媒体失败: {} - {}", mediaUrl, e.getMessage());
                 }
-                downloaded.add(file);
-            } catch (Exception e) {
-                log.warn("下载媒体失败: {} - {}", mediaUrl, e.getMessage());
             }
+        } finally {
+            WebCrawlProxyHelper.unbindAuth();
         }
 
         String outputMode = config.getMediaOutputMode();
@@ -109,14 +117,17 @@ public class WebCrawlMediaDownloader {
         }
     }
 
-    private File downloadFile(String url) throws Exception {
+    private File downloadFile(String url, Proxy proxy) throws Exception {
         URL parsed = new URL(url);
         String fileName = Paths.get(parsed.getPath()).getFileName().toString();
         if (!StringUtils.hasText(fileName)) {
             fileName = "media_" + System.currentTimeMillis();
         }
         Path temp = Files.createTempFile("media_", "_" + fileName);
-        try (InputStream in = parsed.openStream()) {
+        URLConnection connection = proxy != null ? parsed.openConnection(proxy) : parsed.openConnection();
+        connection.setConnectTimeout(30_000);
+        connection.setReadTimeout(60_000);
+        try (InputStream in = connection.getInputStream()) {
             Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         return temp.toFile();

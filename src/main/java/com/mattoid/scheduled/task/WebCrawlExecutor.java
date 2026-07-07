@@ -25,6 +25,7 @@ import javax.xml.xpath.XPathFactory;
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.Proxy;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -69,6 +70,7 @@ public class WebCrawlExecutor {
 
         String tunnelId = null;
         SshTunnel tunnel = null;
+        WebCrawlProxyHelper.bindAuth(config);
         try {
             if (Integer.valueOf(1).equals(config.getSshEnabled())) {
                 SshConfig sshConfig = buildSshConfig(config);
@@ -121,6 +123,7 @@ public class WebCrawlExecutor {
                     mediaCount
             );
         } finally {
+            WebCrawlProxyHelper.unbindAuth();
             if (tunnelId != null) {
                 sshTunnelManager.closeTunnel(tunnelId);
             }
@@ -139,6 +142,7 @@ public class WebCrawlExecutor {
 
         String tunnelId = null;
         SshTunnel tunnel = null;
+        WebCrawlProxyHelper.bindAuth(config);
         try {
             if (Integer.valueOf(1).equals(config.getSshEnabled())) {
                 SshConfig sshConfig = buildSshConfig(config);
@@ -169,6 +173,7 @@ public class WebCrawlExecutor {
             log.warn("网页爬取预览失败: {}", e.getMessage(), e);
             return WebCrawlPreviewResult.failure("预览失败: " + e.getMessage());
         } finally {
+            WebCrawlProxyHelper.unbindAuth();
             if (tunnelId != null) {
                 sshTunnelManager.closeTunnel(tunnelId);
             }
@@ -194,6 +199,11 @@ public class WebCrawlExecutor {
                 .followRedirects(true)
                 .ignoreHttpErrors(false)
                 .ignoreContentType(false);
+
+        Proxy proxy = WebCrawlProxyHelper.createProxy(config);
+        if (proxy != null) {
+            connection.proxy(proxy);
+        }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
         applyCookies(connection, config.getCookies(), params);
@@ -226,6 +236,11 @@ public class WebCrawlExecutor {
                 .followRedirects(true)
                 .ignoreHttpErrors(true)
                 .ignoreContentType(false);
+
+        Proxy proxy = WebCrawlProxyHelper.createProxy(config);
+        if (proxy != null) {
+            connection.proxy(proxy);
+        }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
         applyCookies(connection, config.getCookies(), params);
@@ -602,6 +617,9 @@ public class WebCrawlExecutor {
         }
         if (StringUtils.hasText(config.getSshPassphrase())) {
             config.setSshPassphrase(CryptoUtil.decryptIfNeeded(config.getSshPassphrase()));
+        }
+        if (StringUtils.hasText(config.getProxyPassword())) {
+            config.setProxyPassword(CryptoUtil.decryptIfNeeded(config.getProxyPassword()));
         }
     }
 }

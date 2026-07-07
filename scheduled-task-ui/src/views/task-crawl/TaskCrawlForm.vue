@@ -55,6 +55,11 @@ const form = reactive<TaskWebCrawlConfig>({
   sshRemoteHost: '',
   sshRemotePort: 80,
   sshLocalPort: 0,
+  proxyEnabled: 0,
+  proxyHost: '',
+  proxyPort: undefined,
+  proxyUsername: '',
+  proxyPassword: '',
   renderType: 'STATIC',
   driverConfig: '',
   outputFormat: 'CSV',
@@ -208,6 +213,11 @@ const resetForm = () => {
     sshRemoteHost: '',
     sshRemotePort: 80,
     sshLocalPort: 0,
+    proxyEnabled: 0,
+    proxyHost: '',
+    proxyPort: undefined,
+    proxyUsername: '',
+    proxyPassword: '',
     renderType: 'STATIC',
     driverConfig: '',
     outputFormat: 'CSV',
@@ -334,6 +344,36 @@ watch(
               placeholder='JSON 格式，保存时会自动加密'
             />
           </el-form-item>
+          <el-divider content-position="left">HTTP 代理</el-divider>
+          <el-form-item label="启用代理">
+            <el-switch v-model="form.proxyEnabled" :active-value="1" :inactive-value="0" />
+          </el-form-item>
+          <template v-if="form.proxyEnabled === 1">
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="代理主机">
+                  <el-input v-model="form.proxyHost" placeholder="127.0.0.1" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="代理端口">
+                  <el-input-number v-model="form.proxyPort" :min="1" :max="65535" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="代理用户名">
+                  <el-input v-model="form.proxyUsername" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="代理密码">
+                  <el-input v-model="form.proxyPassword" type="password" show-password />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </template>
         </el-tab-pane>
 
         <el-tab-pane label="认证与 SSH">

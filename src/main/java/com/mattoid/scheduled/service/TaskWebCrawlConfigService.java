@@ -168,6 +168,9 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         if (StringUtils.hasText(config.getSshPassphrase()) && !config.getSshPassphrase().startsWith(ENC_PREFIX)) {
             config.setSshPassphrase(CryptoUtil.encrypt(config.getSshPassphrase()));
         }
+        if (StringUtils.hasText(config.getProxyPassword()) && !config.getProxyPassword().startsWith(ENC_PREFIX)) {
+            config.setProxyPassword(CryptoUtil.encrypt(config.getProxyPassword()));
+        }
     }
 
     private void decryptSensitiveFields(TaskWebCrawlConfig config) {
@@ -185,6 +188,9 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         }
         if (StringUtils.hasText(config.getSshPassphrase())) {
             config.setSshPassphrase(CryptoUtil.decryptIfNeeded(config.getSshPassphrase()));
+        }
+        if (StringUtils.hasText(config.getProxyPassword())) {
+            config.setProxyPassword(CryptoUtil.decryptIfNeeded(config.getProxyPassword()));
         }
     }
 }

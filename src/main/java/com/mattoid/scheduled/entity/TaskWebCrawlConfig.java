@@ -59,6 +59,16 @@ public class TaskWebCrawlConfig extends BaseEntity {
 
     private Integer sshLocalPort;
 
+    private Integer proxyEnabled;
+
+    private String proxyHost;
+
+    private Integer proxyPort;
+
+    private String proxyUsername;
+
+    private String proxyPassword;
+
     /**
      * STATIC / DYNAMIC
      */
