@@ -431,54 +431,53 @@ watch(
             <el-switch v-model="form.sshEnabled" :active-value="1" :inactive-value="0" />
           </el-form-item>
           <template v-if="form.sshEnabled === 1">
+            <el-divider content-position="left">SSH 服务器</el-divider>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="SSH 服务器">
+                  <el-input v-model="form.sshHost" placeholder="服务器地址，如 192.168.1.10" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="SSH 端口">
+                  <el-input-number v-model="form.sshPort" :min="1" :max="65535" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-form-item label="SSH 用户名">
+              <el-input v-model="form.sshUsername" />
+            </el-form-item>
+            <el-form-item label="认证方式">
+              <el-radio-group v-model="form.sshAuthType">
+                <el-radio-button label="PASSWORD">密码</el-radio-button>
+                <el-radio-button label="KEY">私钥</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="form.sshAuthType === 'PASSWORD'" label="SSH 密码">
+              <el-input v-model="form.sshPassword" type="password" show-password />
+            </el-form-item>
+            <template v-if="form.sshAuthType === 'KEY'">
+              <el-form-item label="SSH 私钥">
+                <el-input
+                  v-model="form.sshPrivateKey"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="保存时自动加密"
+                />
+              </el-form-item>
+              <el-form-item label="私钥口令">
+                <el-input v-model="form.sshPassphrase" type="password" show-password />
+              </el-form-item>
+            </template>
+
             <el-form-item label="跳板机">
               <el-switch v-model="form.sshJumpHostEnabled" :active-value="1" :inactive-value="0" />
             </el-form-item>
-
-            <template v-if="form.sshJumpHostEnabled !== 1">
-              <el-row :gutter="20">
-                <el-col :span="12">
-                  <el-form-item label="SSH 服务器">
-                    <el-input v-model="form.sshHost" placeholder="服务器地址，如 192.168.1.10" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="SSH 端口">
-                    <el-input-number v-model="form.sshPort" :min="1" :max="65535" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-form-item label="SSH 用户名">
-                <el-input v-model="form.sshUsername" />
-              </el-form-item>
-              <el-form-item label="认证方式">
-                <el-radio-group v-model="form.sshAuthType">
-                  <el-radio-button label="PASSWORD">密码</el-radio-button>
-                  <el-radio-button label="KEY">私钥</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="form.sshAuthType === 'PASSWORD'" label="SSH 密码">
-                <el-input v-model="form.sshPassword" type="password" show-password />
-              </el-form-item>
-              <template v-if="form.sshAuthType === 'KEY'">
-                <el-form-item label="SSH 私钥">
-                  <el-input
-                    v-model="form.sshPrivateKey"
-                    type="textarea"
-                    :rows="4"
-                    placeholder="保存时自动加密"
-                  />
-                </el-form-item>
-                <el-form-item label="私钥口令">
-                  <el-input v-model="form.sshPassphrase" type="password" show-password />
-                </el-form-item>
-              </template>
-            </template>
-
             <template v-if="form.sshJumpHostEnabled === 1">
+              <el-divider content-position="left">跳板机 SSH 配置</el-divider>
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="跳板机">
+                  <el-form-item label="跳板机地址">
                     <el-input v-model="form.sshJumpHostHost" placeholder="跳板机地址，如 192.168.1.10" />
                   </el-form-item>
                 </el-col>
