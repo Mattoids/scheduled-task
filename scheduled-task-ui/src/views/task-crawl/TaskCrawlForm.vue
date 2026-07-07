@@ -470,6 +470,27 @@ watch(
               </el-form-item>
             </template>
 
+            <el-divider content-position="left">目标服务（留空则从请求 URL 自动提取）</el-divider>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="目标服务器主机">
+                  <el-input v-model="form.sshRemoteHost" placeholder="内网目标主机，如 10.0.0.5" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="目标服务器端口">
+                  <el-input-number v-model="form.sshRemotePort" :min="1" :max="65535" placeholder="请求 URL 端口" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="本地映射端口">
+                  <el-input-number v-model="form.sshLocalPort" :min="0" :max="65535" placeholder="0=自动分配" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
             <el-form-item label="跳板机">
               <el-switch v-model="form.sshJumpHostEnabled" :active-value="1" :inactive-value="0" />
             </el-form-item>
@@ -513,27 +534,6 @@ watch(
                 </el-form-item>
               </template>
             </template>
-
-            <el-divider content-position="left">目标服务（留空则从请求 URL 自动提取）</el-divider>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="目标服务器主机">
-                  <el-input v-model="form.sshRemoteHost" placeholder="内网目标主机，如 10.0.0.5" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="目标服务器端口">
-                  <el-input-number v-model="form.sshRemotePort" :min="1" :max="65535" placeholder="请求 URL 端口" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="本地映射端口">
-                  <el-input-number v-model="form.sshLocalPort" :min="0" :max="65535" placeholder="0=自动分配" />
-                </el-form-item>
-              </el-col>
-            </el-row>
           </template>
         </el-tab-pane>
 
