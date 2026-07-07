@@ -424,24 +424,21 @@ watch(
             :closable="false"
             show-icon
             title="说明"
-            description="启用 SSH 隧道后，目标服务会被映射到本地 127.0.0.1:<本地端口>；使用跳板机时，先连接跳板机，再转发到内网目标服务器。"
+            description="启用 SSH 隧道后，目标服务会被映射到本地 127.0.0.1:<本地端口>；开启跳板机时，先连接跳板机，再转发到内网目标服务器。"
             style="margin-bottom: 16px"
           />
           <el-form-item label="启用 SSH 隧道">
             <el-switch v-model="form.sshEnabled" :active-value="1" :inactive-value="0" />
           </el-form-item>
           <template v-if="form.sshEnabled === 1">
-            <el-form-item label="连接方式">
-              <el-radio-group v-model="form.sshJumpHostEnabled">
-                <el-radio-button :label="0">直连服务器</el-radio-button>
-                <el-radio-button :label="1">跳板机</el-radio-button>
-              </el-radio-group>
+            <el-form-item label="跳板机">
+              <el-switch v-model="form.sshJumpHostEnabled" :active-value="1" :inactive-value="0" />
             </el-form-item>
 
             <template v-if="form.sshJumpHostEnabled !== 1">
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="SSH 服务器 / 主机">
+                  <el-form-item label="SSH 服务器">
                     <el-input v-model="form.sshHost" placeholder="服务器地址，如 192.168.1.10" />
                   </el-form-item>
                 </el-col>
@@ -481,7 +478,7 @@ watch(
             <template v-if="form.sshJumpHostEnabled === 1">
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="跳板机 / 主机">
+                  <el-form-item label="跳板机">
                     <el-input v-model="form.sshJumpHostHost" placeholder="跳板机地址，如 192.168.1.10" />
                   </el-form-item>
                 </el-col>
