@@ -115,25 +115,11 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 
 邮件主题、邮件正文、企业微信文本模板均支持占位符，使用 `${变量名}` 格式。
 
-**图表占位符**：在 SQL 中启用图表生成后，可通过 `${chart:sql编码}` 在通知内容任意位置插入对应图表。
-
-**内置变量**（同任务级变量规则）：
-
-| 变量 | 说明 | 示例（当前 2026-07-04） |
-|------|------|------------------------|
-| `{lastMonth}` | 上月月份，固定两位 | `06` |
-| `{lastMonth:yyyyMM}` | 上月按自定义格式输出 | `202606` |
-| `{nextMonth}` | 下月月份，固定 `yyyyMM` | `202608` |
-| `{nextMonth:yyyy-MM}` | 下月按自定义格式输出 | `2026-08` |
-| `{yyyyMMddHHmmss}` | 当前时间 | `20260704123045` |
-| `{yyyyMMdd}` | 当前日期 | `20260704` |
-| `{yyyy-MM-dd}` | 当前日期 | `2026-07-04` |
-| `{HHmmss}` | 当前时间 | `123045` |
-
-**内联 SQL 结果占位符**：任务关联的 SQL 查询结果会作为变量注入模板。
-
-- 单行单列：直接使用该列名，值为字符串/数字
-- 多行或多列：使用列名作为变量，值为数组
+- **图表占位符**：在 SQL 中启用图表生成后，可通过 `${chart:sql编码}` 在通知内容任意位置插入对应图表。
+- **日期变量**：支持 `${变量名:格式}`，例如 `${lastMonth:yyyy-MM}`、`${firstDayOfLastMonth:yyyy/MM/dd}`，完整变量列表见「变量与占位符规则 → 内置变量」。
+- **内联 SQL 结果占位符**：任务关联的 SQL 查询结果会作为变量注入模板。
+  - 单行单列：直接使用该列名，值为字符串/数字
+  - 多行或多列：使用列名作为变量，值为数组
 
 例如 SQL 查询结果为两行两列 `name` 和 `value`：
 
@@ -223,6 +209,73 @@ SQL 配置支持 `group_name` 分组：
 - 任务配置中选择 SQL 时，下拉框会按分组展示，便于在 SQL 较多时快速定位
 - 未填写分组的 SQL 会归入"未分组"
 
+### SQL 变量与参数
+
+SQL 语句中支持使用 `${参数名}` 占位符，系统会在执行前按以下顺序替换：
+
+1. **自定义参数**：在「SQL 管理」的 `custom_params` 中配置的 JSON 对象，key 即为参数名。
+2. **内置日期/时间变量**：当自定义参数中不存在对应 key 时，会尝试解析为内置变量。
+
+自定义参数示例：
+
+```json
+{
+  "startTime": "2026-07-01 00:00:00",
+  "endTime": "2026-07-01 23:59:59",
+  "city": "北京"
+}
+```
+
+对应 SQL：
+
+```sql
+SELECT * FROM orders
+WHERE create_time BETWEEN '${startTime}' AND '${endTime}'
+  AND city = '${city}';
+```
+
+#### 自定义参数格式
+
+支持 `${参数名:格式}` 对参数值进行格式化：
+
+```sql
+-- startTime 为 2026-07-01 10:30:00 时，输出 2026-07-01
+SELECT * FROM orders WHERE date >= '${startTime:yyyy-MM-dd}';
+```
+
+#### SQL 内置变量
+
+除自定义参数外，SQL 中可直接使用以下内置变量：
+
+| 变量 | 说明 | 默认格式 |
+|------|------|---------|
+| `${month}` / `${currentMonth}` | 当前月份 | `M` |
+| `${lastMonth}` | 上月月份 | `M` |
+| `${nextMonth}` | 下月月份 | `M` |
+| `${lastM}` / `${nextM}` | 上月/下月数字 | `M` |
+| `${year}` / `${currentYear}` | 当前年份 | `yyyy` |
+| `${lastYear}` | 去年 | `yyyy` |
+| `${nextYear}` | 明年 | `yyyy` |
+| `${now}` / `${date}` | 当前时间 | `yyyy-MM-dd` |
+| `${today}` | 当前日期 | `yyyy-MM-dd` |
+| `${firstDayOfThisWeek}` | 本周第一天（周一） | `yyyy-MM-dd` |
+| `${lastDayOfThisWeek}` | 本周最后一天（周日） | `yyyy-MM-dd` |
+| `${firstDayOfLastWeek}` | 上周第一天（周一） | `yyyy-MM-dd` |
+| `${lastDayOfLastWeek}` | 上周最后一天（周日） | `yyyy-MM-dd` |
+| `${firstDayOfThisMonth}` | 本月第一天 | `yyyy-MM-dd` |
+| `${lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` |
+| `${lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` |
+
+内置变量同样支持格式后缀：
+
+```sql
+SELECT *
+FROM orders
+WHERE date >= '${firstDayOfLastMonth:yyyy/MM/dd}'
+  AND date <= '${lastDayOfLastMonth:yyyy/MM/dd}';
+```
+
 ### 单 SQL 输出
 
 未绑定模板时，SQL 结果按 `outputFormat` 输出：
@@ -245,6 +298,8 @@ SQL 配置支持 `group_name` 分组：
 | `chart_enabled` | 是否启用图表生成：`1` 启用，`0` 禁用 |
 | `chart_type` | 图表类型，支持 `BAR`（柱状图）、`LINE`（折线图）、`PIE`（饼图）、`AREA`（面积图）、`SCATTER`（散点图）、`STACKED_BAR`（堆叠柱状图）、`DOUGHNUT`（环形图） |
 | `chart_title` | 图表标题，留空时自动使用 SQL 名称 |
+| `chart_auto_merge` | 分类过多时是否自动合并相邻数据：`1` 开启（默认），`0` 关闭 |
+| `chart_label_rotation` | X 轴标签旋转角度：`AUTO`（自动，默认）、`0`、`45`、`90`；选择 `90` 时标签竖向显示 |
 
 > 图表生成与 `output_format` 无关。只要 SQL 未绑定模板（即非模板链中的 SQL），开启 `chart_enabled` 后任务执行时就会自动生成图表。
 
@@ -431,19 +486,39 @@ city_name | store_name | checkin_num
 
 ### 内置变量
 
-| 变量 | 说明 | 示例（当前 2026-07-04） |
-|------|------|------------------------|
-| `{lastMonth}` | 上月月份，固定两位 | `06` |
-| `{lastMonth:格式}` | 上月按自定义格式输出 | `{lastMonth:yyyyMM}` → `202606` |
-| `{nextMonth}` | 下月月份，固定 `yyyyMM` | `202608` |
-| `{nextMonth:格式}` | 下月按自定义格式输出 | `{nextMonth:yyyy-MM}` → `2026-08` |
-| `{yyyyMMddHHmmss}` | 当前时间 | `20260704123045` |
-| `{yyyyMMdd}` | 当前日期 | `20260704` |
-| `{yyyy-MM-dd}` | 当前日期 | `2026-07-04` |
-| `{HHmmss}` | 当前时间 | `123045` |
-| `{yyyy}` / `{MM}` / `{dd}` 等 | Java `DateTimeFormatter` 支持的任意格式 | - |
+变量支持两种写法：
 
-> 不认识的 `{...}` 内容会原样保留。
+- `{变量名}` —— 历史兼容写法，主要用于文件名和通知模板
+- `${变量名}` —— 与 SQL 占位符统一，主要用于 SQL 语句和通知模板
+
+两种写法均支持追加格式：`{变量名:格式}` 或 `${变量名:格式}`，例如 `${startTime:yyyy-MM}`、`{lastMonth:yyyy-MM}`。
+
+| 变量 | 说明 | 默认格式 | 示例（当前 2026-07-04） |
+|------|------|---------|------------------------|
+| `{month}` / `{currentMonth}` | 当前月份 | `M` | `7` |
+| `{lastMonth}` | 上月月份 | `MM` | `06` |
+| `{nextMonth}` | 下月月份 | `yyyyMM` | `202608` |
+| `{lastM}` / `{nextM}` | 上月/下月数字（SQL 中常用） | `M` | `6` / `8` |
+| `{year}` / `{currentYear}` | 当前年份 | `yyyy` | `2026` |
+| `{lastYear}` | 去年 | `yyyy` | `2025` |
+| `{nextYear}` | 明年 | `yyyy` | `2027` |
+| `{now}` / `{date}` | 当前时间 | `yyyy-MM-dd` | `2026-07-04` |
+| `{today}` | 当前日期 | `yyyy-MM-dd` | `2026-07-04` |
+| `{firstDayOfThisWeek}` | 本周第一天（周一） | `yyyy-MM-dd` | `2026-06-30` |
+| `{lastDayOfThisWeek}` | 本周最后一天（周日） | `yyyy-MM-dd` | `2026-07-06` |
+| `{firstDayOfLastWeek}` | 上周第一天（周一） | `yyyy-MM-dd` | `2026-06-23` |
+| `{lastDayOfLastWeek}` | 上周最后一天（周日） | `yyyy-MM-dd` | `2026-06-29` |
+| `{firstDayOfThisMonth}` | 本月第一天 | `yyyy-MM-dd` | `2026-07-01` |
+| `{lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` | `2026-07-31` |
+| `{firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` | `2026-06-01` |
+| `{lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` | `2026-06-30` |
+| `{yyyyMMddHHmmss}` | 当前时间 | - | `20260704123045` |
+| `{yyyyMMdd}` | 当前日期 | - | `20260704` |
+| `{yyyy-MM-dd}` | 当前日期 | - | `2026-07-04` |
+| `{HHmmss}` | 当前时间 | - | `123045` |
+| `{yyyy}` / `{MM}` / `{dd}` 等 | Java `DateTimeFormatter` 支持的任意格式 | - | - |
+
+> 不认识的 `{...}` 或 `${...}` 内容会原样保留。SQL 语句中的 `${lastMonth}` 默认使用 `M` 格式，如需两位月份请使用 `${lastMonth:MM}`。
 
 ### 文件名变量示例
 
