@@ -625,9 +625,35 @@ public class WebCrawlExecutor {
             sshConfig.setPassphrase(null);
         }
         sshConfig.setLocalPort(config.getSshLocalPort());
-        sshConfig.setRemoteHost(config.getSshRemoteHost());
-        sshConfig.setRemotePort(config.getSshRemotePort());
+
+        String remoteHost = config.getSshRemoteHost();
+        Integer remotePort = config.getSshRemotePort();
+        if (!StringUtils.hasText(remoteHost) || remotePort == null) {
+            URL parsedUrl = parseRequestUrl(config.getRequestUrl());
+            if (parsedUrl != null) {
+                if (!StringUtils.hasText(remoteHost)) {
+                    remoteHost = parsedUrl.getHost();
+                }
+                if (remotePort == null) {
+                    remotePort = parsedUrl.getPort() != -1 ? parsedUrl.getPort() : parsedUrl.getDefaultPort();
+                }
+            }
+        }
+        sshConfig.setRemoteHost(remoteHost);
+        sshConfig.setRemotePort(remotePort);
         return sshConfig;
+    }
+
+    private URL parseRequestUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return null;
+        }
+        try {
+            return new URL(replaceRequestVariables(url, null));
+        } catch (MalformedURLException e) {
+            log.warn("解析请求 URL 失败: {}", url, e);
+            return null;
+        }
     }
 
     private String replaceRequestVariables(String text, Map<String, Object> params) {

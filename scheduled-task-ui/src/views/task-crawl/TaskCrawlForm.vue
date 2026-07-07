@@ -407,8 +407,8 @@ watch(
           <template v-if="form.sshEnabled === 1">
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="SSH 主机">
-                  <el-input v-model="form.sshHost" />
+                <el-form-item label="SSH 跳板机 / 主机">
+                  <el-input v-model="form.sshHost" placeholder="跳板机地址，如 192.168.1.10" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
@@ -442,15 +442,16 @@ watch(
                 <el-input v-model="form.sshPassphrase" type="password" show-password />
               </el-form-item>
             </template>
+            <el-divider content-position="left">转发目标（留空则从请求 URL 自动提取）</el-divider>
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="远程目标主机">
-                  <el-input v-model="form.sshRemoteHost" />
+                  <el-input v-model="form.sshRemoteHost" placeholder="请求 URL 主机 或 内网目标" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="远程目标端口">
-                  <el-input-number v-model="form.sshRemotePort" :min="1" :max="65535" />
+                  <el-input-number v-model="form.sshRemotePort" :min="1" :max="65535" placeholder="请求 URL 端口" />
                 </el-form-item>
               </el-col>
             </el-row>

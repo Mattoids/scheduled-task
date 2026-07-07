@@ -1,1 +1,0 @@
-import{a as e}from"./index-BQg24cH8.js";var t=t=>e.get(`/storage-config/page`,{params:t}),n=()=>e.get(`/storage-config/list`),r=t=>e.get(`/storage-config/${t}`),i=t=>e.post(`/storage-config`,t),a=(t,n)=>e.put(`/storage-config/${t}`,n),o=t=>e.delete(`/storage-config/${t}`),s=t=>e.post(`/storage-config/${t}/test`);export{t as a,n as i,o as n,s as o,r,a as s,i as t};
