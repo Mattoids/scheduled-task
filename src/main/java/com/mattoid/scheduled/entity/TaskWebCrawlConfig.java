@@ -59,6 +59,28 @@ public class TaskWebCrawlConfig extends BaseEntity {
 
     private Integer sshLocalPort;
 
+    /**
+     * 是否使用跳板机
+     */
+    private Integer sshJumpHostEnabled;
+
+    private String sshJumpHostHost;
+
+    private Integer sshJumpHostPort;
+
+    private String sshJumpHostUsername;
+
+    private String sshJumpHostPassword;
+
+    private String sshJumpHostPrivateKey;
+
+    private String sshJumpHostPassphrase;
+
+    /**
+     * PASSWORD / KEY
+     */
+    private String sshJumpHostAuthType;
+
     private Integer proxyEnabled;
 
     private String proxyHost;

@@ -109,6 +109,14 @@ export interface TaskWebCrawlConfig {
   sshRemoteHost?: string
   sshRemotePort?: number
   sshLocalPort?: number
+  sshJumpHostEnabled?: number
+  sshJumpHostHost?: string
+  sshJumpHostPort?: number
+  sshJumpHostUsername?: string
+  sshJumpHostPassword?: string
+  sshJumpHostPrivateKey?: string
+  sshJumpHostPassphrase?: string
+  sshJumpHostAuthType?: 'PASSWORD' | 'KEY'
   proxyEnabled?: number
   proxyHost?: string
   proxyPort?: number

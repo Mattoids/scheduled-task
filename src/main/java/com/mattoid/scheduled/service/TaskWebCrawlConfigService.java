@@ -171,6 +171,15 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         if (StringUtils.hasText(config.getProxyPassword()) && !config.getProxyPassword().startsWith(ENC_PREFIX)) {
             config.setProxyPassword(CryptoUtil.encrypt(config.getProxyPassword()));
         }
+        if (StringUtils.hasText(config.getSshJumpHostPassword()) && !config.getSshJumpHostPassword().startsWith(ENC_PREFIX)) {
+            config.setSshJumpHostPassword(CryptoUtil.encrypt(config.getSshJumpHostPassword()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPrivateKey()) && !config.getSshJumpHostPrivateKey().startsWith(ENC_PREFIX)) {
+            config.setSshJumpHostPrivateKey(CryptoUtil.encrypt(config.getSshJumpHostPrivateKey()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPassphrase()) && !config.getSshJumpHostPassphrase().startsWith(ENC_PREFIX)) {
+            config.setSshJumpHostPassphrase(CryptoUtil.encrypt(config.getSshJumpHostPassphrase()));
+        }
     }
 
     private void decryptSensitiveFields(TaskWebCrawlConfig config) {
@@ -191,6 +200,15 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         }
         if (StringUtils.hasText(config.getProxyPassword())) {
             config.setProxyPassword(CryptoUtil.decryptIfNeeded(config.getProxyPassword()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPassword())) {
+            config.setSshJumpHostPassword(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassword()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPrivateKey())) {
+            config.setSshJumpHostPrivateKey(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPrivateKey()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPassphrase())) {
+            config.setSshJumpHostPassphrase(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassphrase()));
         }
     }
 }

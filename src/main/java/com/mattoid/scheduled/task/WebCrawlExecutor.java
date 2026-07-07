@@ -610,19 +610,37 @@ public class WebCrawlExecutor {
 
     private SshConfig buildSshConfig(TaskWebCrawlConfig config) {
         SshConfig sshConfig = new SshConfig();
-        sshConfig.setHost(config.getSshHost());
-        sshConfig.setPort(config.getSshPort());
-        sshConfig.setUsername(config.getSshUsername());
-        sshConfig.setAuthType(config.getSshAuthType());
-        boolean useKey = "KEY".equalsIgnoreCase(config.getSshAuthType());
-        if (useKey) {
-            sshConfig.setPrivateKey(config.getSshPrivateKey());
-            sshConfig.setPassphrase(config.getSshPassphrase());
-            sshConfig.setPassword(null);
+        boolean useJumpHost = Integer.valueOf(1).equals(config.getSshJumpHostEnabled());
+        if (useJumpHost) {
+            sshConfig.setHost(config.getSshJumpHostHost());
+            sshConfig.setPort(config.getSshJumpHostPort());
+            sshConfig.setUsername(config.getSshJumpHostUsername());
+            sshConfig.setAuthType(config.getSshJumpHostAuthType());
+            boolean useKey = "KEY".equalsIgnoreCase(config.getSshJumpHostAuthType());
+            if (useKey) {
+                sshConfig.setPrivateKey(config.getSshJumpHostPrivateKey());
+                sshConfig.setPassphrase(config.getSshJumpHostPassphrase());
+                sshConfig.setPassword(null);
+            } else {
+                sshConfig.setPassword(config.getSshJumpHostPassword());
+                sshConfig.setPrivateKey(null);
+                sshConfig.setPassphrase(null);
+            }
         } else {
-            sshConfig.setPassword(config.getSshPassword());
-            sshConfig.setPrivateKey(null);
-            sshConfig.setPassphrase(null);
+            sshConfig.setHost(config.getSshHost());
+            sshConfig.setPort(config.getSshPort());
+            sshConfig.setUsername(config.getSshUsername());
+            sshConfig.setAuthType(config.getSshAuthType());
+            boolean useKey = "KEY".equalsIgnoreCase(config.getSshAuthType());
+            if (useKey) {
+                sshConfig.setPrivateKey(config.getSshPrivateKey());
+                sshConfig.setPassphrase(config.getSshPassphrase());
+                sshConfig.setPassword(null);
+            } else {
+                sshConfig.setPassword(config.getSshPassword());
+                sshConfig.setPrivateKey(null);
+                sshConfig.setPassphrase(null);
+            }
         }
         sshConfig.setLocalPort(config.getSshLocalPort());
 
@@ -678,6 +696,15 @@ public class WebCrawlExecutor {
         }
         if (StringUtils.hasText(config.getProxyPassword())) {
             config.setProxyPassword(CryptoUtil.decryptIfNeeded(config.getProxyPassword()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPassword())) {
+            config.setSshJumpHostPassword(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassword()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPrivateKey())) {
+            config.setSshJumpHostPrivateKey(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPrivateKey()));
+        }
+        if (StringUtils.hasText(config.getSshJumpHostPassphrase())) {
+            config.setSshJumpHostPassphrase(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassphrase()));
         }
     }
 }
