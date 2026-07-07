@@ -89,7 +89,8 @@ public class TaskWebCrawlConfigController {
         return ResponseEntity.ok(result.html());
     }
 
-    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    // 预览资源代理不依赖 JWT cookie，仅通过一次性预览 token 校验，
+    // 否则 iframe 中加载的 css/js/图片等子资源会因跨域无法携带认证信息。
     @GetMapping("/preview-resource")
     public ResponseEntity<byte[]> previewResource(@RequestParam String token, @RequestParam(required = false) String url) throws Exception {
         String targetUrl = url;

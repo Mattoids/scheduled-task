@@ -33,7 +33,7 @@ public class WebCrawlPreviewProxyService {
     private static final Pattern CSS_URL_PATTERN = Pattern.compile(
             "url\\s*\\(\\s*([\"']?)([^\"')]+)\\1\\s*\\)", Pattern.CASE_INSENSITIVE);
     private static final Pattern CSS_IMPORT_PATTERN = Pattern.compile(
-            "@import\\s+([\"'])([^\"']+)\\1", Pattern.CASE_INSENSITIVE);
+            "@import\\s+(?:url\\s*\\(\\s*([\"']?)([^\"')]+)\\1\\s*\\)|([\"'])([^\"']+)\\3)", Pattern.CASE_INSENSITIVE);
 
     private final WebCrawlExecutor webCrawlExecutor;
     private final WebCrawlPreviewContextCache contextCache;
@@ -186,14 +186,25 @@ public class WebCrawlPreviewProxyService {
         Matcher matcher = CSS_IMPORT_PATTERN.matcher(css);
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
-            String quote = matcher.group(1);
-            String url = matcher.group(2);
-            String resolved = resolveUrl(baseUrl, url);
-            String replacement;
-            if (shouldProxy(baseUrl, resolved)) {
-                replacement = "@import " + quote + escapeCssUrl(buildProxyUrl(token, resolved)) + quote;
+            String quote;
+            String url;
+            boolean urlForm = matcher.group(2) != null;
+            if (urlForm) {
+                quote = matcher.group(1);
+                url = matcher.group(2);
             } else {
-                replacement = "@import " + quote + escapeCssUrl(resolved) + quote;
+                quote = matcher.group(3);
+                url = matcher.group(4);
+            }
+            String resolved = resolveUrl(baseUrl, url);
+            String escaped = escapeCssUrl(shouldProxy(baseUrl, resolved)
+                    ? buildProxyUrl(token, resolved) : resolved);
+            String replacement;
+            if (urlForm) {
+                String q = StringUtils.hasText(quote) ? quote : "\"";
+                replacement = "@import url(" + q + escaped + q + ")";
+            } else {
+                replacement = "@import " + quote + escaped + quote;
             }
             matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
