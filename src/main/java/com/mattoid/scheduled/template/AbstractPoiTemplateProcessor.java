@@ -205,58 +205,153 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
         return hasKey ? headers : null;
     }
 
+    private int findTemplateRowIndexWord(XWPFTable table, Set<String> dataKeys) {
+        for (int r = 0; r < table.getNumberOfRows(); r++) {
+            XWPFTableRow row = table.getRow(r);
+            if (row == null) {
+                continue;
+            }
+            if (hasPlaceholderHeaders(getWordRowTexts(row), dataKeys)) {
+                return r;
+            }
+        }
+        return -1;
+    }
+
+    private int findTemplateRowIndexPpt(List<XSLFTableRow> rows, Set<String> dataKeys) {
+        for (int r = 0; r < rows.size(); r++) {
+            XSLFTableRow row = rows.get(r);
+            if (row == null) {
+                continue;
+            }
+            if (hasPlaceholderHeaders(getPptRowTexts(row), dataKeys)) {
+                return r;
+            }
+        }
+        return -1;
+    }
+
+    private List<String> getWordRowTexts(XWPFTableRow row) {
+        List<String> texts = new ArrayList<>();
+        for (XWPFTableCell cell : row.getTableCells()) {
+            texts.add(cell.getText());
+        }
+        return texts;
+    }
+
+    private List<String> getPptRowTexts(XSLFTableRow row) {
+        List<String> texts = new ArrayList<>();
+        for (XSLFTableCell cell : row.getCells()) {
+            texts.add(getTextShapeText(cell));
+        }
+        return texts;
+    }
+
+    private boolean hasPlaceholderHeaders(List<String> cellTexts, Set<String> dataKeys) {
+        for (String text : cellTexts) {
+            String trimmed = text == null ? "" : text.trim();
+            if (trimmed.startsWith("${") && trimmed.endsWith("}")) {
+                String key = trimmed.substring(2, trimmed.length() - 1);
+                if (dataKeys.contains(key) || isSequenceHeader(key)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String[] resolvePlaceholderHeaders(List<String> cellTexts) {
+        String[] headers = new String[cellTexts.size()];
+        for (int c = 0; c < cellTexts.size(); c++) {
+            headers[c] = extractHeaderKey(cellTexts.get(c));
+        }
+        return headers;
+    }
+
+    private boolean isDisplayHeaderRow(XWPFTableRow row) {
+        if (row == null) {
+            return false;
+        }
+        for (XWPFTableCell cell : row.getTableCells()) {
+            String text = cell.getText();
+            if (text != null && text.contains("${")) {
+                return false;
+            }
+        }
+        return !row.getTableCells().isEmpty();
+    }
+
+    private boolean isDisplayHeaderRow(XSLFTableRow row) {
+        if (row == null) {
+            return false;
+        }
+        for (XSLFTableCell cell : row.getCells()) {
+            String text = getTextShapeText(cell);
+            if (text != null && text.contains("${")) {
+                return false;
+            }
+        }
+        return !row.getCells().isEmpty();
+    }
+
     protected void expandTablesInWord(XWPFDocument document, List<Map<String, Object>> data) {
         if (data == null || data.isEmpty()) {
             return;
         }
         Set<String> dataKeys = data.get(0).keySet();
         for (XWPFTable table : document.getTables()) {
-            int headerRowIndex = -1;
-            String[] headers = null;
-            for (int r = 0; r < table.getNumberOfRows(); r++) {
-                XWPFTableRow row = table.getRow(r);
-                if (row == null) {
-                    continue;
-                }
-                List<String> texts = new ArrayList<>();
-                for (XWPFTableCell cell : row.getTableCells()) {
-                    texts.add(cell.getText());
-                }
-                String[] candidate = resolveDataHeaders(texts, dataKeys);
-                if (candidate != null) {
-                    headerRowIndex = r;
-                    headers = candidate;
-                    break;
+            int templateRowIndex = findTemplateRowIndexWord(table, dataKeys);
+            String[] headers = templateRowIndex >= 0 ? resolvePlaceholderHeaders(getWordRowTexts(table.getRow(templateRowIndex))) : null;
+            // 回退：纯文本表头
+            if (templateRowIndex < 0 || headers == null) {
+                for (int r = 0; r < table.getNumberOfRows(); r++) {
+                    XWPFTableRow row = table.getRow(r);
+                    if (row == null) {
+                        continue;
+                    }
+                    List<String> texts = getWordRowTexts(row);
+                    String[] candidate = resolveDataHeaders(texts, dataKeys);
+                    if (candidate != null) {
+                        templateRowIndex = r;
+                        headers = candidate;
+                        break;
+                    }
                 }
             }
-            if (headerRowIndex < 0 || headers == null) {
+            if (templateRowIndex < 0 || headers == null) {
                 continue;
             }
+
+            boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(table.getRow(templateRowIndex - 1));
+            // 没有显示表头且只有一行数据时，按普通占位符处理（兼容旧模板）
+            if (!hasDisplayHeader && data.size() <= 1) {
+                continue;
+            }
+
+            int headerRowIndex = hasDisplayHeader ? templateRowIndex - 1 : templateRowIndex;
+            int dataStartRowIndex = hasDisplayHeader ? templateRowIndex : templateRowIndex + 1;
+
+            log.debug("Expanding Word table: headerRow={}, dataStartRow={}, headers={}", headerRowIndex, dataStartRowIndex, Arrays.toString(headers));
 
             XWPFTableRow headerRow = table.getRow(headerRowIndex);
-            // 只有表头没有样例行时，若只有一行数据则按普通占位符处理，避免误把数据行当表头
-            boolean hasSampleRow = headerRowIndex + 1 < table.getNumberOfRows();
-            if (!hasSampleRow && data.size() <= 1) {
-                continue;
-            }
-
-            log.debug("Expanding Word table: headerRow={}, headers={}", headerRowIndex, Arrays.toString(headers));
-
-            // 清理表头显示：去掉 ${}
-            for (int c = 0; c < headerRow.getTableCells().size() && c < headers.length; c++) {
-                if (headers[c] != null) {
-                    headerRow.getCell(c).setText(headers[c]);
+            // 无显示表头时，清理模板行中的 ${} 为字段名
+            if (!hasDisplayHeader) {
+                for (int c = 0; c < headerRow.getTableCells().size() && c < headers.length; c++) {
+                    if (headers[c] != null) {
+                        headerRow.getCell(c).setText(headers[c]);
+                    }
                 }
             }
 
-            // 记录样例行，后续新增行克隆其格式（删除前获取并复制 XML）
+            // 记录数据起始行格式，后续新增行克隆其格式（删除前获取并复制 XML）
+            int existingDataRows = table.getRows().size() - dataStartRowIndex;
             CTRow sampleRowTemplate = null;
-            if (hasSampleRow) {
-                sampleRowTemplate = (CTRow) table.getRow(headerRowIndex + 1).getCtRow().copy();
+            if (existingDataRows > 0) {
+                sampleRowTemplate = (CTRow) table.getRow(dataStartRowIndex).getCtRow().copy();
             }
 
-            // 删除表头下方的原有行（兼容只有表头没有样例行的表格）
-            for (int i = table.getRows().size() - 1; i > headerRowIndex; i--) {
+            // 删除数据起始行及下方的原有行
+            for (int i = table.getRows().size() - 1; i >= dataStartRowIndex; i--) {
                 table.removeRow(i);
             }
 
@@ -267,9 +362,9 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
                 if (sampleRowTemplate != null) {
                     CTRow clonedRow = (CTRow) sampleRowTemplate.copy();
                     XWPFTableRow tempRow = new XWPFTableRow(clonedRow, table);
-                    table.addRow(tempRow, headerRowIndex + 1 + i);
+                    table.addRow(tempRow, dataStartRowIndex + i);
                     // addRow 会复制 row，必须取实际插入到 XML 中的行才能修改生效
-                    newRow = new XWPFTableRow(table.getCTTbl().getTrArray(headerRowIndex + 1 + i), table);
+                    newRow = new XWPFTableRow(table.getCTTbl().getTrArray(dataStartRowIndex + i), table);
                 } else {
                     newRow = table.createRow();
                 }
@@ -290,10 +385,6 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             removeEmptyDataTablesInPpt(ppt);
             return;
         }
-        // 单行数据按普通占位符处理，多行数据才展开表格
-        if (data.size() <= 1) {
-            return;
-        }
         Set<String> dataKeys = data.get(0).keySet();
         int slideIndex = 0;
         for (XSLFSlide slide : ppt.getSlides()) {
@@ -305,65 +396,73 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
                 }
                 log.debug("Processing PPT table on slide {}, shape {}", slideIndex, shapeIndex);
                 List<XSLFTableRow> rows = table.getRows();
-                int headerRowIndex = -1;
-                String[] headers = null;
-                for (int r = 0; r < rows.size(); r++) {
-                    XSLFTableRow row = rows.get(r);
-                    if (row == null) {
-                        continue;
-                    }
-                    List<String> texts = new ArrayList<>();
-                    for (XSLFTableCell cell : row.getCells()) {
-                        texts.add(getTextShapeText(cell));
-                    }
-                    String[] candidate = resolveDataHeaders(texts, dataKeys);
-                    if (candidate != null) {
-                        headerRowIndex = r;
-                        headers = candidate;
-                        break;
+                int templateRowIndex = findTemplateRowIndexPpt(rows, dataKeys);
+                String[] headers = templateRowIndex >= 0 ? resolvePlaceholderHeaders(getPptRowTexts(rows.get(templateRowIndex))) : null;
+                // 回退：纯文本表头
+                if (templateRowIndex < 0 || headers == null) {
+                    for (int r = 0; r < rows.size(); r++) {
+                        XSLFTableRow row = rows.get(r);
+                        if (row == null) {
+                            continue;
+                        }
+                        List<String> texts = getPptRowTexts(row);
+                        String[] candidate = resolveDataHeaders(texts, dataKeys);
+                        if (candidate != null) {
+                            templateRowIndex = r;
+                            headers = candidate;
+                            break;
+                        }
                     }
                 }
-                if (headerRowIndex < 0 || headers == null) {
+                if (templateRowIndex < 0 || headers == null) {
                     continue;
                 }
-                log.debug("Expanding PPT table on slide {}, shape {}: headerRow={}, headers={}, dataRows={}", slideIndex, shapeIndex, headerRowIndex, Arrays.toString(headers), data.size());
+
+                boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(rows.get(templateRowIndex - 1));
+                // 没有显示表头且只有一行数据时，按普通占位符处理（兼容旧模板）
+                if (!hasDisplayHeader && data.size() <= 1) {
+                    continue;
+                }
+
+                int headerRowIndex = hasDisplayHeader ? templateRowIndex - 1 : templateRowIndex;
+                int dataStartRowIndex = hasDisplayHeader ? templateRowIndex : templateRowIndex + 1;
+
+                log.debug("Expanding PPT table on slide {}, shape {}: headerRow={}, dataStartRow={}, headers={}, dataRows={}", slideIndex, shapeIndex, headerRowIndex, dataStartRowIndex, Arrays.toString(headers), data.size());
 
                 XSLFTableRow headerRow = rows.get(headerRowIndex);
-                // 支持只有表头没有样例行的表格：没有样例行时直接新增数据行
-                int existingDataRows = rows.size() - headerRowIndex - 1;
-                // 提前复制样例行 XML，避免后续修改后无法克隆格式
+                // 无显示表头时，清理模板行中的 ${} 为字段名
+                if (!hasDisplayHeader) {
+                    List<XSLFTableCell> headerCells = headerRow.getCells();
+                    for (int c = 0; c < headerCells.size() && c < headers.length; c++) {
+                        if (headers[c] != null) {
+                            headerCells.get(c).setText(headers[c]);
+                        }
+                    }
+                }
+
+                int existingDataRows = rows.size() - dataStartRowIndex;
                 CTTableRow sampleRowTemplate = existingDataRows > 0
-                        ? (CTTableRow) rows.get(headerRowIndex + 1).getXmlObject().copy()
+                        ? (CTTableRow) rows.get(dataStartRowIndex).getXmlObject().copy()
                         : null;
                 double templateRowHeight = sampleRowTemplate != null
-                        ? rows.get(headerRowIndex + 1).getHeight()
+                        ? rows.get(dataStartRowIndex).getHeight()
                         : headerRow.getHeight();
                 if (templateRowHeight <= 0) {
                     templateRowHeight = 30.0;
                 }
 
-                // 清理表头显示：去掉 ${}
-                List<XSLFTableCell> headerCells = headerRow.getCells();
-                for (int c = 0; c < headerCells.size() && c < headers.length; c++) {
-                    if (headers[c] != null) {
-                        headerCells.get(c).setText(headers[c]);
-                    }
-                }
-
-                // 复用已有样例行并补充新行；新增行克隆样例行格式
                 for (int i = 0; i < data.size(); i++) {
                     Map<String, Object> rowData = data.get(i);
                     XSLFTableRow targetRow;
                     if (i < existingDataRows) {
-                        targetRow = table.getRows().get(headerRowIndex + 1 + i);
+                        targetRow = table.getRows().get(dataStartRowIndex + i);
                     } else {
-                        targetRow = clonePptRow(table, sampleRowTemplate, headerRowIndex + 1 + i);
+                        targetRow = clonePptRow(table, sampleRowTemplate, dataStartRowIndex + i);
                         if (targetRow == null) {
                             continue;
                         }
                         targetRow.setHeight(templateRowHeight);
-                        // 确保单元格数量与表头一致
-                        int columns = headerCells.size();
+                        int columns = headerRow.getCells().size();
                         while (targetRow.getCells().size() < columns) {
                             targetRow.addCell();
                         }
@@ -376,8 +475,7 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
                     }
                 }
 
-                // 删除多余样例行
-                int rowsToRemove = table.getRows().size() - (headerRowIndex + 1 + data.size());
+                int rowsToRemove = table.getRows().size() - (dataStartRowIndex + data.size());
                 for (int k = 0; k < rowsToRemove; k++) {
                     table.removeRow(table.getRows().size() - 1);
                 }

@@ -725,6 +725,103 @@ class WordPptTemplateProcessorTest {
     }
 
     @Test
+    void wordTableExpandsWithDisplayHeader() throws Exception {
+        WordTemplateProcessor processor = createWordProcessor();
+
+        File template = File.createTempFile("template", ".docx");
+        template.deleteOnExit();
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XWPFTable table = doc.createTable(2, 2);
+            XWPFTableRow displayHeaderRow = table.getRow(0);
+            displayHeaderRow.getCell(0).setText("Name");
+            displayHeaderRow.getCell(1).setText("Age");
+
+            XWPFTableRow templateRow = table.getRow(1);
+            templateRow.getCell(0).setText("${name}");
+            templateRow.getCell(1).setText("${age}");
+
+            doc.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".docx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("name", "Alice", "age", 30),
+                Map.of("name", "Bob", "age", 25)
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            XWPFTable table = doc.getTables().get(0);
+            assertEquals(3, table.getNumberOfRows(), "display header + 2 data rows");
+
+            XWPFTableRow displayHeader = table.getRow(0);
+            assertEquals("Name", displayHeader.getCell(0).getText());
+            assertEquals("Age", displayHeader.getCell(1).getText());
+
+            XWPFTableRow row1 = table.getRow(1);
+            assertEquals("Alice", row1.getCell(0).getText());
+            assertEquals("30", row1.getCell(1).getText());
+
+            XWPFTableRow row2 = table.getRow(2);
+            assertEquals("Bob", row2.getCell(0).getText());
+            assertEquals("25", row2.getCell(1).getText());
+        }
+    }
+
+    @Test
+    void pptTableExpandsWithDisplayHeader() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(2, 2);
+
+            XSLFTableRow displayHeaderRow = table.getRows().get(0);
+            displayHeaderRow.getCells().get(0).setText("Name");
+            displayHeaderRow.getCells().get(1).setText("Age");
+
+            XSLFTableRow templateRow = table.getRows().get(1);
+            templateRow.getCells().get(0).setText("${name}");
+            templateRow.getCells().get(1).setText("${age}");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("name", "Alice", "age", 30),
+                Map.of("name", "Bob", "age", 25)
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            XSLFTable table = (XSLFTable) slide.getShapes().get(0);
+            assertEquals(3, table.getNumberOfRows(), "display header + 2 data rows");
+
+            XSLFTableRow displayHeader = table.getRows().get(0);
+            assertEquals("Name", getCellText(displayHeader.getCells().get(0)));
+            assertEquals("Age", getCellText(displayHeader.getCells().get(1)));
+
+            XSLFTableRow row1 = table.getRows().get(1);
+            assertEquals("Alice", getCellText(row1.getCells().get(0)));
+            assertEquals("30", getCellText(row1.getCells().get(1)));
+
+            XSLFTableRow row2 = table.getRows().get(2);
+            assertEquals("Bob", getCellText(row2.getCells().get(0)));
+            assertEquals("25", getCellText(row2.getCells().get(1)));
+        }
+    }
+
+    @Test
     void pptChartPlaceholderReplacedWithPicture() throws Exception {
         ChartGenerationService realChartService = new ChartGenerationService();
         List<Map<String, Object>> data = List.of(
