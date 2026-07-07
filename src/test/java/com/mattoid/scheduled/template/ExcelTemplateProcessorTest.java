@@ -12,11 +12,20 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.mattoid.scheduled.service.ChartGenerationService;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 class ExcelTemplateProcessorTest {
+
+    private ExcelTemplateProcessor createProcessor() {
+        return new ExcelTemplateProcessor(mock(ChartGenerationService.class));
+    }
 
     @Test
     void processProducesValidXlsx() throws Exception {
-        ExcelTemplateProcessor processor = new ExcelTemplateProcessor();
+        ExcelTemplateProcessor processor = createProcessor();
 
         File template = File.createTempFile("template", ".xlsx");
         template.deleteOnExit();
@@ -47,7 +56,7 @@ class ExcelTemplateProcessorTest {
 
     @Test
     void createsMultipleSheetsBySheetNameColumn() throws Exception {
-        ExcelTemplateProcessor processor = new ExcelTemplateProcessor();
+        ExcelTemplateProcessor processor = createProcessor();
 
         File template = File.createTempFile("template", ".xlsx");
         template.deleteOnExit();
@@ -91,7 +100,7 @@ class ExcelTemplateProcessorTest {
 
     @Test
     void usesDedicatedTemplateSheetAndHidesIt() throws Exception {
-        ExcelTemplateProcessor processor = new ExcelTemplateProcessor();
+        ExcelTemplateProcessor processor = createProcessor();
 
         File template = File.createTempFile("template", ".xlsx");
         template.deleteOnExit();
@@ -119,6 +128,62 @@ class ExcelTemplateProcessorTest {
             Sheet dataSheet = wb.getSheet("2026年03月");
             assertNotNull(dataSheet);
             assertEquals("Mar", dataSheet.getRow(1).getCell(0).getStringCellValue());
+        }
+    }
+
+    @Test
+    void excelChartPlaceholderReplacedWithPicture() throws Exception {
+        ChartGenerationService realChartService = new ChartGenerationService();
+        List<Map<String, Object>> data = List.of(
+                Map.of("month", "Jan", "amount", 10),
+                Map.of("month", "Feb", "amount", 20)
+        );
+        File chartFile = realChartService.generateChart(data, "BAR", "月度数据");
+        assertNotNull(chartFile, "测试需要真实图表文件");
+
+        ChartGenerationService mockService = mock(ChartGenerationService.class);
+        when(mockService.generateChart(data, "BAR", "月度数据", true, "AUTO", (String) null)).thenReturn(chartFile);
+
+        ExcelTemplateProcessor processor = new ExcelTemplateProcessor(mockService);
+
+        File template = File.createTempFile("template", ".xlsx");
+        template.deleteOnExit();
+        try (Workbook wb = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            Sheet sheet = wb.createSheet();
+            Row row = sheet.createRow(2);
+            row.createCell(1).setCellValue("${chart}");
+            wb.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".xlsx");
+        output.deleteOnExit();
+        Map<String, Object> context = Map.of(
+                "chartEnabled", 1,
+                "chartType", "BAR",
+                "chartTitle", "月度数据",
+                "sqlCode", "SALES",
+                "sqlName", "销售"
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true, context);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             Workbook wb = WorkbookFactory.create(fis)) {
+            Sheet sheet = wb.getSheetAt(0);
+            boolean hasPicture = false;
+            Drawing<?> drawing = sheet.getDrawingPatriarch();
+            if (drawing instanceof org.apache.poi.xssf.usermodel.XSSFDrawing xssfDrawing) {
+                for (org.apache.poi.xssf.usermodel.XSSFShape shape : xssfDrawing.getShapes()) {
+                    if (shape instanceof org.apache.poi.xssf.usermodel.XSSFPicture) {
+                        hasPicture = true;
+                        break;
+                    }
+                }
+            }
+            assertTrue(hasPicture, "Excel 中应插入图表图片");
+            // 占位符单元格应被清空
+            assertTrue(sheet.getRow(2).getCell(1) == null || sheet.getRow(2).getCell(1).getCellType() == CellType.BLANK,
+                    "占位符单元格应被清空");
         }
     }
 }

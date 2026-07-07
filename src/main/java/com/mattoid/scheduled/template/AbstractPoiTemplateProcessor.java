@@ -21,12 +21,14 @@ import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 
 public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor {
 
-    private static final Logger log = LoggerFactory.getLogger(AbstractPoiTemplateProcessor.class);
+    protected static final Logger log = LoggerFactory.getLogger(AbstractPoiTemplateProcessor.class);
 
     protected static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
+    protected static final Pattern CHART_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{chart(?::([^}]+))?\\}");
 
     protected String replacePlaceholders(String text, Map<String, Object> data) {
         return replacePlaceholders(text, data, true);
@@ -583,5 +585,25 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
         } else {
             cell.setCellValue(value.toString());
         }
+    }
+
+    /**
+     * 判断文本是否包含图表占位符 ${chart} 或 ${chart:sqlCode}。
+     */
+    protected boolean containsChartPlaceholder(String text, String sqlCode) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        Matcher matcher = CHART_PLACEHOLDER_PATTERN.matcher(text.trim());
+        while (matcher.find()) {
+            String code = matcher.group(1);
+            if (!StringUtils.hasText(code)) {
+                return true;
+            }
+            if (code.equalsIgnoreCase(sqlCode)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

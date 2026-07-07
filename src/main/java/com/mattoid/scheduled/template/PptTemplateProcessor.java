@@ -27,8 +27,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
@@ -89,8 +87,6 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
         }
     }
 
-    private static final Pattern CHART_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{chart(?::([^}]+))?\\}");
-
     private void insertCharts(XMLSlideShow ppt, List<Map<String, Object>> data, Map<String, Object> context) {
         Object enabledObj = context.get("chartEnabled");
         if (!(enabledObj instanceof Integer enabled) || enabled != 1) {
@@ -100,6 +96,7 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
         String sqlCode = context.get("sqlCode") == null ? null : context.get("sqlCode").toString();
         String chartType = context.get("chartType") == null ? null : context.get("chartType").toString();
         String chartTitle = context.get("chartTitle") == null ? null : context.get("chartTitle").toString();
+        String chartBackgroundColor = context.get("chartBackgroundColor") == null ? null : context.get("chartBackgroundColor").toString();
         if (!StringUtils.hasText(chartTitle)) {
             Object sqlName = context.get("sqlName");
             chartTitle = sqlName == null ? "数据图表" : sqlName.toString();
@@ -107,7 +104,7 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
 
         File chartFile = (File) context.get("chartFile");
         if (chartFile == null || !chartFile.exists()) {
-            chartFile = chartGenerationService.generateChart(data, chartType, chartTitle);
+            chartFile = chartGenerationService.generateChart(data, chartType, chartTitle, true, "AUTO", chartBackgroundColor);
         }
         if (chartFile == null || !chartFile.exists()) {
             log.warn("PPT 图表生成失败，跳过插入: sqlCode={}", sqlCode);
@@ -146,23 +143,6 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
         if (!inserted) {
             log.warn("PPT 中未找到匹配的图表占位符: sqlCode={}, placeholder=${chart:{}} 或 ${chart}", sqlCode, sqlCode);
         }
-    }
-
-    private boolean containsChartPlaceholder(String text, String sqlCode) {
-        if (!StringUtils.hasText(text)) {
-            return false;
-        }
-        Matcher matcher = CHART_PLACEHOLDER_PATTERN.matcher(text.trim());
-        while (matcher.find()) {
-            String code = matcher.group(1);
-            if (!StringUtils.hasText(code)) {
-                return true;
-            }
-            if (code.equalsIgnoreCase(sqlCode)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void clearCellText(XSLFTableCell cell) {

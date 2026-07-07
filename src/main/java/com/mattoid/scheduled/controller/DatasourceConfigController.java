@@ -10,6 +10,7 @@ import com.mattoid.scheduled.common.TestConnectionResult;
 import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.service.DatasourceConfigService;
+import com.mattoid.scheduled.util.CryptoUtil;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -32,7 +33,7 @@ public class DatasourceConfigController {
                 .like(StringUtils.hasText(name), DatasourceConfig::getName, name)
                 .orderByDesc(DatasourceConfig::getCreateTime);
         Page<DatasourceConfig> page = datasourceConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
-        page.getRecords().forEach(this::maskSensitive);
+        page.getRecords().forEach(this::decryptSensitive);
         return Result.ok(PageUtil.convert(page));
     }
 
@@ -40,7 +41,7 @@ public class DatasourceConfigController {
     @GetMapping("/{id}")
     public Result<DatasourceConfig> detail(@PathVariable Long id) {
         DatasourceConfig config = datasourceConfigService.getById(id);
-        maskSensitive(config);
+        decryptSensitive(config);
         return Result.ok(config);
     }
 
@@ -78,14 +79,15 @@ public class DatasourceConfigController {
         return Result.ok(datasourceConfigService.testConnection(id));
     }
 
-    private void maskSensitive(DatasourceConfig config) {
+    private void decryptSensitive(DatasourceConfig config) {
         if (config == null) {
             return;
         }
+        config.setPassword(CryptoUtil.decryptIfNeeded(config.getPassword()));
+        config.setSshPassword(CryptoUtil.decryptIfNeeded(config.getSshPassword()));
+        config.setSshPrivateKey(CryptoUtil.decryptIfNeeded(config.getSshPrivateKey()));
+        config.setSshPassphrase(CryptoUtil.decryptIfNeeded(config.getSshPassphrase()));
         config.setSshAuthType(StringUtils.hasText(config.getSshPrivateKey()) ? "key" : "password");
-        config.setSshPassword(null);
-        config.setSshPrivateKey(null);
-        config.setSshPassphrase(null);
     }
 
 }

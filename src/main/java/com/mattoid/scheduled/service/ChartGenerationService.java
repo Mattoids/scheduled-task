@@ -6,6 +6,12 @@ import org.knowm.xchart.style.Styler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import org.knowm.xchart.internal.chartpart.Chart;
+
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -24,6 +30,7 @@ public class ChartGenerationService {
     private static final int MANY_CATEGORIES_THRESHOLD = 20;
     private static final int MEDIUM_CATEGORIES_THRESHOLD = 12;
     private static final int MAX_MERGED_LABEL_LENGTH = 20;
+    private static final Color TRANSPARENT = new Color(0, 0, 0, 0);
 
     /**
      * 根据二维表数据生成图表 PNG 文件。
@@ -34,7 +41,7 @@ public class ChartGenerationService {
      * @return 生成的 PNG 文件，若数据不满足要求则返回 null
      */
     public File generateChart(List<Map<String, Object>> data, String chartType, String title) {
-        return generateChart(data, chartType, title, true, "AUTO");
+        return generateChart(data, chartType, title, true, "AUTO", null);
     }
 
     /**
@@ -49,6 +56,22 @@ public class ChartGenerationService {
      */
     public File generateChart(List<Map<String, Object>> data, String chartType, String title,
                               boolean autoMerge, String labelRotation) {
+        return generateChart(data, chartType, title, autoMerge, labelRotation, null);
+    }
+
+    /**
+     * 根据二维表数据生成图表 PNG 文件。
+     *
+     * @param data             SQL 查询结果，每行一个 Map
+     * @param chartType        bar/line/pie/area/scatter/stacked_bar/doughnut，不区分大小写
+     * @param title            图表标题
+     * @param autoMerge        分类过多时是否自动合并相邻数据
+     * @param labelRotation    X 轴标签旋转角度：AUTO / 0 / 45 / 90
+     * @param backgroundColor  图表背景色，支持 #RRGGBB / #RRGGBBAA / transparent；留空/透明表示透明背景
+     * @return 生成的 PNG 文件，若数据不满足要求则返回 null
+     */
+    public File generateChart(List<Map<String, Object>> data, String chartType, String title,
+                              boolean autoMerge, String labelRotation, String backgroundColor) {
         if (data == null || data.isEmpty()) {
             return null;
         }
@@ -91,19 +114,20 @@ public class ChartGenerationService {
             File tempFile = Files.createTempFile("chart_", ".png").toFile();
             String chartTitle = StringUtils.hasText(title) ? title : "数据图表";
             List<Map<String, Object>> chartData = autoMerge ? maybeMergeData(data, categoryColumn) : data;
+            Color background = parseColor(backgroundColor);
             switch (type) {
-                case "PIE" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, false);
-                case "DOUGHNUT" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, true);
+                case "PIE" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, false, background);
+                case "DOUGHNUT" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, true, background);
                 case "LINE" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Line, false, labelRotation);
+                        CategorySeries.CategorySeriesRenderStyle.Line, false, labelRotation, background);
                 case "AREA" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Area, false, labelRotation);
+                        CategorySeries.CategorySeriesRenderStyle.Area, false, labelRotation, background);
                 case "SCATTER" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Scatter, false, labelRotation);
+                        CategorySeries.CategorySeriesRenderStyle.Scatter, false, labelRotation, background);
                 case "STACKED_BAR" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Bar, true, labelRotation);
+                        CategorySeries.CategorySeriesRenderStyle.Bar, true, labelRotation, background);
                 default -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Bar, false, labelRotation);
+                        CategorySeries.CategorySeriesRenderStyle.Bar, false, labelRotation, background);
             }
             log.info("生成图表成功: type={}, title={}, file={}", type, chartTitle, tempFile.getAbsolutePath());
             return tempFile;
@@ -114,10 +138,14 @@ public class ChartGenerationService {
     }
 
     private void generatePieChart(List<Map<String, Object>> data, String categoryColumn, String valueColumn,
-                                  String title, File outputFile, boolean donut) throws Exception {
+                                  String title, File outputFile, boolean donut, Color backgroundColor) throws Exception {
         PieChart chart = new PieChartBuilder().width(800).height(600).title(title).build();
         chart.getStyler().setLegendVisible(true);
         chart.getStyler().setChartTitleVisible(true);
+        chart.getStyler().setChartBackgroundColor(backgroundColor);
+        chart.getStyler().setPlotBackgroundColor(backgroundColor);
+        chart.getStyler().setPlotBorderColor(backgroundColor);
+        chart.getStyler().setLegendBackgroundColor(backgroundColor);
         if (donut) {
             chart.getStyler().setDefaultSeriesRenderStyle(PieSeries.PieSeriesRenderStyle.Donut);
             chart.getStyler().setDonutThickness(0.4);
@@ -129,12 +157,22 @@ public class ChartGenerationService {
                 chart.addSeries(category, value.doubleValue());
             }
         }
-        BitmapEncoder.saveBitmap(chart, outputFile.getAbsolutePath().replace(".png", ""), BitmapEncoder.BitmapFormat.PNG);
+        saveChartWithTransparency(chart, outputFile, 800, 600);
+    }
+
+    private void saveChartWithTransparency(Chart<?, ?> chart, File outputFile, int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        // 默认背景已透明，无需预先填充；设置抗锯齿提升文字/线条质量
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        chart.paint(g, width, height);
+        g.dispose();
+        ImageIO.write(image, "png", outputFile);
     }
 
     private void generateCategoryChart(List<Map<String, Object>> data, String categoryColumn, List<String> valueColumns,
                                        String title, File outputFile, CategorySeries.CategorySeriesRenderStyle renderStyle,
-                                       boolean stacked, String labelRotation) throws Exception {
+                                       boolean stacked, String labelRotation, Color backgroundColor) throws Exception {
         CategoryChart chart = new CategoryChartBuilder()
                 .width(900).height(600).title(title)
                 .xAxisTitle(categoryColumn != null ? categoryColumn : "")
@@ -143,6 +181,10 @@ public class ChartGenerationService {
         chart.getStyler().setLegendVisible(true);
         chart.getStyler().setLegendPosition(Styler.LegendPosition.InsideNE);
         chart.getStyler().setChartTitleVisible(true);
+        chart.getStyler().setChartBackgroundColor(backgroundColor);
+        chart.getStyler().setPlotBackgroundColor(backgroundColor);
+        chart.getStyler().setPlotBorderColor(backgroundColor);
+        chart.getStyler().setLegendBackgroundColor(backgroundColor);
         if (stacked) {
             chart.getStyler().setStacked(true);
         }
@@ -178,7 +220,7 @@ public class ChartGenerationService {
             CategorySeries series = chart.addSeries(valueColumn, categories, values);
             series.setChartCategorySeriesRenderStyle(renderStyle);
         }
-        BitmapEncoder.saveBitmap(chart, outputFile.getAbsolutePath().replace(".png", ""), BitmapEncoder.BitmapFormat.PNG);
+        saveChartWithTransparency(chart, outputFile, 900, 600);
     }
 
     private int resolveLabelRotation(String labelRotation, int maxLabelLength, int categoryCount) {
@@ -273,5 +315,71 @@ public class ChartGenerationService {
 
     private String formatValue(Object value) {
         return value == null ? "" : value.toString();
+    }
+
+    /**
+     * 解析颜色字符串：支持 #RRGGBB、#RGB、#RRGGBBAA、#RGBA、rgb()、rgba() 以及 transparent；
+     * 空值或无法解析时返回透明色。
+     */
+    private Color parseColor(String colorStr) {
+        if (!StringUtils.hasText(colorStr) || "transparent".equalsIgnoreCase(colorStr.trim())) {
+            return TRANSPARENT;
+        }
+        String trimmed = colorStr.trim();
+        try {
+            if (trimmed.toLowerCase().startsWith("rgb")) {
+                return parseRgbColor(trimmed);
+            }
+            return parseHexColor(trimmed);
+        } catch (IllegalArgumentException e) {
+            log.warn("图表背景色解析失败: {}", colorStr);
+            return TRANSPARENT;
+        }
+    }
+
+    private Color parseRgbColor(String rgb) {
+        String content = rgb.substring(rgb.indexOf('(') + 1, rgb.indexOf(')')).trim();
+        String[] parts = content.split("\\s*,\\s*");
+        if (parts.length < 3) {
+            return TRANSPARENT;
+        }
+        int r = clamp(Integer.parseInt(parts[0].trim()), 0, 255);
+        int g = clamp(Integer.parseInt(parts[1].trim()), 0, 255);
+        int b = clamp(Integer.parseInt(parts[2].trim()), 0, 255);
+        int a = parts.length >= 4 ? clamp((int) (Double.parseDouble(parts[3].trim()) * 255), 0, 255) : 255;
+        return new Color(r, g, b, a);
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private Color parseHexColor(String hex) {
+        if (hex.startsWith("#")) {
+            hex = hex.substring(1);
+        }
+        return switch (hex.length()) {
+            case 3 -> new Color(
+                    Integer.parseInt(hex.substring(0, 1) + hex.substring(0, 1), 16),
+                    Integer.parseInt(hex.substring(1, 2) + hex.substring(1, 2), 16),
+                    Integer.parseInt(hex.substring(2, 3) + hex.substring(2, 3), 16),
+                    255);
+            case 4 -> new Color(
+                    Integer.parseInt(hex.substring(0, 1) + hex.substring(0, 1), 16),
+                    Integer.parseInt(hex.substring(1, 2) + hex.substring(1, 2), 16),
+                    Integer.parseInt(hex.substring(2, 3) + hex.substring(2, 3), 16),
+                    Integer.parseInt(hex.substring(3, 4) + hex.substring(3, 4), 16));
+            case 6 -> new Color(
+                    Integer.parseInt(hex.substring(0, 2), 16),
+                    Integer.parseInt(hex.substring(2, 4), 16),
+                    Integer.parseInt(hex.substring(4, 6), 16),
+                    255);
+            case 8 -> new Color(
+                    Integer.parseInt(hex.substring(0, 2), 16),
+                    Integer.parseInt(hex.substring(2, 4), 16),
+                    Integer.parseInt(hex.substring(4, 6), 16),
+                    Integer.parseInt(hex.substring(6, 8), 16));
+            default -> TRANSPARENT;
+        };
     }
 }

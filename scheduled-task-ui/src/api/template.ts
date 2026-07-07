@@ -20,6 +20,10 @@ export const uploadTemplate = (data: FormData) => {
   })
 }
 
+export const updateTemplate = (id: number, data: Partial<ReportTemplate>) => {
+  return request.put<void>(`/template/${id}`, data)
+}
+
 export const deleteTemplate = (id: number) => {
   return request.delete<void>(`/template/${id}`)
 }

@@ -55,6 +55,16 @@ public class ReportTemplateService extends ServiceImpl<ReportTemplateMapper, Rep
         return template;
     }
 
+    public boolean updateTemplate(ReportTemplate template) {
+        ReportTemplate existing = getById(template.getId());
+        if (existing == null) {
+            throw new IllegalArgumentException("模板不存在");
+        }
+        existing.setTemplateName(template.getTemplateName());
+        existing.setDescription(template.getDescription());
+        return updateById(existing);
+    }
+
     private String detectType(String ext) {
         String e = ext.toLowerCase();
         return switch (e) {

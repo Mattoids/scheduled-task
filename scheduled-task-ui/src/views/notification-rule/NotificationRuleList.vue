@@ -294,6 +294,7 @@ const handleSubmit = async () => {
 
 const handleClose = () => {
   formVisible.value = false;
+  resetForm();
 };
 
 const handlePageChange = (c: number, s: number) => {

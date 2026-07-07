@@ -373,9 +373,11 @@ public class TaskExecutionService {
         context.put("sqlId", sql.getId());
         context.put("sqlCode", sql.getSqlCode());
         context.put("sqlName", sql.getSqlName());
+        context.put("excelSheetName", sql.getExcelSheetName());
         context.put("chartEnabled", sql.getChartEnabled());
         context.put("chartType", sql.getChartType());
         context.put("chartTitle", sql.getChartTitle());
+        context.put("chartBackgroundColor", sql.getChartBackgroundColor());
         context.put("chartFile", chartFile);
         return context;
     }
@@ -413,7 +415,7 @@ public class TaskExecutionService {
         String title = StringUtils.hasText(sqlConfig.getChartTitle()) ? sqlConfig.getChartTitle() : sqlConfig.getSqlName();
         boolean autoMerge = sqlConfig.getChartAutoMerge() == null || sqlConfig.getChartAutoMerge() == 1;
         String labelRotation = StringUtils.hasText(sqlConfig.getChartLabelRotation()) ? sqlConfig.getChartLabelRotation() : "AUTO";
-        File chartFile = chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation);
+        File chartFile = chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation, sqlConfig.getChartBackgroundColor());
         if (chartFile == null) {
             log.warn("SQL {} 图表生成失败", sqlConfig.getSqlCode());
         } else {
@@ -431,7 +433,10 @@ public class TaskExecutionService {
         return switch (upperFormat) {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")
                     .process(createTempCsvTemplate(data), data, outputPath);
-            case "EXCEL" -> excelGenerationService.generateSingleExcel(data, outputPath);
+            case "EXCEL" -> {
+                String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
+                yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName);
+            }
             case "TXT" -> {
                 File templateFile = createTempTemplate(upperFormat, data);
                 yield templateProcessorFactory.getProcessor(upperFormat)

@@ -30,13 +30,17 @@ import static org.mockito.Mockito.when;
 
 class WordPptTemplateProcessorTest {
 
+    private WordTemplateProcessor createWordProcessor() {
+        return new WordTemplateProcessor(mock(ChartGenerationService.class));
+    }
+
     private PptTemplateProcessor createPptProcessor() {
         return new PptTemplateProcessor(mock(ChartGenerationService.class));
     }
 
     @Test
     void wordTableExpandsWithMultiRowData() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -90,7 +94,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void wordTableExpandsWithHeaderOnly() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -134,7 +138,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void wordStaticPlaceholderOutsideTableIsReplaced() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -174,7 +178,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void wordNonDataTableKeepsPlaceholderReplacement() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -345,7 +349,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void wordTableExpandsWithPlainTextHeaders() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -469,7 +473,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void wordTablePreservesSampleRowFormatting() throws Exception {
-        WordTemplateProcessor processor = new WordTemplateProcessor();
+        WordTemplateProcessor processor = createWordProcessor();
 
         File template = File.createTempFile("template", ".docx");
         template.deleteOnExit();
@@ -665,7 +669,7 @@ class WordPptTemplateProcessorTest {
         assertNotNull(chartFile, "测试需要真实图表文件");
 
         ChartGenerationService mockService = mock(ChartGenerationService.class);
-        when(mockService.generateChart(data, "BAR", "月度数据")).thenReturn(chartFile);
+        when(mockService.generateChart(data, "BAR", "月度数据", true, "AUTO", (String) null)).thenReturn(chartFile);
 
         PptTemplateProcessor processor = new PptTemplateProcessor(mockService);
 
@@ -712,7 +716,7 @@ class WordPptTemplateProcessorTest {
         assertNotNull(chartFile);
 
         ChartGenerationService mockService = mock(ChartGenerationService.class);
-        when(mockService.generateChart(data, "LINE", "销售趋势")).thenReturn(chartFile);
+        when(mockService.generateChart(data, "LINE", "销售趋势", true, "AUTO", (String) null)).thenReturn(chartFile);
 
         PptTemplateProcessor processor = new PptTemplateProcessor(mockService);
 
@@ -742,6 +746,99 @@ class WordPptTemplateProcessorTest {
              XMLSlideShow ppt = new XMLSlideShow(fis)) {
             XSLFSlide slide = ppt.getSlides().get(0);
             assertEquals(1, slide.getShapes().stream().filter(s -> s instanceof XSLFPictureShape).count());
+        }
+    }
+
+    @Test
+    void wordChartPlaceholderReplacedWithPicture() throws Exception {
+        ChartGenerationService realChartService = new ChartGenerationService();
+        List<Map<String, Object>> data = List.of(
+                Map.of("month", "Jan", "amount", 10),
+                Map.of("month", "Feb", "amount", 20)
+        );
+        File chartFile = realChartService.generateChart(data, "BAR", "月度数据");
+        assertNotNull(chartFile, "测试需要真实图表文件");
+
+        ChartGenerationService mockService = mock(ChartGenerationService.class);
+        when(mockService.generateChart(data, "BAR", "月度数据", true, "AUTO", (String) null)).thenReturn(chartFile);
+
+        WordTemplateProcessor processor = new WordTemplateProcessor(mockService);
+
+        File template = File.createTempFile("template", ".docx");
+        template.deleteOnExit();
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XWPFParagraph para = doc.createParagraph();
+            para.createRun().setText("${chart}");
+            doc.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".docx");
+        output.deleteOnExit();
+        Map<String, Object> context = Map.of(
+                "chartEnabled", 1,
+                "chartType", "BAR",
+                "chartTitle", "月度数据",
+                "sqlCode", "SALES",
+                "sqlName", "销售"
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true, context);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            long pictureCount = doc.getParagraphs().stream()
+                    .flatMap(p -> p.getRuns().stream())
+                    .filter(r -> !r.getEmbeddedPictures().isEmpty())
+                    .count();
+            assertTrue(pictureCount >= 1, "应插入至少一个图表图片");
+        }
+    }
+
+    @Test
+    void wordChartWithSqlCodePlaceholderReplacedWithPicture() throws Exception {
+        ChartGenerationService realChartService = new ChartGenerationService();
+        List<Map<String, Object>> data = List.of(
+                Map.of("month", "Jan", "amount", 10),
+                Map.of("month", "Feb", "amount", 20)
+        );
+        File chartFile = realChartService.generateChart(data, "LINE", "销售趋势");
+        assertNotNull(chartFile);
+
+        ChartGenerationService mockService = mock(ChartGenerationService.class);
+        when(mockService.generateChart(data, "LINE", "销售趋势", true, "AUTO", (String) null)).thenReturn(chartFile);
+
+        WordTemplateProcessor processor = new WordTemplateProcessor(mockService);
+
+        File template = File.createTempFile("template", ".docx");
+        template.deleteOnExit();
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XWPFTable table = doc.createTable(1, 1);
+            table.getRow(0).getCell(0).setText("${chart:SALES}");
+            doc.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".docx");
+        output.deleteOnExit();
+        Map<String, Object> context = Map.of(
+                "chartEnabled", 1,
+                "chartType", "LINE",
+                "chartTitle", "销售趋势",
+                "sqlCode", "SALES",
+                "sqlName", "销售"
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true, context);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            long pictureCount = doc.getTables().stream()
+                    .flatMap(t -> t.getRows().stream())
+                    .flatMap(r -> r.getTableCells().stream())
+                    .flatMap(c -> c.getParagraphs().stream())
+                    .flatMap(p -> p.getRuns().stream())
+                    .filter(r -> !r.getEmbeddedPictures().isEmpty())
+                    .count();
+            assertTrue(pictureCount >= 1, "表格中的图表占位符应被替换为图片");
         }
     }
 

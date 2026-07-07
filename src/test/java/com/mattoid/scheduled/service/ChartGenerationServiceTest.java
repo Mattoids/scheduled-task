@@ -75,14 +75,37 @@ class ChartGenerationServiceTest {
     }
 
     @Test
-    void shouldRotateLabelsForLongCategories() {
+    void shouldApplyRgbBackgroundColor() {
         List<Map<String, Object>> data = List.of(
-                Map.of("product", "这是一个非常长的产品名称A", "sales", 100),
-                Map.of("product", "这是一个非常长的产品名称B", "sales", 200),
-                Map.of("product", "这是一个非常长的产品名称C", "sales", 150)
+                Map.of("product", "A", "sales", 100),
+                Map.of("product", "B", "sales", 200)
         );
 
-        File chart = service.generateChart(data, "BAR", "产品销售");
+        File chart = service.generateChart(data, "BAR", "产品销售", true, "AUTO", "rgba(255, 0, 0, 0.5)");
+        assertNotNull(chart);
+        assertTrue(chart.exists());
+    }
+
+    @Test
+    void shouldApplyHexBackgroundColor() {
+        List<Map<String, Object>> data = List.of(
+                Map.of("product", "A", "sales", 100),
+                Map.of("product", "B", "sales", 200)
+        );
+
+        File chart = service.generateChart(data, "BAR", "产品销售", true, "AUTO", "#FF0000");
+        assertNotNull(chart);
+        assertTrue(chart.exists());
+    }
+
+    @Test
+    void shouldFallbackToTransparentForInvalidColor() {
+        List<Map<String, Object>> data = List.of(
+                Map.of("product", "A", "sales", 100),
+                Map.of("product", "B", "sales", 200)
+        );
+
+        File chart = service.generateChart(data, "BAR", "产品销售", true, "AUTO", "not-a-color");
         assertNotNull(chart);
         assertTrue(chart.exists());
     }

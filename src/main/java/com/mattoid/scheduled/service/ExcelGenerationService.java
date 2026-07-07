@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.service;
 
+import com.mattoid.scheduled.util.PlaceholderUtils;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
@@ -14,8 +15,9 @@ public class ExcelGenerationService {
 
     private static final int MAX_SHEET_NAME_LENGTH = 31;
 
-    public File generateSingleExcel(List<Map<String, Object>> data, String outputPath) throws Exception {
-        return generateMergedExcel(List.of(new ExcelSheetSource("Sheet1", data)), outputPath);
+    public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName) throws Exception {
+        String resolvedSheetName = resolveSheetName(sheetName);
+        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath);
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath) throws Exception {
@@ -42,7 +44,8 @@ public class ExcelGenerationService {
 
     private void writeDataToSheet(Workbook workbook, Map<String, SheetInfo> sheets,
                                   String sheetName, List<Map<String, Object>> data) {
-        String safeName = uniqueSheetNameForWorkbook(workbook, sheets, sheetName);
+        String resolvedSheetName = resolveSheetName(sheetName);
+        String safeName = uniqueSheetNameForWorkbook(workbook, sheets, resolvedSheetName);
         SheetInfo info = sheets.computeIfAbsent(safeName, k -> {
             Sheet sheet = workbook.getSheet(safeName);
             if (sheet == null) {
@@ -96,7 +99,7 @@ public class ExcelGenerationService {
 
     private String uniqueSheetNameForWorkbook(Workbook workbook, Map<String, SheetInfo> sheets, String base) {
         String sanitized = sanitizeExcelSheetName(base);
-        if (workbook.getSheet(sanitized) != null || !sheets.containsKey(sanitized)) {
+        if (sheets.containsKey(sanitized) || workbook.getSheet(sanitized) == null) {
             return sanitized;
         }
         int suffix = 1;
@@ -109,6 +112,11 @@ public class ExcelGenerationService {
             suffix++;
         } while (sheets.containsKey(candidate) || workbook.getSheet(candidate) != null);
         return candidate;
+    }
+
+    private String resolveSheetName(String sheetName) {
+        String resolved = PlaceholderUtils.replacePlaceholders(sheetName);
+        return StringUtils.hasText(resolved) ? resolved : "Sheet1";
     }
 
     private String sanitizeExcelSheetName(String name) {

@@ -44,6 +44,8 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
         normalizeFileNamePattern(config);
         lambdaUpdate()
                 .set(TaskSqlConfig::getFileNamePattern, config.getFileNamePattern())
+                .set(TaskSqlConfig::getTemplateId, config.getTemplateId())
+                .set(TaskSqlConfig::getGroupId, config.getGroupId())
                 .eq(TaskSqlConfig::getId, config.getId())
                 .update();
         return super.updateById(config);

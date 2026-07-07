@@ -49,6 +49,13 @@ public class ReportTemplateController {
         return Result.ok(reportTemplateService.uploadTemplate(file, templateName, templateCode, description));
     }
 
+    @PreAuthorize("hasAuthority('template:edit')")
+    @PutMapping("/{id}")
+    public Result<Boolean> update(@PathVariable Long id, @RequestBody ReportTemplate template) {
+        template.setId(id);
+        return Result.ok(reportTemplateService.updateTemplate(template));
+    }
+
     @PreAuthorize("hasAuthority('template:delete')")
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) {

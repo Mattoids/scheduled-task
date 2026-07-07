@@ -34,13 +34,16 @@ public class NotificationConfigController {
                 .eq(StringUtils.hasText(configType), NotificationConfig::getConfigType, configType)
                 .orderByDesc(NotificationConfig::getCreateTime);
         Page<NotificationConfig> page = notificationConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
+        page.getRecords().forEach(this::decryptConfigJson);
         return Result.ok(PageUtil.convert(page));
     }
 
     @PreAuthorize("hasAuthority('notificationConfig:view')")
     @GetMapping("/{id}")
     public Result<NotificationConfig> detail(@PathVariable Long id) {
-        return Result.ok(notificationConfigService.getById(id));
+        NotificationConfig config = notificationConfigService.getById(id);
+        decryptConfigJson(config);
+        return Result.ok(config);
     }
 
     @OperationAudit(operationType = "CREATE", resourceType = "NOTIFICATION_CONFIG")
@@ -69,5 +72,12 @@ public class NotificationConfigController {
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) {
         return Result.ok(notificationConfigService.removeById(id));
+    }
+
+    private void decryptConfigJson(NotificationConfig config) {
+        if (config == null || !StringUtils.hasText(config.getConfigJson())) {
+            return;
+        }
+        config.setConfigJson(notificationConfigService.decryptSecrets(config.getConfigType(), config.getConfigJson()));
     }
 }

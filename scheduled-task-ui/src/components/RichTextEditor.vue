@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useEditor, EditorContent } from "@tiptap/vue-3";
 import StarterKit from "@tiptap/starter-kit";
 import { Underline } from "@tiptap/extension-underline";
@@ -48,6 +48,17 @@ const editor = useEditor({
     emit("update:modelValue", content);
   },
 });
+
+watch(
+  () => props.modelValue,
+  (newValue) => {
+    if (!editor.value) return;
+    const current = editor.value.getHTML();
+    if (current !== newValue) {
+      editor.value.commands.setContent(newValue || "", { emitUpdate: false });
+    }
+  }
+);
 
 const handleTextColor = (e: Event) => {
   const value = (e.target as HTMLInputElement).value;

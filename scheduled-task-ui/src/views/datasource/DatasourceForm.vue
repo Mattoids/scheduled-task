@@ -141,10 +141,6 @@ const loadDetail = async () => {
     const res = await getDatasource(props.id);
     form.value = {
       ...res,
-      password: "",
-      sshPassword: "",
-      sshPrivateKey: "",
-      sshPassphrase: "",
     };
     sshAuthType.value = res.sshAuthType || "password";
   } finally {

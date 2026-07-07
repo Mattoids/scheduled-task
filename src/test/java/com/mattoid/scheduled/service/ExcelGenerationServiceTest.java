@@ -122,7 +122,7 @@ class ExcelGenerationServiceTest {
         File output = File.createTempFile("excel_empty_", ".xlsx");
         output.deleteOnExit();
 
-        File result = service.generateSingleExcel(List.of(), output.getAbsolutePath());
+        File result = service.generateSingleExcel(List.of(), output.getAbsolutePath(), null);
         assertNotNull(result);
 
         try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {

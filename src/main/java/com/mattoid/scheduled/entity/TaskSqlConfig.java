@@ -58,6 +58,11 @@ public class TaskSqlConfig extends BaseEntity {
     private String chartLabelRotation;
 
     /**
+     * 图表背景色，留空/透明表示使用透明背景
+     */
+    private String chartBackgroundColor;
+
+    /**
      * Excel 合并组名，相同组名的 SQL 结果会合并到同一个 Excel 文件
      */
     private String excelMergeGroup;

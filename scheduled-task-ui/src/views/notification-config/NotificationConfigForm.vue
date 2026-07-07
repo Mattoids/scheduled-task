@@ -353,12 +353,22 @@ const handleTest = async () => {
         <el-row :gutter="16">
           <el-col :span="12">
             <el-form-item label="Token">
-              <el-input v-model="form.configJson.token" placeholder="回调 Token（可选）" />
+              <el-input
+                v-model="form.configJson.token"
+                type="password"
+                placeholder="回调 Token（可选）"
+                show-password
+              />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="AES Key">
-              <el-input v-model="form.configJson.aesKey" placeholder="回调 AES Key（可选）" />
+              <el-input
+                v-model="form.configJson.aesKey"
+                type="password"
+                placeholder="回调 AES Key（可选）"
+                show-password
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -382,7 +392,9 @@ const handleTest = async () => {
         <el-form-item label="Webhook Key" required>
           <el-input
             v-model="form.configJson.webhookKey"
+            type="password"
             placeholder="机器人 Webhook Key"
+            show-password
           />
         </el-form-item>
       </template>
@@ -438,12 +450,22 @@ const handleTest = async () => {
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="Token">
-                <el-input v-model="form.configJson.token" placeholder="回调 Token" />
+                <el-input
+                  v-model="form.configJson.token"
+                  type="password"
+                  placeholder="回调 Token"
+                  show-password
+                />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="AES Key">
-                <el-input v-model="form.configJson.aesKey" placeholder="回调 AES Key" />
+                <el-input
+                  v-model="form.configJson.aesKey"
+                  type="password"
+                  placeholder="回调 AES Key"
+                  show-password
+                />
               </el-form-item>
             </el-col>
           </el-row>

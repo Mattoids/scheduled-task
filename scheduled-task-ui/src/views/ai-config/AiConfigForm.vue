@@ -76,7 +76,7 @@ const loadDetail = async () => {
   loading.value = true;
   try {
     const res = await getAiConfig(props.id);
-    form.value = { ...res, apiKey: "" };
+    form.value = { ...res };
   } finally {
     loading.value = false;
   }

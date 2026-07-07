@@ -38,6 +38,7 @@ const form = ref<TaskSqlConfig>({
   chartTitle: "",
   chartAutoMerge: 1,
   chartLabelRotation: "AUTO",
+  chartBackgroundColor: "",
   excelMergeGroup: "",
   excelSheetName: "",
   fileSuffix: "",
@@ -66,6 +67,10 @@ const selectedGroupPattern = computed(() => {
 });
 
 const isInlineOutput = computed(() => form.value.outputFormat === "INLINE");
+const chartSupportedFormats = ["INLINE", "PPT", "WORD", "EXCEL"];
+const isChartSupportedOutput = computed(() =>
+  chartSupportedFormats.includes(form.value.outputFormat || "")
+);
 
 watch(
   () => form.value.groupCode,
@@ -87,7 +92,8 @@ watch(
       form.value.templateCode = undefined;
       form.value.fileSuffix = "";
       form.value.fileNamePattern = "";
-    } else {
+    }
+    if (!chartSupportedFormats.includes(format || "")) {
       form.value.chartEnabled = 0;
     }
   },
@@ -120,6 +126,25 @@ const chartLabelRotationOptions = [
   { label: "90°", value: "90" },
 ];
 
+const chartBackgroundColorPresets = [
+  "rgba(0, 0, 0, 0)",
+  "#FFFFFF",
+  "#F5F7FA",
+  "#EBEEF5",
+  "#E6F7FF",
+  "#F6FFED",
+  "#FFF7E6",
+  "#FFF1F0",
+  "#F9F0FF",
+  "#E6FFFB",
+  "#000000",
+  "#409EFF",
+  "#67C23A",
+  "#E6A23C",
+  "#F56C6C",
+  "#909399",
+];
+
 const rules = {
   sqlName: [{ required: true, message: "请输入 SQL 名称", trigger: "blur" }],
   sqlCode: [{ required: true, message: "请输入 SQL 编码", trigger: "blur" }],
@@ -146,6 +171,7 @@ const resetForm = () => {
     chartTitle: "",
     chartAutoMerge: 1,
     chartLabelRotation: "AUTO",
+    chartBackgroundColor: "",
     excelMergeGroup: "",
     excelSheetName: "",
     fileSuffix: "",
@@ -318,6 +344,8 @@ const handleSubmit = async () => {
   try {
     const payload = {
       ...form.value,
+      templateCode: form.value.templateCode ?? "",
+      groupCode: form.value.groupCode ?? "",
       customParams: raw || undefined,
     };
     if (isEdit.value) {
@@ -552,7 +580,7 @@ const handleClose = () => {
         />
       </el-form-item>
 
-      <template v-if="form.outputFormat === 'INLINE'">
+      <template v-if="isChartSupportedOutput">
         <el-divider content-position="left">图表配置</el-divider>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -616,9 +644,22 @@ const handleClose = () => {
               </el-form-item>
             </el-col>
           </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="背景颜色">
+                <el-color-picker
+                  v-model="form.chartBackgroundColor"
+                  :predefine="chartBackgroundColorPresets"
+                  show-alpha
+                  color-format="rgb"
+                  @active-change="(val: string | null) => (form.chartBackgroundColor = val || '')"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
           <el-form-item>
             <span class="form-tip"
-              >在通知内容中可通过占位符 <code>${chart:{{ form.sqlCode || 'sql编码' }}}</code> 插入该图表</span
+              >在通知内容、PPT、Word 或 Excel 模板中可通过占位符 <code>${chart:{{ form.sqlCode || 'sql编码' }}}</code> 插入该图表</span
             >
           </el-form-item>
         </template>

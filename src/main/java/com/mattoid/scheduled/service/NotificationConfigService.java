@@ -76,6 +76,54 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         }
     }
 
+    public String decryptSecrets(String configType, String configJson) {
+        if (!StringUtils.hasText(configJson)) {
+            return configJson;
+        }
+        try {
+            Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
+            switch (configType) {
+                case "EMAIL" -> decryptField(map, "password");
+                case "WECOM_APP" -> decryptField(map, "secret");
+                case "WECOM_INTELLIGENT_BOT" -> {
+                    String mode = (String) map.get("mode");
+                    if ("CALLBACK".equals(mode)) {
+                        decryptField(map, "secret");
+                    } else {
+                        decryptField(map, "botSecret");
+                    }
+                }
+                case "DINGTALK", "FEISHU" -> decryptField(map, "secret");
+                case "SLACK" -> decryptField(map, "webhookUrl");
+                case "WEBHOOK" -> {
+                    decryptField(map, "url");
+                    Map<String, Object> headers = (Map<String, Object>) map.get("headers");
+                    if (headers != null) {
+                        for (String key : headers.keySet()) {
+                            if (isSensitiveHeader(key)) {
+                                Object value = headers.get(key);
+                                if (value instanceof String s) {
+                                    headers.put(key, CryptoUtil.decryptIfNeeded(s));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return objectMapper.writeValueAsString(map);
+        } catch (JsonProcessingException e) {
+            log.error("解密配置 JSON 失败", e);
+            return configJson;
+        }
+    }
+
+    private void decryptField(Map<String, Object> map, String field) {
+        Object value = map.get(field);
+        if (value instanceof String s) {
+            map.put(field, CryptoUtil.decryptIfNeeded(s));
+        }
+    }
+
     private String encryptSecrets(String configType, String configJson) {
         if (!StringUtils.hasText(configJson)) {
             return configJson;

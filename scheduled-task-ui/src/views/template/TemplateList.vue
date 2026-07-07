@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePagination } from "@/composables/usePagination";
-import { pageTemplate, deleteTemplate, uploadTemplate } from "@/api/template";
+import { pageTemplate, deleteTemplate, uploadTemplate, updateTemplate } from "@/api/template";
 import type { ReportTemplate } from "@/types/entity";
 import { useAppStore } from "@/stores/app";
 
@@ -14,6 +14,12 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const loading = ref(false);
 const queryForm = reactive({ templateName: "" });
 const uploadVisible = ref(false);
+const editVisible = ref(false);
+const editForm = reactive({
+  id: undefined as number | undefined,
+  templateName: "",
+  description: "",
+});
 const uploadRef = ref<any>(null);
 const uploadForm = reactive({
   templateName: "",
@@ -44,6 +50,27 @@ const handleDelete = async (row: ReportTemplate) => {
   await ElMessageBox.confirm("确认删除该模板？", "提示", { type: "warning" });
   await deleteTemplate(row.id!);
   ElMessage.success("删除成功");
+  loadPage();
+};
+
+const openEdit = (row: ReportTemplate) => {
+  editForm.id = row.id;
+  editForm.templateName = row.templateName || "";
+  editForm.description = row.description || "";
+  editVisible.value = true;
+};
+
+const handleEditSubmit = async () => {
+  if (!editForm.templateName) {
+    ElMessage.warning("请输入模板名称");
+    return;
+  }
+  await updateTemplate(editForm.id!, {
+    templateName: editForm.templateName,
+    description: editForm.description,
+  });
+  ElMessage.success("修改成功");
+  editVisible.value = false;
   loadPage();
 };
 
@@ -133,8 +160,15 @@ onMounted(loadPage);
         show-overflow-tooltip
       />
       <el-table-column prop="createTime" label="上传时间" width="170" />
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            v-permission="'template:edit'"
+            @click="openEdit(row)"
+            >编辑</el-button
+          >
           <el-button
             link
             type="danger"
@@ -189,6 +223,26 @@ onMounted(loadPage);
       <template #footer>
         <el-button @click="uploadVisible = false">取消</el-button>
         <el-button type="primary" @click="handleUpload">上传</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editVisible" title="编辑模板" width="520px" destroy-on-close>
+      <el-form class="dialog-form" label-width="100px">
+        <el-form-item label="模板名称">
+          <el-input v-model="editForm.templateName" placeholder="模板名称" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input
+            v-model="editForm.description"
+            type="textarea"
+            :rows="2"
+            placeholder="描述"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleEditSubmit">确定</el-button>
       </template>
     </el-dialog>
   </div>
