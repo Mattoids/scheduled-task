@@ -822,6 +822,166 @@ class WordPptTemplateProcessorTest {
     }
 
     @Test
+    void pptTableExpandsWithDisplayHeaderSingleColumn() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(2, 1);
+
+            XSLFTableRow displayHeaderRow = table.getRows().get(0);
+            displayHeaderRow.getCells().get(0).setText("城市");
+
+            XSLFTableRow templateRow = table.getRows().get(1);
+            templateRow.getCells().get(0).setText("${cityName}");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("cityName", "北京"),
+                Map.of("cityName", "上海")
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            XSLFTable table = (XSLFTable) slide.getShapes().get(0);
+            assertEquals(3, table.getNumberOfRows(), "显示表头 + 2 条数据");
+
+            assertEquals("城市", getCellText(table.getRows().get(0).getCells().get(0)));
+            assertEquals("北京", getCellText(table.getRows().get(1).getCells().get(0)));
+            assertEquals("上海", getCellText(table.getRows().get(2).getCells().get(0)));
+        }
+    }
+
+    @Test
+    void wordTableExpandsWithDisplayHeaderSingleColumn() throws Exception {
+        WordTemplateProcessor processor = createWordProcessor();
+
+        File template = File.createTempFile("template", ".docx");
+        template.deleteOnExit();
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XWPFTable table = doc.createTable(2, 1);
+            XWPFTableRow displayHeaderRow = table.getRow(0);
+            displayHeaderRow.getCell(0).setText("城市");
+
+            XWPFTableRow templateRow = table.getRow(1);
+            templateRow.getCell(0).setText("${cityName}");
+
+            doc.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".docx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("cityName", "北京"),
+                Map.of("cityName", "上海")
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            XWPFTable table = doc.getTables().get(0);
+            assertEquals(3, table.getNumberOfRows(), "显示表头 + 2 条数据");
+
+            assertEquals("城市", table.getRow(0).getCell(0).getText());
+            assertEquals("北京", table.getRow(1).getCell(0).getText());
+            assertEquals("上海", table.getRow(2).getCell(0).getText());
+        }
+    }
+
+    @Test
+    void wordTableExpandsWithDisplayHeaderAndFieldNameHeader() throws Exception {
+        WordTemplateProcessor processor = createWordProcessor();
+
+        File template = File.createTempFile("template", ".docx");
+        template.deleteOnExit();
+        try (XWPFDocument doc = new XWPFDocument();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XWPFTable table = doc.createTable(3, 1);
+            XWPFTableRow displayHeaderRow = table.getRow(0);
+            displayHeaderRow.getCell(0).setText("城市");
+
+            XWPFTableRow fieldNameHeaderRow = table.getRow(1);
+            fieldNameHeaderRow.getCell(0).setText("cityName");
+
+            XWPFTableRow templateRow = table.getRow(2);
+            templateRow.getCell(0).setText("${cityName}");
+
+            doc.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".docx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("cityName", "北京"),
+                Map.of("cityName", "上海")
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            XWPFTable table = doc.getTables().get(0);
+            assertEquals(3, table.getNumberOfRows(), "显示表头 + 2 条数据");
+
+            assertEquals("城市", table.getRow(0).getCell(0).getText());
+            assertEquals("北京", table.getRow(1).getCell(0).getText());
+            assertEquals("上海", table.getRow(2).getCell(0).getText());
+        }
+    }
+
+    @Test
+    void pptTableExpandsWithDisplayHeaderAndFieldNameHeader() throws Exception {
+        PptTemplateProcessor processor = createPptProcessor();
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTable table = slide.createTable(3, 1);
+
+            XSLFTableRow displayHeaderRow = table.getRows().get(0);
+            displayHeaderRow.getCells().get(0).setText("城市");
+
+            XSLFTableRow fieldNameHeaderRow = table.getRows().get(1);
+            fieldNameHeaderRow.getCells().get(0).setText("cityName");
+
+            XSLFTableRow templateRow = table.getRows().get(2);
+            templateRow.getCells().get(0).setText("${cityName}");
+
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("cityName", "北京"),
+                Map.of("cityName", "上海")
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            XSLFTable table = (XSLFTable) slide.getShapes().get(0);
+            assertEquals(3, table.getNumberOfRows(), "显示表头 + 2 条数据");
+
+            assertEquals("城市", getCellText(table.getRows().get(0).getCells().get(0)));
+            assertEquals("北京", getCellText(table.getRows().get(1).getCells().get(0)));
+            assertEquals("上海", getCellText(table.getRows().get(2).getCells().get(0)));
+        }
+    }
+
+    @Test
     void pptChartPlaceholderReplacedWithPicture() throws Exception {
         ChartGenerationService realChartService = new ChartGenerationService();
         List<Map<String, Object>> data = List.of(

@@ -294,6 +294,28 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
         return !row.getCells().isEmpty();
     }
 
+    private boolean isFieldNameHeaderRow(XWPFTableRow row, Set<String> dataKeys) {
+        if (row == null) {
+            return false;
+        }
+        List<String> texts = getWordRowTexts(row);
+        if (hasPlaceholderHeaders(texts, dataKeys)) {
+            return false;
+        }
+        return resolveDataHeaders(texts, dataKeys) != null;
+    }
+
+    private boolean isFieldNameHeaderRow(XSLFTableRow row, Set<String> dataKeys) {
+        if (row == null) {
+            return false;
+        }
+        List<String> texts = getPptRowTexts(row);
+        if (hasPlaceholderHeaders(texts, dataKeys)) {
+            return false;
+        }
+        return resolveDataHeaders(texts, dataKeys) != null;
+    }
+
     protected void expandTablesInWord(XWPFDocument document, List<Map<String, Object>> data) {
         if (data == null || data.isEmpty()) {
             return;
@@ -320,6 +342,14 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             }
             if (templateRowIndex < 0 || headers == null) {
                 continue;
+            }
+
+            // 如果模板行上方是纯字段名表头，且再上方是显示表头，则移除该字段名表头
+            if (templateRowIndex > 1
+                    && isFieldNameHeaderRow(table.getRow(templateRowIndex - 1), dataKeys)
+                    && isDisplayHeaderRow(table.getRow(templateRowIndex - 2))) {
+                table.removeRow(templateRowIndex - 1);
+                templateRowIndex--;
             }
 
             boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(table.getRow(templateRowIndex - 1));
@@ -416,6 +446,15 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
                 }
                 if (templateRowIndex < 0 || headers == null) {
                     continue;
+                }
+
+                // 如果模板行上方是纯字段名表头，且再上方是显示表头，则移除该字段名表头
+                if (templateRowIndex > 1
+                        && isFieldNameHeaderRow(rows.get(templateRowIndex - 1), dataKeys)
+                        && isDisplayHeaderRow(rows.get(templateRowIndex - 2))) {
+                    table.removeRow(templateRowIndex - 1);
+                    templateRowIndex--;
+                    rows = table.getRows();
                 }
 
                 boolean hasDisplayHeader = templateRowIndex > 0 && isDisplayHeaderRow(rows.get(templateRowIndex - 1));
