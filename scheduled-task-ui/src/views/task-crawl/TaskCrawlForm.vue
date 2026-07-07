@@ -47,6 +47,7 @@ const form = reactive<TaskWebCrawlConfig>({
   sshPassword: '',
   sshPrivateKey: '',
   sshPassphrase: '',
+  sshAuthType: 'PASSWORD',
   sshRemoteHost: '',
   sshRemotePort: 80,
   sshLocalPort: 0,
@@ -175,6 +176,7 @@ const resetForm = () => {
     sshPassword: '',
     sshPrivateKey: '',
     sshPassphrase: '',
+    sshAuthType: 'PASSWORD',
     sshRemoteHost: '',
     sshRemotePort: 80,
     sshLocalPort: 0,
@@ -349,20 +351,28 @@ watch(
             <el-form-item label="SSH 用户名">
               <el-input v-model="form.sshUsername" />
             </el-form-item>
-            <el-form-item label="SSH 密码">
+            <el-form-item label="认证方式">
+              <el-radio-group v-model="form.sshAuthType">
+                <el-radio-button label="PASSWORD">密码</el-radio-button>
+                <el-radio-button label="KEY">私钥</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="form.sshAuthType === 'PASSWORD'" label="SSH 密码">
               <el-input v-model="form.sshPassword" type="password" show-password />
             </el-form-item>
-            <el-form-item label="SSH 私钥">
-              <el-input
-                v-model="form.sshPrivateKey"
-                type="textarea"
-                :rows="4"
-                placeholder="保存时自动加密"
-              />
-            </el-form-item>
-            <el-form-item label="私钥口令">
-              <el-input v-model="form.sshPassphrase" type="password" show-password />
-            </el-form-item>
+            <template v-if="form.sshAuthType === 'KEY'">
+              <el-form-item label="SSH 私钥">
+                <el-input
+                  v-model="form.sshPrivateKey"
+                  type="textarea"
+                  :rows="4"
+                  placeholder="保存时自动加密"
+                />
+              </el-form-item>
+              <el-form-item label="私钥口令">
+                <el-input v-model="form.sshPassphrase" type="password" show-password />
+              </el-form-item>
+            </template>
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="远程目标主机">

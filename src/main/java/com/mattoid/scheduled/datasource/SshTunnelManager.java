@@ -159,7 +159,8 @@ public class SshTunnelManager {
     }
 
     private void authenticate(SSHClient client, SshConfig config, Path keyPath) throws Exception {
-        if (keyPath != null) {
+        Boolean useKey = resolveUseKey(config, keyPath);
+        if (Boolean.TRUE.equals(useKey)) {
             KeyProvider keyProvider = createKeyProvider(client, keyPath, config.getPassphrase());
             client.authPublickey(config.getUsername(), keyProvider);
         } else {
@@ -170,6 +171,17 @@ public class SshTunnelManager {
                 throw new IllegalArgumentException("SSH 密码和私钥至少填写一个");
             }
         }
+    }
+
+    private Boolean resolveUseKey(SshConfig config, Path keyPath) {
+        if ("KEY".equalsIgnoreCase(config.getAuthType())) {
+            return Boolean.TRUE;
+        }
+        if ("PASSWORD".equalsIgnoreCase(config.getAuthType())) {
+            return Boolean.FALSE;
+        }
+        // 未指定时按旧逻辑：有私钥用私钥，否则用密码
+        return keyPath != null ? Boolean.TRUE : Boolean.FALSE;
     }
 
     private KeyProvider createKeyProvider(SSHClient client, Path keyPath, String passphrase) throws IOException {

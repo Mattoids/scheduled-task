@@ -48,6 +48,11 @@ public class TaskWebCrawlConfig extends BaseEntity {
 
     private String sshPassphrase;
 
+    /**
+     * PASSWORD / KEY
+     */
+    private String sshAuthType;
+
     private String sshRemoteHost;
 
     private Integer sshRemotePort;

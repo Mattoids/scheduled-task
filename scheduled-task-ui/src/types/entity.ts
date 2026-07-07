@@ -105,6 +105,7 @@ export interface TaskWebCrawlConfig {
   sshPassword?: string
   sshPrivateKey?: string
   sshPassphrase?: string
+  sshAuthType?: 'PASSWORD' | 'KEY'
   sshRemoteHost?: string
   sshRemotePort?: number
   sshLocalPort?: number

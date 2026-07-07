@@ -22,4 +22,9 @@ public class SshConfig {
     private String remoteHost;
 
     private Integer remotePort;
+
+    /**
+     * PASSWORD / KEY
+     */
+    private String authType;
 }

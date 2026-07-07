@@ -486,9 +486,17 @@ public class WebCrawlExecutor {
         sshConfig.setHost(config.getSshHost());
         sshConfig.setPort(config.getSshPort());
         sshConfig.setUsername(config.getSshUsername());
-        sshConfig.setPassword(config.getSshPassword());
-        sshConfig.setPrivateKey(config.getSshPrivateKey());
-        sshConfig.setPassphrase(config.getSshPassphrase());
+        sshConfig.setAuthType(config.getSshAuthType());
+        boolean useKey = "KEY".equalsIgnoreCase(config.getSshAuthType());
+        if (useKey) {
+            sshConfig.setPrivateKey(config.getSshPrivateKey());
+            sshConfig.setPassphrase(config.getSshPassphrase());
+            sshConfig.setPassword(null);
+        } else {
+            sshConfig.setPassword(config.getSshPassword());
+            sshConfig.setPrivateKey(null);
+            sshConfig.setPassphrase(null);
+        }
         sshConfig.setLocalPort(config.getSshLocalPort());
         sshConfig.setRemoteHost(config.getSshRemoteHost());
         sshConfig.setRemotePort(config.getSshRemotePort());
