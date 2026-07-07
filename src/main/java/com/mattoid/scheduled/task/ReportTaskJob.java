@@ -2,12 +2,14 @@ package com.mattoid.scheduled.task;
 
 import com.mattoid.scheduled.service.TaskExecutionService;
 import lombok.extern.slf4j.Slf4j;
+import org.quartz.DisallowConcurrentExecution;
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@DisallowConcurrentExecution
 public class ReportTaskJob implements Job {
 
     public static final String TASK_ID_KEY = "taskId";

@@ -9,6 +9,10 @@ spring:
   sql:
     init:
       mode: never
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
   servlet:
     multipart:
       max-file-size: 50MB
@@ -23,11 +27,18 @@ mybatis-plus:
       id-type: auto
       column-format: "`%s`"
 
+scheduled:
+  task:
+    aes:
+      key: ${SCHEDULED_TASK_AES_KEY:ScheduledTask#01}
+
 report:
   jwt:
     secret: ${JWT_SECRET:scheduled-task-secret-key-change-in-production}
     expiration: 86400000
   upload:
     path: ${user.home}/scheduled-task/uploads
+  api:
+    key: ${API_KEY:}
   default:
     page-size: 20

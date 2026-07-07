@@ -2,6 +2,7 @@ package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
@@ -42,12 +43,14 @@ public class NotificationConfigController {
         return Result.ok(notificationConfigService.getById(id));
     }
 
+    @OperationAudit(operationType = "CREATE", resourceType = "NOTIFICATION_CONFIG")
     @PreAuthorize("hasAuthority('notificationConfig:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody NotificationConfig config) {
         return Result.ok(notificationConfigService.saveOrUpdate(config));
     }
 
+    @OperationAudit(operationType = "UPDATE", resourceType = "NOTIFICATION_CONFIG")
     @PreAuthorize("hasAuthority('notificationConfig:edit')")
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody NotificationConfig config) {
@@ -61,6 +64,7 @@ public class NotificationConfigController {
         return Result.ok(notificationConfigService.testConnection(config));
     }
 
+    @OperationAudit(operationType = "DELETE", resourceType = "NOTIFICATION_CONFIG")
     @PreAuthorize("hasAuthority('notificationConfig:delete')")
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) {

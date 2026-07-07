@@ -11,4 +11,6 @@ public class TaskConfigRequest {
     private TaskConfig task;
 
     private List<Long> sqlIds;
+
+    private List<Long> dependencyIds;
 }

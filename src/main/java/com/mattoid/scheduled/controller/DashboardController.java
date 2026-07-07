@@ -10,17 +10,24 @@ import com.mattoid.scheduled.mapper.NotificationConfigMapper;
 import com.mattoid.scheduled.mapper.ReportTemplateMapper;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
+import com.mattoid.scheduled.service.ChartGenerationService;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -32,17 +39,20 @@ public class DashboardController {
     private final NotificationConfigMapper notificationConfigMapper;
     private final ReportTemplateMapper reportTemplateMapper;
     private final TaskLogMapper taskLogMapper;
+    private final ChartGenerationService chartGenerationService;
 
     public DashboardController(TaskConfigMapper taskConfigMapper,
                                DatasourceConfigMapper datasourceConfigMapper,
                                NotificationConfigMapper notificationConfigMapper,
                                ReportTemplateMapper reportTemplateMapper,
-                               TaskLogMapper taskLogMapper) {
+                               TaskLogMapper taskLogMapper,
+                               ChartGenerationService chartGenerationService) {
         this.taskConfigMapper = taskConfigMapper;
         this.datasourceConfigMapper = datasourceConfigMapper;
         this.notificationConfigMapper = notificationConfigMapper;
         this.reportTemplateMapper = reportTemplateMapper;
         this.taskLogMapper = taskLogMapper;
+        this.chartGenerationService = chartGenerationService;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -117,5 +127,99 @@ public class DashboardController {
         }).collect(Collectors.toList()));
 
         return Result.ok(stats);
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/execution-trend")
+    public Result<Map<String, Object>> executionTrend(@RequestParam(defaultValue = "7") int days,
+                                                      @RequestParam(required = false) Long taskId) {
+        if (days < 1 || days > 90) {
+            days = 7;
+        }
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(days - 1L);
+        LocalDateTime startTime = LocalDateTime.of(startDate, LocalTime.MIN);
+        LocalDateTime endTime = LocalDateTime.of(endDate, LocalTime.MAX);
+
+        LambdaQueryWrapper<TaskLog> wrapper = new LambdaQueryWrapper<TaskLog>()
+                .ge(TaskLog::getCreateTime, startTime)
+                .le(TaskLog::getCreateTime, endTime);
+        if (taskId != null) {
+            wrapper.eq(TaskLog::getTaskId, taskId);
+        }
+        List<TaskLog> logs = taskLogMapper.selectList(wrapper);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM-dd");
+        List<String> dates = new ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            dates.add(startDate.plusDays(i).format(formatter));
+        }
+
+        Map<String, Map<String, Long>> dailyStatusCount = new LinkedHashMap<>();
+        for (String date : dates) {
+            dailyStatusCount.put(date, new LinkedHashMap<>(Map.of("SUCCESS", 0L, "FAILED", 0L, "RUNNING", 0L)));
+        }
+        for (TaskLog log : logs) {
+            if (log.getCreateTime() == null || log.getStatus() == null) {
+                continue;
+            }
+            String dateKey = log.getCreateTime().toLocalDate().format(formatter);
+            Map<String, Long> statusMap = dailyStatusCount.get(dateKey);
+            if (statusMap != null) {
+                statusMap.merge(log.getStatus(), 1L, Long::sum);
+            }
+        }
+
+        Map<String, List<Long>> statusData = new LinkedHashMap<>();
+        statusData.put("SUCCESS", new ArrayList<>());
+        statusData.put("FAILED", new ArrayList<>());
+        statusData.put("RUNNING", new ArrayList<>());
+        for (String date : dates) {
+            Map<String, Long> statusMap = dailyStatusCount.get(date);
+            statusData.get("SUCCESS").add(statusMap.getOrDefault("SUCCESS", 0L));
+            statusData.get("FAILED").add(statusMap.getOrDefault("FAILED", 0L));
+            statusData.get("RUNNING").add(statusMap.getOrDefault("RUNNING", 0L));
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("dates", dates);
+        result.put("statusData", statusData);
+        return Result.ok(result);
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/execution-trend-chart")
+    public ResponseEntity<InputStreamResource> executionTrendChart(@RequestParam(defaultValue = "7") int days,
+                                                                   @RequestParam(required = false) Long taskId) throws Exception {
+        if (days < 1 || days > 90) {
+            days = 7;
+        }
+        Result<Map<String, Object>> trendResult = executionTrend(days, taskId);
+        Map<String, Object> data = trendResult.getData();
+        @SuppressWarnings("unchecked")
+        List<String> dates = (List<String>) data.get("dates");
+        @SuppressWarnings("unchecked")
+        Map<String, List<Long>> statusData = (Map<String, List<Long>>) data.get("statusData");
+
+        List<Map<String, Object>> chartData = new ArrayList<>();
+        for (int i = 0; i < dates.size(); i++) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("date", dates.get(i));
+            row.put("SUCCESS", statusData.get("SUCCESS").get(i));
+            row.put("FAILED", statusData.get("FAILED").get(i));
+            row.put("RUNNING", statusData.get("RUNNING").get(i));
+            chartData.add(row);
+        }
+
+        File chartFile = chartGenerationService.generateChart(chartData, "LINE", "任务执行趋势");
+        if (chartFile == null || !chartFile.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+        InputStreamResource resource = new InputStreamResource(new FileInputStream(chartFile));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=execution-trend.png")
+                .contentType(MediaType.IMAGE_PNG)
+                .contentLength(chartFile.length())
+                .body(resource);
     }
 }

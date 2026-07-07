@@ -2,6 +2,7 @@ package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
@@ -43,12 +44,14 @@ public class DatasourceConfigController {
         return Result.ok(config);
     }
 
+    @OperationAudit(operationType = "CREATE", resourceType = "DATASOURCE")
     @PreAuthorize("hasAuthority('datasource:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody DatasourceConfig config) {
         return Result.ok(datasourceConfigService.saveOrUpdateDatasource(config));
     }
 
+    @OperationAudit(operationType = "UPDATE", resourceType = "DATASOURCE")
     @PreAuthorize("hasAuthority('datasource:edit')")
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody DatasourceConfig config) {
@@ -56,6 +59,7 @@ public class DatasourceConfigController {
         return Result.ok(datasourceConfigService.saveOrUpdateDatasource(config));
     }
 
+    @OperationAudit(operationType = "DELETE", resourceType = "DATASOURCE")
     @PreAuthorize("hasAuthority('datasource:delete')")
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) {

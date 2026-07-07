@@ -166,6 +166,36 @@ public class WeComAppManager {
         }
     }
 
+    public void sendImage(Long configId, String toUser, File imageFile) throws Exception {
+        if (imageFile == null || !imageFile.exists()) {
+            throw new IllegalArgumentException("图片文件不存在: " + (imageFile == null ? "null" : imageFile.getAbsolutePath()));
+        }
+        log.info("企业微信应用发送图片消息: configId={}, toUser={}, fileName={}, fileSize={}",
+                configId, toUser, imageFile.getName(), imageFile.length());
+        WxCpService service = getService(configId);
+        String mediaId;
+        try (FileInputStream fis = new FileInputStream(imageFile)) {
+            var uploadResult = service.getMediaService().upload("image", imageFile.getName(), fis);
+            mediaId = uploadResult.getMediaId();
+            log.info("企业微信应用图片上传完成: configId={}, mediaIdLength={}",
+                    configId, mediaId != null ? mediaId.length() : 0);
+        }
+        for (String user : splitToUsers(toUser)) {
+            try {
+                WxCpMessage message = WxCpMessage.IMAGE()
+                        .toUser(user)
+                        .mediaId(mediaId)
+                        .build();
+                var result = service.getMessageService().send(message);
+                log.info("企业微信应用图片消息发送完成: configId={}, toUser={}, result={}",
+                        configId, user, result);
+            } catch (WxErrorException e) {
+                log.warn("企业微信应用发送图片消息失败: configId={}, toUser={}, error={}",
+                        configId, user, e.getMessage());
+            }
+        }
+    }
+
     public String verifyUrl(Long configId, String signature, String timestamp, String nonce, String echostr) throws Exception {
         WeComAppConfig config = loadConfig(configId);
         if (!StringUtils.hasText(config.getToken()) || !StringUtils.hasText(config.getAesKey())) {

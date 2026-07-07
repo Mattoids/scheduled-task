@@ -1,1 +1,0 @@
-import{a as e}from"./index-BjiECYab.js";var t=t=>e.get(`/ai-config/page`,{params:t}),n=e=>t({...e,current:1,size:1e3}),r=t=>e.get(`/ai-config/${t}`),i=t=>e.post(`/ai-config`,t),a=(t,n)=>e.put(`/ai-config/${t}`,n),o=t=>e.delete(`/ai-config/${t}`),s=t=>e.post(`/ai-config/${t}/test`),c=t=>e.post(`/ai-config/test`,t);export{t as a,a as c,n as i,o as n,s as o,r,c as s,i as t};

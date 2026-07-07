@@ -2,6 +2,7 @@ package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
@@ -69,12 +70,14 @@ public class TaskSqlConfigController {
         return Result.ok(config);
     }
 
+    @OperationAudit(operationType = "CREATE", resourceType = "SQL_CONFIG")
     @PreAuthorize("hasAuthority('task:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody TaskSqlConfig config) {
         return Result.ok(taskSqlConfigService.save(config));
     }
 
+    @OperationAudit(operationType = "UPDATE", resourceType = "SQL_CONFIG")
     @PreAuthorize("hasAuthority('task:edit')")
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody TaskSqlConfig config) {
@@ -82,6 +85,7 @@ public class TaskSqlConfigController {
         return Result.ok(taskSqlConfigService.updateById(config));
     }
 
+    @OperationAudit(operationType = "DELETE", resourceType = "SQL_CONFIG")
     @PreAuthorize("hasAuthority('task:delete')")
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) {

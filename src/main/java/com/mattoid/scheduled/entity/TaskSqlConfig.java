@@ -28,6 +28,21 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private String outputFormat;
 
+    /**
+     * 是否根据该 SQL 结果生成图表：1 启用，0 禁用
+     */
+    private Integer chartEnabled;
+
+    /**
+     * 图表类型：BAR / LINE / PIE
+     */
+    private String chartType;
+
+    /**
+     * 图表标题，留空使用 sqlName
+     */
+    private String chartTitle;
+
     private String fileSuffix;
 
     private String fileNamePattern;

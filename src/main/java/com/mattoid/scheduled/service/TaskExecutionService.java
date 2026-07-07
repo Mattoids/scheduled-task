@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.event.InlineSqlResult;
 import com.mattoid.scheduled.event.TaskExecutionEvent;
@@ -45,6 +46,8 @@ public class TaskExecutionService {
     private final TemplateProcessorFactory templateProcessorFactory;
     private final ApplicationEventPublisher eventPublisher;
     private final TaskSqlGroupService taskSqlGroupService;
+    private final TaskDependencyService taskDependencyService;
+    private final ChartGenerationService chartGenerationService;
 
     public TaskExecutionService(TaskConfigMapper taskConfigMapper,
                                 TaskLogMapper taskLogMapper,
@@ -53,7 +56,9 @@ public class TaskExecutionService {
                                 TaskSqlConfigService taskSqlConfigService,
                                 TemplateProcessorFactory templateProcessorFactory,
                                 ApplicationEventPublisher eventPublisher,
-                                TaskSqlGroupService taskSqlGroupService) {
+                                TaskSqlGroupService taskSqlGroupService,
+                                TaskDependencyService taskDependencyService,
+                                ChartGenerationService chartGenerationService) {
         this.taskConfigMapper = taskConfigMapper;
         this.taskLogMapper = taskLogMapper;
         this.sqlExecutor = sqlExecutor;
@@ -62,9 +67,15 @@ public class TaskExecutionService {
         this.templateProcessorFactory = templateProcessorFactory;
         this.eventPublisher = eventPublisher;
         this.taskSqlGroupService = taskSqlGroupService;
+        this.taskDependencyService = taskDependencyService;
+        this.chartGenerationService = chartGenerationService;
     }
 
     public void executeTask(Long taskId, String triggerMode) {
+        executeTask(taskId, triggerMode, java.util.Collections.emptyMap());
+    }
+
+    public void executeTask(Long taskId, String triggerMode, Map<String, Object> params) {
         TaskConfig task = taskConfigMapper.selectById(taskId);
         if (task == null) {
             log.error("任务不存在: {}", taskId);
@@ -78,21 +89,43 @@ public class TaskExecutionService {
         logEntity.setStatus("RUNNING");
         taskLogMapper.insert(logEntity);
 
+        // 防止同一个任务手动触发和 Quartz 自动触发并发执行
+        Long runningCount = taskLogMapper.selectCount(
+                new LambdaQueryWrapper<TaskLog>()
+                        .eq(TaskLog::getTaskId, taskId)
+                        .eq(TaskLog::getStatus, "RUNNING")
+                        .lt(TaskLog::getId, logEntity.getId())
+                        .ge(TaskLog::getStartTime, LocalDateTime.now().minusHours(1))
+        );
+        if (runningCount != null && runningCount > 0) {
+            log.warn("任务正在执行中，跳过本次触发: taskId={}", taskId);
+            logEntity.setStatus("SKIPPED");
+            logEntity.setResultMessage("任务正在执行中，已跳过本次触发");
+            logEntity.setEndTime(LocalDateTime.now());
+            taskLogMapper.updateById(logEntity);
+            return;
+        }
+
         List<File> reportFiles = new ArrayList<>();
         List<InlineSqlResult> inlineResults = new ArrayList<>();
+        Map<String, File> chartFiles = new LinkedHashMap<>();
         try {
             List<TaskSqlConfig> sqlConfigs = taskSqlConfigService.listByTaskId(taskId);
             if (sqlConfigs.isEmpty()) {
                 throw new IllegalArgumentException("任务未配置 SQL 模块");
             }
 
-            SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs);
+            SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs, params);
             reportFiles = results.getFiles();
             inlineResults = results.getInlineResults();
+            chartFiles = results.getChartFiles();
             StringBuilder resultMsg = new StringBuilder("生成 ")
                     .append(reportFiles.size()).append(" 个报表文件");
             if (!inlineResults.isEmpty()) {
                 resultMsg.append("，").append(inlineResults.size()).append(" 个 SQL 结果内联发送");
+            }
+            if (!chartFiles.isEmpty()) {
+                resultMsg.append("，").append(chartFiles.size()).append(" 个图表");
             }
             logEntity.setResultMessage(resultMsg.toString());
 
@@ -111,28 +144,56 @@ public class TaskExecutionService {
         } finally {
             logEntity.setEndTime(LocalDateTime.now());
             taskLogMapper.updateById(logEntity);
-            publishTaskExecutionEvents(task, logEntity, reportFiles, inlineResults);
+            publishTaskExecutionEvents(task, logEntity, reportFiles, inlineResults, chartFiles);
         }
     }
 
     private void publishTaskExecutionEvents(TaskConfig task, TaskLog logEntity, List<File> reportFiles,
-                                            List<InlineSqlResult> inlineResults) {
+                                            List<InlineSqlResult> inlineResults, Map<String, File> chartFiles) {
         String status = logEntity.getStatus();
         if ("SUCCESS".equals(status)) {
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_SUCCESS));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_SUCCESS));
         }
         if ("FAILED".equals(status)) {
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_FAILURE));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_FAILURE));
         }
-        eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, TaskExecutionEvent.EventType.TASK_COMPLETED));
+        eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_COMPLETED));
     }
 
     @Async
     public void executeTaskAsync(Long taskId, String triggerMode) {
-        executeTask(taskId, triggerMode);
+        executeTaskAsync(taskId, triggerMode, java.util.Collections.emptyMap());
     }
 
-    private SqlExecutionResults executeSqlConfigs(TaskConfig task, List<TaskSqlConfig> sqlConfigs) throws Exception {
+    @Async
+    public void executeTaskAsync(Long taskId, String triggerMode, Map<String, Object> params) {
+        executeTask(taskId, triggerMode, params);
+    }
+
+    @Async
+    public void executeTaskAsyncWithDependencies(Long taskId, String triggerMode) {
+        List<Long> sorted = taskDependencyService.topologicalSort(taskId);
+        for (Long id : sorted) {
+            executeTask(id, triggerMode);
+            TaskLog latestLog = getLatestLog(id);
+            if (latestLog == null || !"SUCCESS".equals(latestLog.getStatus())) {
+                log.warn("依赖任务 {} 未成功执行，中止后续任务", id);
+                break;
+            }
+        }
+    }
+
+    private TaskLog getLatestLog(Long taskId) {
+        List<TaskLog> logs = taskLogMapper.selectList(
+                new LambdaQueryWrapper<TaskLog>()
+                        .eq(TaskLog::getTaskId, taskId)
+                        .orderByDesc(TaskLog::getId)
+                        .last("LIMIT 1")
+        );
+        return logs.isEmpty() ? null : logs.get(0);
+    }
+
+    private SqlExecutionResults executeSqlConfigs(TaskConfig task, List<TaskSqlConfig> sqlConfigs, Map<String, Object> params) throws Exception {
         Map<Object, List<TaskSqlConfig>> groups = new LinkedHashMap<>();
         for (TaskSqlConfig sql : sqlConfigs) {
             Object key = sql.getTemplateId() != null ? sql.getTemplateId() : "sql_" + sql.getId();
@@ -148,14 +209,18 @@ public class TaskExecutionService {
                 if (template == null) {
                     throw new IllegalArgumentException("模板不存在: " + templateId);
                 }
-                results.addFile(processTemplateChain(task, template, group));
+                results.addFile(processTemplateChain(task, template, group, params));
             } else {
                 for (TaskSqlConfig sql : group) {
-                    List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent());
+                    List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), params);
                     if ("INLINE".equalsIgnoreCase(sql.getOutputFormat())) {
                         results.addInline(new InlineSqlResult(sql.getSqlName(), sql.getSqlCode(), data));
                     } else {
                         results.addFile(generateSqlOutputFile(task, sql, data));
+                    }
+                    File chartFile = generateChartFile(task, sql, data);
+                    if (chartFile != null) {
+                        results.addChartFile(sql.getSqlCode(), chartFile);
                     }
                 }
             }
@@ -166,6 +231,7 @@ public class TaskExecutionService {
     private static class SqlExecutionResults {
         private final List<File> files = new ArrayList<>();
         private final List<InlineSqlResult> inlineResults = new ArrayList<>();
+        private final Map<String, File> chartFiles = new LinkedHashMap<>();
 
         public void addFile(File file) {
             files.add(file);
@@ -175,6 +241,12 @@ public class TaskExecutionService {
             inlineResults.add(inlineResult);
         }
 
+        public void addChartFile(String sqlCode, File chartFile) {
+            if (chartFile != null) {
+                chartFiles.put(sqlCode, chartFile);
+            }
+        }
+
         public List<File> getFiles() {
             return files;
         }
@@ -182,9 +254,14 @@ public class TaskExecutionService {
         public List<InlineSqlResult> getInlineResults() {
             return inlineResults;
         }
+
+        public Map<String, File> getChartFiles() {
+            return chartFiles;
+        }
     }
 
-    private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs) throws Exception {
+    private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs,
+                                      Map<String, Object> params) throws Exception {
         String templateType = template.getTemplateType();
         TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
         File templateFile = resolveTemplateFile(template.getFilePath());
@@ -195,7 +272,7 @@ public class TaskExecutionService {
         File previousTempFile = null;
         for (int i = 0; i < sqlConfigs.size(); i++) {
             TaskSqlConfig sql = sqlConfigs.get(i);
-            List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent());
+            List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), params);
             boolean isLast = i == sqlConfigs.size() - 1;
             String stepOutput = isLast ? outputFileName : buildTempOutputPath(task.getId(), templateType, i);
             currentFile = processor.process(currentFile, data, stepOutput, isLast);
@@ -216,6 +293,25 @@ public class TaskExecutionService {
             return path.toFile();
         }
         return Paths.get(uploadPath, filePath).toFile();
+    }
+
+    private File generateChartFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) {
+        if (sqlConfig.getChartEnabled() == null || sqlConfig.getChartEnabled() != 1) {
+            return null;
+        }
+        if (data == null || data.isEmpty()) {
+            log.warn("SQL {} 启用图表但结果为空，跳过生成", sqlConfig.getSqlCode());
+            return null;
+        }
+        String chartType = StringUtils.hasText(sqlConfig.getChartType()) ? sqlConfig.getChartType() : "BAR";
+        String title = StringUtils.hasText(sqlConfig.getChartTitle()) ? sqlConfig.getChartTitle() : sqlConfig.getSqlName();
+        File chartFile = chartGenerationService.generateChart(data, chartType, title);
+        if (chartFile == null) {
+            log.warn("SQL {} 图表生成失败", sqlConfig.getSqlCode());
+        } else {
+            log.info("SQL {} 图表生成成功: {}", sqlConfig.getSqlCode(), chartFile.getAbsolutePath());
+        }
+        return chartFile;
     }
 
     private File generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {

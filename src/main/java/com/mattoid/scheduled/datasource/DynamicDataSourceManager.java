@@ -88,9 +88,8 @@ public class DynamicDataSourceManager {
         }
 
         try (HikariDataSource ds = buildDataSource(config, config.getId() != null ? config.getId() : Long.valueOf(-1))) {
-            log.info("[测试连接] 数据库连接信息: host={}, port={}, username={}, password={}, jdbcUrl={}",
-                    config.getHost(), config.getPort(), config.getUsername(),
-                    CryptoUtil.decryptIfNeeded(config.getPassword()), ds.getJdbcUrl());
+            log.info("[测试连接] 数据库连接信息: host={}, port={}, username={}, jdbcUrl={}",
+                    config.getHost(), config.getPort(), config.getUsername(), ds.getJdbcUrl());
             try (Connection conn = ds.getConnection()) {
                 if (conn.isValid(5)) {
                     stages.add(new StageResult("DATABASE", true, null));

@@ -4,6 +4,12 @@ import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.service.*;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
+import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
+import com.mattoid.scheduled.service.notify.DingTalkClient;
+import com.mattoid.scheduled.service.notify.FeishuClient;
+import com.mattoid.scheduled.service.notify.SlackClient;
+import com.mattoid.scheduled.service.notify.WebhookClient;
+import com.mattoid.scheduled.storage.service.StorageConfigService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -27,6 +33,8 @@ class NotificationEventListenerTest {
     @Mock
     private NotificationConfigService notificationConfigService;
     @Mock
+    private NotificationLogService notificationLogService;
+    @Mock
     private EmailRecipientService emailRecipientService;
     @Mock
     private EmailSenderService emailSenderService;
@@ -35,7 +43,19 @@ class NotificationEventListenerTest {
     @Mock
     private WeComBotClient weComBotClient;
     @Mock
+    private WeComIntelligentBotClient weComIntelligentBotClient;
+    @Mock
+    private DingTalkClient dingTalkClient;
+    @Mock
+    private FeishuClient feishuClient;
+    @Mock
+    private SlackClient slackClient;
+    @Mock
+    private WebhookClient webhookClient;
+    @Mock
     private AiAssistantService aiAssistantService;
+    @Mock
+    private StorageConfigService storageConfigService;
 
     @InjectMocks
     private NotificationEventListener listener;
@@ -96,7 +116,7 @@ class NotificationEventListenerTest {
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(emailSenderService, times(1)).sendEmail(eq(emailConfig), anyList(), anyString(), anyString(), anyList());
+        verify(emailSenderService, times(1)).sendEmail(eq(emailConfig), anyList(), anyString(), anyString(), anyList(), anyMap());
     }
 
     @Test
@@ -208,7 +228,7 @@ class NotificationEventListenerTest {
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_SUCCESS));
 
-        verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(), anyString(), anyList());
+        verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(), anyString(), anyList(), anyMap());
         verify(weComBotClient, times(1)).sendMarkdown(eq("key123"), anyString());
     }
 
@@ -257,6 +277,6 @@ class NotificationEventListenerTest {
         listener.onTaskExecutionEvent(event);
 
         verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(),
-                argThat((String body) -> !body.contains("<table")), anyList());
+                argThat((String body) -> !body.contains("<table")), anyList(), anyMap());
     }
 }

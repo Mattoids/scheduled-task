@@ -593,7 +593,7 @@ onMounted(() => {
               <el-form-item label="邮件正文">
                 <RichTextEditor
                     v-model="form.body"
-                    placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认正文"
+                    placeholder="支持占位符、Markdown 和 HTML 标签，可用 ${chart:sql编码} 插入 SQL 图表，留空使用默认正文"
                 />
               </el-form-item>
             </el-col>
@@ -639,7 +639,7 @@ onMounted(() => {
               <el-form-item label="消息内容">
                 <RichTextEditor
                     v-model="form.content"
-                    placeholder="支持占位符、Markdown 和 HTML 标签，留空使用默认内容"
+                    placeholder="支持占位符、Markdown 和 HTML 标签，可用 ${chart:sql编码} 插入 SQL 图表，留空使用默认内容"
                 />
               </el-form-item>
             </el-col>

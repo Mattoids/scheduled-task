@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.controller;
 
+import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComCommandHandler;
 import jakarta.servlet.http.HttpServletRequest;
@@ -63,19 +64,28 @@ public class WeComCallbackController {
             WxCpXmlMessage message = weComAppManager.parseMessage(configId, actualSignature, timestamp, nonce, body);
             log.info("企业微信消息解析成功: configId={}, fromUser={}, msgType={}, content={}, eventKey={}",
                     configId, message.getFromUserName(), message.getMsgType(), message.getContent(), message.getEventKey());
-            String reply = weComCommandHandler.handle(message, configId);
-            log.info("企业微信消息处理完成: configId={}, reply={}", configId, reply);
-            if (!StringUtils.hasText(reply)) {
-                return "success";
-            }
+            CommandResult result = weComCommandHandler.handle(message, configId);
+            log.info("企业微信消息处理完成: configId={}, text={}, hasImage={}", configId,
+                    result != null ? result.getText() : null,
+                    result != null && result.hasImage());
+            String reply = result != null && result.hasText() ? result.getText() : null;
 
             // 优先使用主动消息接口回复用户，失败时回退到被动回复
             try {
-                weComAppManager.sendText(configId, message.getFromUserName(), reply);
-                log.info("企业微信主动回复消息发送成功: configId={}, toUser={}", configId, message.getFromUserName());
+                if (StringUtils.hasText(reply)) {
+                    weComAppManager.sendText(configId, message.getFromUserName(), reply);
+                    log.info("企业微信主动回复文本消息发送成功: configId={}, toUser={}", configId, message.getFromUserName());
+                }
+                if (result != null && result.hasImage()) {
+                    weComAppManager.sendImage(configId, message.getFromUserName(), result.getImageFile());
+                    log.info("企业微信主动回复图片消息发送成功: configId={}, toUser={}", configId, message.getFromUserName());
+                }
                 return "success";
             } catch (Exception sendEx) {
                 log.error("企业微信主动回复消息发送失败，尝试被动回复: configId={}", configId, sendEx);
+                if (!StringUtils.hasText(reply)) {
+                    return "success";
+                }
                 String encrypted = weComAppManager.encryptReply(configId, reply,
                         message.getFromUserName(), message.getToUserName(), timestamp, nonce);
                 log.info("企业微信被动回复消息已生成: configId={}", configId);

@@ -1,6 +1,7 @@
 package com.mattoid.scheduled.service.wecom;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.entity.NotificationConfig;
 import com.mattoid.scheduled.entity.WeComIntelligentBotConfig;
 import com.mattoid.scheduled.mapper.NotificationConfigMapper;
@@ -298,8 +299,15 @@ public class WeComIntelligentBotClient {
                                 configId, msgType, fromUser, truncate(content, 200));
 
                         String reply = "";
+                        CommandResult result = null;
                         if (StringUtils.hasText(content)) {
-                            reply = weComCommandHandler.handleText(content.trim());
+                            result = weComCommandHandler.handleText(content.trim());
+                        }
+                        if (result != null && result.hasText()) {
+                            reply = result.getText();
+                        }
+                        if (result != null && result.hasImage()) {
+                            log.warn("智能机器人长链模式暂不支持发送图片，已忽略图表: configId={}", configId);
                         }
                         if (StringUtils.hasText(reply)) {
                             log.info("智能机器人长链准备回复: configId={}, fromUser={}, reply={}",

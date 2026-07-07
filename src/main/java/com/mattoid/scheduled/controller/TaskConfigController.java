@@ -2,6 +2,7 @@ package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.dto.ChangeStatusRequest;
@@ -11,9 +12,12 @@ import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.TaskConfigService;
+import com.mattoid.scheduled.service.TaskDependencyService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/task")
@@ -21,11 +25,14 @@ public class TaskConfigController {
 
     private final TaskConfigService taskConfigService;
     private final TaskLogMapper taskLogMapper;
+    private final TaskDependencyService taskDependencyService;
 
     public TaskConfigController(TaskConfigService taskConfigService,
-                                TaskLogMapper taskLogMapper) {
+                                TaskLogMapper taskLogMapper,
+                                TaskDependencyService taskDependencyService) {
         this.taskConfigService = taskConfigService;
         this.taskLogMapper = taskLogMapper;
+        this.taskDependencyService = taskDependencyService;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -57,15 +64,18 @@ public class TaskConfigController {
         TaskConfigRequest request = new TaskConfigRequest();
         request.setTask(task);
         request.setSqlIds(taskConfigService.getTaskSqlIds(id));
+        request.setDependencyIds(taskDependencyService.getDependencyIds(id));
         return Result.ok(request);
     }
 
+    @OperationAudit(operationType = "CREATE", resourceType = "TASK")
     @PreAuthorize("hasAuthority('task:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody TaskConfigRequest request) throws Exception {
-        return Result.ok(taskConfigService.saveOrUpdateTask(request.getTask(), request.getSqlIds()));
+        return Result.ok(taskConfigService.saveOrUpdateTask(request.getTask(), request.getSqlIds(), request.getDependencyIds()));
     }
 
+    @OperationAudit(operationType = "UPDATE", resourceType = "TASK")
     @PreAuthorize("hasAuthority('task:edit')")
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody TaskConfigRequest request) throws Exception {
@@ -74,26 +84,55 @@ public class TaskConfigController {
             task = new TaskConfig();
         }
         task.setId(id);
-        return Result.ok(taskConfigService.saveOrUpdateTask(task, request.getSqlIds()));
+        return Result.ok(taskConfigService.saveOrUpdateTask(task, request.getSqlIds(), request.getDependencyIds()));
     }
 
+    @OperationAudit(operationType = "UPDATE", resourceType = "TASK")
     @PreAuthorize("hasAuthority('task:edit')")
     @PutMapping("/{id}/status")
     public Result<Boolean> updateStatus(@PathVariable Long id, @RequestBody ChangeStatusRequest request) throws Exception {
         return Result.ok(taskConfigService.updateStatus(id, request.getStatus()));
     }
 
+    @OperationAudit(operationType = "DELETE", resourceType = "TASK")
     @PreAuthorize("hasAuthority('task:delete')")
     @DeleteMapping("/{id}")
     public Result<Boolean> delete(@PathVariable Long id) throws Exception {
         return Result.ok(taskConfigService.removeTask(id));
     }
 
+    @OperationAudit(operationType = "EXECUTE", resourceType = "TASK")
     @PreAuthorize("hasAuthority('task:trigger')")
     @PostMapping("/{id}/trigger")
     public Result<String> trigger(@PathVariable Long id) {
         taskConfigService.triggerTask(id);
         return Result.ok("任务已提交执行");
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/{id}/dependencies")
+    public Result<List<Long>> dependencies(@PathVariable Long id) {
+        return Result.ok(taskDependencyService.getDependencyIds(id));
+    }
+
+    @OperationAudit(operationType = "UPDATE", resourceType = "TASK_DEPENDENCY")
+    @PreAuthorize("hasAuthority('task:edit')")
+    @PutMapping("/{id}/dependencies")
+    public Result<Boolean> updateDependencies(@PathVariable Long id, @RequestBody List<Long> dependencyIds) {
+        taskDependencyService.saveDependencies(id, dependencyIds);
+        return Result.ok(true);
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/{id}/dependents")
+    public Result<List<Long>> dependents(@PathVariable Long id) {
+        return Result.ok(taskDependencyService.getDependentIds(id));
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/{id}/dependency-chain")
+    public Result<List<Long>> dependencyChain(@PathVariable Long id) {
+        return Result.ok(taskDependencyService.topologicalSort(id));
     }
 
     @PreAuthorize("hasAuthority('log:view')")

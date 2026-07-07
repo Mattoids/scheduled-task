@@ -1,12 +1,16 @@
 package com.mattoid.scheduled.service.wecom;
 
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
+import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.ChartGenerationService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskExecutionService;
+import com.mattoid.scheduled.service.TaskSqlConfigService;
+import com.mattoid.scheduled.task.SqlExecutor;
 import me.chanjar.weixin.cp.bean.message.WxCpXmlMessage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +22,7 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +42,15 @@ class WeComCommandHandlerTest {
     @Mock
     private AiAssistantService aiAssistantService;
 
+    @Mock
+    private SqlExecutor sqlExecutor;
+
+    @Mock
+    private TaskSqlConfigService taskSqlConfigService;
+
+    @Mock
+    private ChartGenerationService chartGenerationService;
+
     @InjectMocks
     private WeComCommandHandler handler;
 
@@ -45,11 +59,11 @@ class WeComCommandHandlerTest {
         WxCpXmlMessage message = new WxCpXmlMessage();
         message.setContent("帮助");
 
-        String reply = handler.handle(message, 1L);
+        CommandResult reply = handler.handle(message, 1L);
 
-        assertTrue(reply.contains("查询任务"));
-        assertTrue(reply.contains("运行"));
-        assertTrue(reply.contains("创建任务"));
+        assertTrue(reply.getText().contains("查询任务"));
+        assertTrue(reply.getText().contains("运行"));
+        assertTrue(reply.getText().contains("创建任务"));
     }
 
     @Test
@@ -62,10 +76,10 @@ class WeComCommandHandlerTest {
         task.setTaskName("测试任务");
         when(taskConfigService.getById(1L)).thenReturn(task);
 
-        String reply = handler.handle(message, 1L);
+        CommandResult reply = handler.handle(message, 1L);
 
-        assertTrue(reply.contains("已触发任务"));
-        verify(taskExecutionService).executeTaskAsync(eq(1L), eq("MANUAL"));
+        assertTrue(reply.getText().contains("已触发任务"));
+        verify(taskExecutionService).executeTaskAsync(eq(1L), eq("MANUAL"), anyMap());
     }
 
     @Test
@@ -79,9 +93,9 @@ class WeComCommandHandlerTest {
         when(wrapper.like(any(), eq("abc"))).thenReturn(wrapper);
         when(wrapper.list()).thenReturn(Collections.emptyList());
 
-        String reply = handler.handle(message, 1L);
+        CommandResult reply = handler.handle(message, 1L);
 
-        assertTrue(reply.contains("未找到匹配的任务"));
+        assertTrue(reply.getText().contains("未找到匹配的任务"));
     }
 
     @Test
@@ -90,9 +104,9 @@ class WeComCommandHandlerTest {
         message.setContent("运行 999");
         when(taskConfigService.getById(999L)).thenReturn(null);
 
-        String reply = handler.handle(message, 1L);
+        CommandResult reply = handler.handle(message, 1L);
 
-        assertTrue(reply.contains("任务不存在"));
+        assertTrue(reply.getText().contains("任务不存在"));
     }
 
     @Test

@@ -408,7 +408,12 @@ public abstract class AbstractPoiTemplateProcessor implements TemplateProcessor 
             run.setText(text);
             return;
         }
-        runs.get(0).setText(text);
+        XWPFRun firstRun = runs.get(0);
+        firstRun.setText(text, 0);
+        // 清除同一 run 内的多余 text 节点，避免旧文本残留
+        for (int i = firstRun.getCTR().sizeOfTArray() - 1; i > 0; i--) {
+            firstRun.getCTR().removeT(i);
+        }
         for (int i = runs.size() - 1; i > 0; i--) {
             paragraph.removeRun(i);
         }

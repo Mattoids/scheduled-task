@@ -33,6 +33,9 @@ const form = ref<TaskSqlConfig>({
   templateId: undefined,
   groupId: undefined,
   outputFormat: "CSV",
+  chartEnabled: 0,
+  chartType: "BAR",
+  chartTitle: "",
   fileSuffix: "",
   fileNamePattern: "",
   description: "",
@@ -79,6 +82,16 @@ const outputFormatOptions = [
   { label: "内联到通知", value: "INLINE" },
 ];
 
+const chartTypeOptions = [
+  { label: "柱状图", value: "BAR" },
+  { label: "折线图", value: "LINE" },
+  { label: "饼图", value: "PIE" },
+  { label: "面积图", value: "AREA" },
+  { label: "散点图", value: "SCATTER" },
+  { label: "堆叠柱状图", value: "STACKED_BAR" },
+  { label: "环形图", value: "DOUGHNUT" },
+];
+
 const rules = {
   sqlName: [{ required: true, message: "请输入 SQL 名称", trigger: "blur" }],
   sqlCode: [{ required: true, message: "请输入 SQL 编码", trigger: "blur" }],
@@ -100,6 +113,9 @@ const resetForm = () => {
     templateId: undefined,
     groupId: undefined,
     outputFormat: "CSV",
+    chartEnabled: 0,
+    chartType: "BAR",
+    chartTitle: "",
     fileSuffix: "",
     fileNamePattern: "",
     description: "",
@@ -241,6 +257,51 @@ const handleClose = () => {
           </el-form-item>
         </el-col>
       </el-row>
+
+      <el-divider content-position="left">图表配置</el-divider>
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="生成图表">
+            <el-switch
+              v-model="form.chartEnabled"
+              :active-value="1"
+              :inactive-value="0"
+              active-text="启用"
+              inactive-text="禁用"
+            />
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <template v-if="form.chartEnabled === 1">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="图表类型">
+              <el-select v-model="form.chartType" placeholder="请选择图表类型" style="width: 100%">
+                <el-option
+                  v-for="item in chartTypeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="图表标题">
+              <el-input
+                v-model="form.chartTitle"
+                placeholder="留空使用 SQL 名称"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item>
+          <span class="form-tip"
+            >在通知内容中可通过占位符 <code>${chart:{{ form.sqlCode || 'sql编码' }}}</code> 插入该图表</span
+          >
+        </el-form-item>
+      </template>
 
       <el-row :gutter="16">
         <el-col :span="12">

@@ -1,19 +1,24 @@
 package com.mattoid.scheduled.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.mattoid.scheduled.entity.TaskConfig;
+import com.mattoid.scheduled.entity.TaskDependency;
+import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.entity.TaskSqlRelation;
+import com.mattoid.scheduled.event.TaskExecutionEvent;
 import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.task.TaskSchedulerService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import jakarta.annotation.PostConstruct;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -25,22 +30,35 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
     private final TaskExecutionService taskExecutionService;
     private final TaskSqlConfigService taskSqlConfigService;
     private final TaskSqlRelationService taskSqlRelationService;
+    private final TaskDependencyService taskDependencyService;
+    private final TaskLogService taskLogService;
 
     public TaskConfigService(TaskSchedulerService taskSchedulerService,
                              TaskExecutionService taskExecutionService,
                              TaskSqlConfigService taskSqlConfigService,
-                             TaskSqlRelationService taskSqlRelationService) {
+                             TaskSqlRelationService taskSqlRelationService,
+                             TaskDependencyService taskDependencyService,
+                             TaskLogService taskLogService) {
         this.taskSchedulerService = taskSchedulerService;
         this.taskExecutionService = taskExecutionService;
         this.taskSqlConfigService = taskSqlConfigService;
         this.taskSqlRelationService = taskSqlRelationService;
+        this.taskDependencyService = taskDependencyService;
+        this.taskLogService = taskLogService;
     }
 
     @PostConstruct
     public void initScheduledTasks() {
         List<TaskConfig> tasks = lambdaQuery().eq(TaskConfig::getStatus, "ENABLE").list();
+        Set<Long> tasksWithDependencies = taskDependencyService.list().stream()
+                .map(TaskDependency::getTaskId)
+                .collect(Collectors.toSet());
         for (TaskConfig task : tasks) {
             try {
+                if (tasksWithDependencies.contains(task.getId())) {
+                    log.info("任务 {} 存在上游依赖，由依赖任务完成后级联触发，不直接调度", task.getId());
+                    continue;
+                }
                 taskSchedulerService.scheduleTask(task);
             } catch (Exception e) {
                 log.error("初始化任务调度失败: {}", task.getId(), e);
@@ -51,12 +69,24 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
 
     @Transactional(rollbackFor = Exception.class)
     public boolean saveOrUpdateTask(TaskConfig task, List<Long> sqlIds) throws Exception {
+        return saveOrUpdateTask(task, sqlIds, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean saveOrUpdateTask(TaskConfig task, List<Long> sqlIds, List<Long> dependencyIds) throws Exception {
         boolean result = saveOrUpdate(task);
         Long taskId = task.getId();
         if (taskId != null) {
             saveTaskSqlRelations(taskId, sqlIds);
+            if (dependencyIds != null) {
+                taskDependencyService.saveDependencies(taskId, dependencyIds);
+            }
         }
-        taskSchedulerService.scheduleTask(task);
+        if ("ENABLE".equals(task.getStatus()) && taskDependencyService.getDependencyIds(taskId).isEmpty()) {
+            taskSchedulerService.scheduleTask(task);
+        } else {
+            taskSchedulerService.removeTask(taskId);
+        }
         return result;
     }
 
@@ -123,6 +153,7 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         taskSqlRelationService.lambdaUpdate()
                 .eq(TaskSqlRelation::getTaskId, taskId)
                 .remove();
+        taskDependencyService.removeByTaskId(taskId);
         return removeById(taskId);
     }
 
@@ -131,6 +162,37 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         if (task == null) {
             throw new IllegalArgumentException("任务不存在");
         }
-        taskExecutionService.executeTaskAsync(taskId, "MANUAL");
+        taskExecutionService.executeTaskAsyncWithDependencies(taskId, "MANUAL");
+    }
+
+    @Async
+    @EventListener
+    public void onTaskSuccess(TaskExecutionEvent event) {
+        if (event.getEventType() != TaskExecutionEvent.EventType.TASK_SUCCESS) {
+            return;
+        }
+        Long taskId = event.getTask().getId();
+        List<Long> dependents = taskDependencyService.getDependentIds(taskId);
+        for (Long dependentId : dependents) {
+            if (areDependenciesMet(dependentId)) {
+                log.info("任务 {} 的依赖已满足，触发下游任务 {}", taskId, dependentId);
+                taskExecutionService.executeTaskAsync(dependentId, "AUTO");
+            }
+        }
+    }
+
+    private boolean areDependenciesMet(Long taskId) {
+        List<Long> deps = taskDependencyService.getDependencyIds(taskId);
+        for (Long depId : deps) {
+            TaskLog latest = taskLogService.lambdaQuery()
+                    .eq(TaskLog::getTaskId, depId)
+                    .orderByDesc(TaskLog::getId)
+                    .last("LIMIT 1")
+                    .one();
+            if (latest == null || !"SUCCESS".equals(latest.getStatus())) {
+                return false;
+            }
+        }
+        return true;
     }
 }

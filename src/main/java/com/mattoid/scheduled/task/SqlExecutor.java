@@ -37,10 +37,15 @@ public class SqlExecutor {
     private static final Pattern SQL_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql) throws Exception {
+        return executeQuery(datasourceId, sql, java.util.Collections.emptyMap());
+    }
+
+    public List<Map<String, Object>> executeQuery(Long datasourceId, String sql, Map<String, Object> params) throws Exception {
         if (!org.springframework.util.StringUtils.hasText(sql)) {
             throw new IllegalArgumentException("SQL 内容为空, datasourceId=" + datasourceId);
         }
-        String processedSql = processSqlVariables(sql);
+        Map<String, Object> safeParams = params != null ? params : java.util.Collections.emptyMap();
+        String processedSql = processSqlVariables(sql, safeParams);
         if (!processedSql.equals(sql)) {
             log.debug("SQL 变量替换后: {}", processedSql);
         }
@@ -78,7 +83,7 @@ public class SqlExecutor {
      *   today                -> 当前日期（默认 yyyy-MM-dd）
      * 也可通过 ${var:format} 自定义格式，如 ${lastMonth:MM}、${year:yy}。
      */
-    String processSqlVariables(String sql) {
+    String processSqlVariables(String sql, Map<String, Object> params) {
         if (sql == null || !sql.contains("${")) {
             return sql;
         }
@@ -95,7 +100,7 @@ public class SqlExecutor {
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String placeholder = matcher.group(1);
-            String replacement = resolveSqlPlaceholder(placeholder, now, today, currentMonth, lastMonth, nextMonth, currentYear, lastYear, nextYear);
+            String replacement = resolveSqlPlaceholder(placeholder, params, now, today, currentMonth, lastMonth, nextMonth, currentYear, lastYear, nextYear);
             if (replacement == null) {
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
             } else {
@@ -106,7 +111,12 @@ public class SqlExecutor {
         return sb.toString();
     }
 
+    String processSqlVariables(String sql) {
+        return processSqlVariables(sql, java.util.Collections.emptyMap());
+    }
+
     private String resolveSqlPlaceholder(String placeholder,
+                                         Map<String, Object> params,
                                          LocalDateTime now,
                                          LocalDate today,
                                          YearMonth currentMonth,
@@ -124,6 +134,14 @@ public class SqlExecutor {
         } else {
             variable = placeholder;
             format = null;
+        }
+
+        if (params.containsKey(variable)) {
+            Object value = params.get(variable);
+            if (value == null) {
+                return null;
+            }
+            return value.toString();
         }
 
         return switch (variable) {

@@ -2,20 +2,30 @@ package com.mattoid.scheduled.service.wecom;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.dto.IntentResult;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
+import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.ChartGenerationService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskExecutionService;
+import com.mattoid.scheduled.service.TaskSqlConfigService;
+import com.mattoid.scheduled.task.SqlExecutor;
+import com.mattoid.scheduled.util.TimeRangeParser;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.cp.bean.message.WxCpXmlMessage;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.io.File;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -31,28 +41,37 @@ public class WeComCommandHandler {
     private final TaskExecutionService taskExecutionService;
     private final TaskLogMapper taskLogMapper;
     private final AiAssistantService aiAssistantService;
+    private final SqlExecutor sqlExecutor;
+    private final TaskSqlConfigService taskSqlConfigService;
+    private final ChartGenerationService chartGenerationService;
 
     public WeComCommandHandler(TaskConfigService taskConfigService,
                                TaskExecutionService taskExecutionService,
                                TaskLogMapper taskLogMapper,
-                               AiAssistantService aiAssistantService) {
+                               AiAssistantService aiAssistantService,
+                               SqlExecutor sqlExecutor,
+                               TaskSqlConfigService taskSqlConfigService,
+                               ChartGenerationService chartGenerationService) {
         this.taskConfigService = taskConfigService;
         this.taskExecutionService = taskExecutionService;
         this.taskLogMapper = taskLogMapper;
         this.aiAssistantService = aiAssistantService;
+        this.sqlExecutor = sqlExecutor;
+        this.taskSqlConfigService = taskSqlConfigService;
+        this.chartGenerationService = chartGenerationService;
     }
 
-    public String handle(WxCpXmlMessage message, Long configId) {
+    public CommandResult handle(WxCpXmlMessage message, Long configId) {
         String content = message.getContent();
         String eventKey = message.getEventKey();
 
         if (!StringUtils.hasText(content) && !StringUtils.hasText(eventKey)) {
-            return "无法识别指令，请发送\"帮助\"查看可用指令。";
+            return new CommandResult("无法识别指令，请发送\"帮助\"查看可用指令。");
         }
 
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
-        String result = processCommand(command);
-        if (result != null && result.startsWith("未知指令")) {
+        CommandResult result = processCommand(command);
+        if (result != null && result.hasText() && result.getText().startsWith("未知指令")) {
             return handleAiFallback(command);
         }
         return result;
@@ -61,84 +80,85 @@ public class WeComCommandHandler {
     /**
      * 纯文本指令处理（用于智能机器人长链模式）
      */
-    public String handleText(String content) {
+    public CommandResult handleText(String content) {
         if (!StringUtils.hasText(content)) {
-            return "无法识别指令，请发送\"帮助\"查看可用指令。";
+            return new CommandResult("无法识别指令，请发送\"帮助\"查看可用指令。");
         }
         String command = content.trim();
-        String result = processCommand(command);
-        if (result != null && result.startsWith("未知指令")) {
+        CommandResult result = processCommand(command);
+        if (result != null && result.hasText() && result.getText().startsWith("未知指令")) {
             return handleAiFallback(command);
         }
         return result;
     }
 
-    private String processCommand(String command) {
+    private CommandResult processCommand(String command) {
         try {
             if ("QUERY_TASKS".equalsIgnoreCase(command) || command.startsWith("查询任务") || "任务列表".equals(command)) {
-                return handleQueryTasks(command);
+                return new CommandResult(handleQueryTasks(command));
             }
             if (command.startsWith("查看任务")) {
-                return handleViewTask(command);
+                return new CommandResult(handleViewTask(command));
             }
             if (command.startsWith("任务日志")) {
-                return handleTaskLogs(command);
+                return new CommandResult(handleTaskLogs(command));
             }
             if ("最近任务".equals(command) || "RECENT_TASKS".equalsIgnoreCase(command)) {
-                return handleRecentTasks();
+                return new CommandResult(handleRecentTasks());
             }
             if (command.startsWith("RUN_TASK_")) {
-                return handleQuickRun(command);
+                return new CommandResult(handleQuickRun(command));
             }
             if (command.startsWith("运行 ") || command.startsWith("运行任务 ") || command.startsWith("运行")) {
-                return handleRunTask(command);
+                return new CommandResult(handleRunTask(command));
             }
             if (command.startsWith("创建任务 ")) {
-                return handleCreateTask(command);
+                return new CommandResult(handleCreateTask(command));
             }
             if ("RUN_TASK_PROMPT".equalsIgnoreCase(command)) {
-                return "请回复：运行 {任务ID 或 任务名称}\n例如：运行 1\n例如：运行销售日报任务";
+                return new CommandResult("请回复：运行 {任务ID 或 任务名称}\n例如：运行 1\n例如：运行销售日报任务");
             }
             if ("HELP".equalsIgnoreCase(command) || "帮助".equals(command)) {
-                return helpText();
+                return new CommandResult(helpText());
             }
-            return "未知指令：" + command + "\n请发送\"帮助\"查看可用指令。";
+            return new CommandResult("未知指令：" + command + "\n请发送\"帮助\"查看可用指令。");
         } catch (Exception e) {
             log.error("企业微信指令处理失败: {}", command, e);
-            return "指令处理失败: " + e.getMessage();
+            return new CommandResult("指令处理失败: " + e.getMessage());
         }
     }
 
-    private String handleAiFallback(String content) {
+    private CommandResult handleAiFallback(String content) {
         try {
             IntentResult intent = aiAssistantService.parseIntent(content);
             if (intent != null && intent.isRecognized()) {
                 return executeIntent(intent, content);
             }
-            return aiAssistantService.chatReply(content);
+            return new CommandResult(aiAssistantService.chatReply(content));
         } catch (Exception e) {
             log.error("AI 分析企业微信消息失败: {}", content, e);
-            return "AI 处理失败，请稍后再试。";
+            return new CommandResult("AI 处理失败，请稍后再试。");
         }
     }
 
-    private String executeIntent(IntentResult intent, String originalContent) {
+    private CommandResult executeIntent(IntentResult intent, String originalContent) {
         String action = intent.getAction();
         Map<String, String> params = intent.getParams();
         if (!StringUtils.hasText(action)) {
-            return aiAssistantService.chatReply(originalContent);
+            return new CommandResult(aiAssistantService.chatReply(originalContent));
         }
         try {
             return switch (action) {
-                case "VIEW_TASKS" -> handleViewTasksIntent(params);
-                case "TRIGGER_TASK" -> handleTriggerTaskIntent(params);
-                case "VIEW_LOGS" -> handleViewLogsIntent(params);
-                case "CREATE_TASK" -> "创建任务请使用格式：\n创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2";
-                default -> aiAssistantService.chatReply(originalContent);
+                case "VIEW_TASKS" -> new CommandResult(handleViewTasksIntent(params));
+                case "TRIGGER_TASK" -> new CommandResult(handleTriggerTaskIntent(params));
+                case "VIEW_LOGS" -> new CommandResult(handleViewLogsIntent(params));
+                case "CREATE_TASK" -> handleCreateTaskIntent(params);
+                case "QUERY_DATA" -> handleQueryDataIntent(params, originalContent);
+                default -> new CommandResult(aiAssistantService.chatReply(originalContent));
             };
         } catch (Exception e) {
             log.error("AI 意图执行失败: action={}, params={}", action, params, e);
-            return "指令执行失败: " + e.getMessage();
+            return new CommandResult("指令执行失败: " + e.getMessage());
         }
     }
 
@@ -171,13 +191,36 @@ public class WeComCommandHandler {
     private String handleTriggerTaskIntent(Map<String, String> params) {
         String taskId = params.get("taskId");
         String taskName = params.get("taskName");
+        Map<String, Object> queryParams = buildTimeRangeParams(params.get("timeRange"));
         if (StringUtils.hasText(taskId)) {
-            return handleQuickRun("RUN_TASK_" + taskId);
+            taskExecutionService.executeTaskAsync(Long.parseLong(taskId), "MANUAL", queryParams);
+            return "已触发任务 ID: " + taskId + timeRangeHint(queryParams);
         }
         if (StringUtils.hasText(taskName)) {
-            return handleRunTask("运行 " + taskName);
+            return handleRunTask("运行 " + taskName + (params.containsKey("timeRange") ? " " + params.get("timeRange") : ""));
         }
         return "请指定任务 ID 或任务名称。";
+    }
+
+    private Map<String, Object> buildTimeRangeParams(String timeRange) {
+        if (!StringUtils.hasText(timeRange)) {
+            return java.util.Collections.emptyMap();
+        }
+        Map<String, String> range = TimeRangeParser.parse(timeRange);
+        if (!range.containsKey("startTime")) {
+            return java.util.Collections.emptyMap();
+        }
+        Map<String, Object> params = new HashMap<>();
+        params.put("startTime", range.get("startTime"));
+        params.put("endTime", range.get("endTime"));
+        return params;
+    }
+
+    private String timeRangeHint(Map<String, Object> params) {
+        if (!params.containsKey("startTime")) {
+            return "";
+        }
+        return "（时间范围：" + params.get("startTime") + " ~ " + params.get("endTime") + "）";
     }
 
     private String handleViewLogsIntent(Map<String, String> params) {
@@ -186,6 +229,152 @@ public class WeComCommandHandler {
             return handleTaskLogs("任务日志 " + taskId);
         }
         return "请指定任务 ID 查看日志。";
+    }
+
+    private CommandResult handleCreateTaskIntent(Map<String, String> params) {
+        String taskName = params.get("taskName");
+        String triggerConfig = params.get("triggerConfig");
+        if (!StringUtils.hasText(taskName) || !StringUtils.hasText(triggerConfig)) {
+            return new CommandResult("创建任务需要任务名称和触发配置，例如：\n创建每天上午9点运行的销售日报任务，CRON 表达式 0 0 9 * * ?");
+        }
+        String triggerType = params.get("triggerType");
+        if (!StringUtils.hasText(triggerType)) {
+            triggerType = triggerConfig.trim().contains(" ") ? "CRON" : "ONCE";
+        }
+        List<Long> sqlIds = new ArrayList<>();
+        String sqlIdsStr = params.get("sqlIds");
+        if (StringUtils.hasText(sqlIdsStr)) {
+            try {
+                sqlIds = Arrays.stream(sqlIdsStr.split(","))
+                        .map(String::trim)
+                        .filter(StringUtils::hasText)
+                        .map(Long::parseLong)
+                        .collect(Collectors.toList());
+            } catch (NumberFormatException e) {
+                return new CommandResult("SQL ID 格式错误，请使用逗号分隔的数字。");
+            }
+        }
+
+        try {
+            TaskConfig task = new TaskConfig();
+            task.setTaskName(taskName.trim());
+            task.setTaskCode("TASK_" + System.currentTimeMillis());
+            task.setTriggerType(triggerType.toUpperCase());
+            task.setTriggerConfig(triggerConfig.trim());
+            task.setStatus("ENABLE");
+            taskConfigService.saveOrUpdateTask(task, sqlIds);
+            return new CommandResult("任务创建成功: " + task.getTaskName() + " (ID: " + task.getId() + ")");
+        } catch (Exception e) {
+            log.error("AI 创建任务失败: params={}", params, e);
+            return new CommandResult("创建任务失败: " + e.getMessage());
+        }
+    }
+
+    private CommandResult handleQueryDataIntent(Map<String, String> params, String originalContent) {
+        String keyword = params.get("keyword");
+        if (!StringUtils.hasText(keyword)) {
+            keyword = originalContent;
+        }
+
+        List<TaskSqlConfig> candidates = findMatchingSqlConfigs(keyword);
+        if (candidates.isEmpty()) {
+            return new CommandResult("未找到与 \"" + keyword + "\" 相关的 SQL 配置，请检查关键词或先在管理后台创建 SQL。");
+        }
+        if (candidates.size() > 1) {
+            StringBuilder sb = new StringBuilder("找到多个相关 SQL，请指定更精确的关键词：\n");
+            for (TaskSqlConfig config : candidates) {
+                sb.append(config.getId()).append(". ").append(config.getSqlName());
+                if (StringUtils.hasText(config.getDescription())) {
+                    sb.append(" (").append(config.getDescription()).append(")");
+                }
+                sb.append("\n");
+            }
+            return new CommandResult(sb.toString());
+        }
+
+        TaskSqlConfig config = candidates.get(0);
+        Map<String, String> queryParams = aiAssistantService.extractQueryParams(originalContent);
+        // 将 AI 意图中的已知参数合并进来
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (!"keyword".equalsIgnoreCase(entry.getKey()) && !"chartType".equalsIgnoreCase(entry.getKey())) {
+                queryParams.putIfAbsent(entry.getKey(), entry.getValue());
+            }
+        }
+
+        try {
+            List<Map<String, Object>> data = sqlExecutor.executeQuery(config.getDatasourceId(), config.getSqlContent(), new HashMap<>(queryParams));
+            if (data.isEmpty()) {
+                return new CommandResult("查询完成，未返回数据。\nSQL: " + config.getSqlName());
+            }
+
+            String chartType = params.get("chartType");
+            File chartFile = null;
+            if (StringUtils.hasText(chartType)) {
+                chartFile = chartGenerationService.generateChart(data, chartType, config.getSqlName());
+            }
+
+            String summary = buildDataSummary(config, data, queryParams);
+            return new CommandResult(summary, chartFile);
+        } catch (Exception e) {
+            log.error("SQL 查询失败: sqlId={}, sqlName={}", config.getId(), config.getSqlName(), e);
+            return new CommandResult("查询失败: " + e.getMessage() + "\nSQL: " + config.getSqlName());
+        }
+    }
+
+    private List<TaskSqlConfig> findMatchingSqlConfigs(String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            return Collections.emptyList();
+        }
+        String clean = keyword.replaceAll("[\\p{P}\\s]+", "").trim();
+        List<TaskSqlConfig> all = taskSqlConfigService.lambdaQuery()
+                .eq(TaskSqlConfig::getStatus, 1)
+                .list();
+        List<TaskSqlConfig> matches = new ArrayList<>();
+        for (TaskSqlConfig config : all) {
+            if (containsIgnoreCase(config.getSqlName(), keyword)
+                    || containsIgnoreCase(config.getSqlName(), clean)
+                    || containsIgnoreCase(config.getDescription(), keyword)
+                    || containsIgnoreCase(config.getDescription(), clean)
+                    || containsIgnoreCase(config.getSqlContent(), keyword)
+                    || containsIgnoreCase(config.getSqlContent(), clean)) {
+                matches.add(config);
+            }
+        }
+        return matches;
+    }
+
+    private boolean containsIgnoreCase(String source, String target) {
+        if (!StringUtils.hasText(source) || !StringUtils.hasText(target)) {
+            return false;
+        }
+        return source.toLowerCase().contains(target.toLowerCase());
+    }
+
+    private String buildDataSummary(TaskSqlConfig config, List<Map<String, Object>> data, Map<String, String> queryParams) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("查询结果\n");
+        sb.append("SQL: ").append(config.getSqlName()).append("\n");
+        if (!queryParams.isEmpty()) {
+            sb.append("参数: ").append(queryParams.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(Collectors.joining(", "))).append("\n");
+        }
+        sb.append("行数: ").append(data.size()).append("\n");
+
+        int previewLimit = Math.min(data.size(), 10);
+        List<String> columns = new ArrayList<>(data.get(0).keySet());
+        sb.append("预览（前 ").append(previewLimit).append(" 行）:\n");
+        for (int i = 0; i < previewLimit; i++) {
+            Map<String, Object> row = data.get(i);
+            for (String col : columns) {
+                sb.append(col).append(":").append(row.get(col)).append("  ");
+            }
+            sb.append("\n");
+        }
+        if (data.size() > previewLimit) {
+            sb.append("...");
+        }
+        return sb.toString();
     }
 
     private String handleViewTask(String command) {
@@ -364,15 +553,19 @@ public class WeComCommandHandler {
             return "请指定任务 ID 或任务名称，例如：运行 1\n例如：运行销售日报任务";
         }
 
+        TimeRangeResult timeResult = extractTimeRange(arg);
+        String taskArg = timeResult.taskArg();
+        Map<String, Object> params = timeResult.params();
+
         TaskConfig task;
-        if (arg.matches("\\d+")) {
-            Long taskId = Long.parseLong(arg);
+        if (taskArg.matches("\\d+")) {
+            Long taskId = Long.parseLong(taskArg);
             task = taskConfigService.getById(taskId);
             if (task == null) {
                 return "任务不存在: " + taskId;
             }
         } else {
-            String name = arg;
+            String name = taskArg;
             if (name.endsWith("任务")) {
                 name = name.substring(0, name.length() - "任务".length());
             }
@@ -392,8 +585,34 @@ public class WeComCommandHandler {
             task = tasks.get(0);
         }
 
-        taskExecutionService.executeTaskAsync(task.getId(), "MANUAL");
-        return "已触发任务: " + task.getTaskName() + " (ID: " + task.getId() + ")，请稍后查看执行结果。";
+        taskExecutionService.executeTaskAsync(task.getId(), "MANUAL", params);
+        String timeHint = params.containsKey("startTime")
+                ? "（时间范围：" + params.get("startTime") + " ~ " + params.get("endTime") + "）"
+                : "";
+        return "已触发任务: " + task.getTaskName() + " (ID: " + task.getId() + ")" + timeHint + "，请稍后查看执行结果。";
+    }
+
+    private TimeRangeResult extractTimeRange(String arg) {
+        String[] tokens = arg.split("\\s+");
+        int maxSuffix = Math.min(tokens.length, 5);
+        for (int suffixLen = 1; suffixLen <= maxSuffix; suffixLen++) {
+            int startIdx = tokens.length - suffixLen;
+            String suffix = String.join(" ", Arrays.copyOfRange(tokens, startIdx, tokens.length));
+            String prefix = startIdx > 0
+                    ? String.join(" ", Arrays.copyOfRange(tokens, 0, startIdx)).trim()
+                    : "";
+            Map<String, String> range = TimeRangeParser.parse(suffix);
+            if (range.containsKey("startTime") && StringUtils.hasText(prefix)) {
+                Map<String, Object> params = new HashMap<>();
+                params.put("startTime", range.get("startTime"));
+                params.put("endTime", range.get("endTime"));
+                return new TimeRangeResult(prefix, params);
+            }
+        }
+        return new TimeRangeResult(arg, java.util.Collections.emptyMap());
+    }
+
+    private record TimeRangeResult(String taskArg, Map<String, Object> params) {
     }
 
     private String handleCreateTask(String command) throws Exception {
@@ -453,6 +672,8 @@ public class WeComCommandHandler {
                 "最近任务 - 查看最近执行的3个任务及快捷运行\n" +
                 "运行 {任务ID} - 按 ID 手动运行任务\n" +
                 "运行{任务名称}任务 - 按名称手动运行任务\n" +
+                "运行 {任务名称} {时间范围} - 按指定时间范围运行任务，例如：运行 销售日报 昨天\n" +
+                "查询 {数据关键词} [折线图/柱状图/饼状图] - 直接查询 SQL 数据\n" +
                 "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务";
     }
 }

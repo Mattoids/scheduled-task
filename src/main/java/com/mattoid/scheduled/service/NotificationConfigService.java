@@ -4,11 +4,12 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mattoid.scheduled.common.TestConnectionResult;
-import com.mattoid.scheduled.entity.EmailConfig;
-import com.mattoid.scheduled.entity.NotificationConfig;
-import com.mattoid.scheduled.entity.WeComAppConfig;
-import com.mattoid.scheduled.entity.WeComBotConfig;
+import com.mattoid.scheduled.entity.*;
 import com.mattoid.scheduled.mapper.NotificationConfigMapper;
+import com.mattoid.scheduled.service.notify.DingTalkClient;
+import com.mattoid.scheduled.service.notify.FeishuClient;
+import com.mattoid.scheduled.service.notify.SlackClient;
+import com.mattoid.scheduled.service.notify.WebhookClient;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
 import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
@@ -19,6 +20,7 @@ import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
@@ -30,13 +32,25 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
     private final WeComAppManager weComAppManager;
     private final WeComBotClient weComBotClient;
     private final WeComIntelligentBotClient weComIntelligentBotClient;
+    private final DingTalkClient dingTalkClient;
+    private final FeishuClient feishuClient;
+    private final SlackClient slackClient;
+    private final WebhookClient webhookClient;
 
     public NotificationConfigService(WeComAppManager weComAppManager,
                                      WeComBotClient weComBotClient,
-                                     WeComIntelligentBotClient weComIntelligentBotClient) {
+                                     WeComIntelligentBotClient weComIntelligentBotClient,
+                                     DingTalkClient dingTalkClient,
+                                     FeishuClient feishuClient,
+                                     SlackClient slackClient,
+                                     WebhookClient webhookClient) {
         this.weComAppManager = weComAppManager;
         this.weComBotClient = weComBotClient;
         this.weComIntelligentBotClient = weComIntelligentBotClient;
+        this.dingTalkClient = dingTalkClient;
+        this.feishuClient = feishuClient;
+        this.slackClient = slackClient;
+        this.webhookClient = webhookClient;
     }
 
     @Override
@@ -51,16 +65,32 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         }
         try {
             Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
-            if ("EMAIL".equals(configType)) {
-                encryptField(map, "password");
-            } else if ("WECOM_APP".equals(configType)) {
-                encryptField(map, "secret");
-            } else if ("WECOM_INTELLIGENT_BOT".equals(configType)) {
-                String mode = (String) map.get("mode");
-                if ("CALLBACK".equals(mode)) {
-                    encryptField(map, "secret");
-                } else {
-                    encryptField(map, "botSecret");
+            switch (configType) {
+                case "EMAIL" -> encryptField(map, "password");
+                case "WECOM_APP" -> encryptField(map, "secret");
+                case "WECOM_INTELLIGENT_BOT" -> {
+                    String mode = (String) map.get("mode");
+                    if ("CALLBACK".equals(mode)) {
+                        encryptField(map, "secret");
+                    } else {
+                        encryptField(map, "botSecret");
+                    }
+                }
+                case "DINGTALK", "FEISHU" -> encryptField(map, "secret");
+                case "SLACK" -> encryptField(map, "webhookUrl");
+                case "WEBHOOK" -> {
+                    encryptField(map, "url");
+                    Map<String, Object> headers = (Map<String, Object>) map.get("headers");
+                    if (headers != null) {
+                        for (String key : headers.keySet()) {
+                            if (isSensitiveHeader(key)) {
+                                Object value = headers.get(key);
+                                if (value instanceof String s && StringUtils.hasText(s) && !s.startsWith("ENC(")) {
+                                    headers.put(key, CryptoUtil.encrypt(s));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             return objectMapper.writeValueAsString(map);
@@ -74,6 +104,14 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         if (value instanceof String s && StringUtils.hasText(s) && !s.startsWith("ENC(")) {
             map.put(field, CryptoUtil.encrypt(s));
         }
+    }
+
+    private boolean isSensitiveHeader(String key) {
+        if (!StringUtils.hasText(key)) {
+            return false;
+        }
+        String lower = key.toLowerCase();
+        return lower.contains("authorization") || lower.contains("token") || lower.contains("api-key") || lower.contains("apikey") || lower.contains("secret");
     }
 
     public TestConnectionResult testConnection(NotificationConfig config) {
@@ -90,6 +128,10 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
                 case "WECOM_APP" -> testWeComApp(config);
                 case "WECOM_BOT" -> testWeComBot(config);
                 case "WECOM_INTELLIGENT_BOT" -> testWeComIntelligentBot(config);
+                case "DINGTALK" -> testDingTalk(config);
+                case "FEISHU" -> testFeishu(config);
+                case "SLACK" -> testSlack(config);
+                case "WEBHOOK" -> testWebhook(config);
                 default -> TestConnectionResult.fail("未知的配置类型: " + type);
             };
         } catch (Exception e) {
@@ -172,5 +214,59 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     public <T> T parseConfigJson(String configJson, Class<T> clazz) throws JsonProcessingException {
         return objectMapper.readValue(configJson, clazz);
+    }
+
+    private TestConnectionResult testDingTalk(NotificationConfig config) throws Exception {
+        DingTalkConfig dingTalkConfig = parseConfigJson(config.getConfigJson(), DingTalkConfig.class);
+        dingTalkClient.sendText(
+                dingTalkConfig.getWebhookUrl(),
+                CryptoUtil.decryptIfNeeded(dingTalkConfig.getSecret()),
+                "连接测试",
+                null,
+                false);
+        return TestConnectionResult.ok();
+    }
+
+    private TestConnectionResult testFeishu(NotificationConfig config) throws Exception {
+        FeishuConfig feishuConfig = parseConfigJson(config.getConfigJson(), FeishuConfig.class);
+        feishuClient.sendText(
+                feishuConfig.getWebhookUrl(),
+                CryptoUtil.decryptIfNeeded(feishuConfig.getSecret()),
+                "连接测试");
+        return TestConnectionResult.ok();
+    }
+
+    private TestConnectionResult testSlack(NotificationConfig config) throws Exception {
+        SlackConfig slackConfig = parseConfigJson(config.getConfigJson(), SlackConfig.class);
+        slackClient.sendText(
+                CryptoUtil.decryptIfNeeded(slackConfig.getWebhookUrl()),
+                "连接测试",
+                slackConfig.getChannel(),
+                slackConfig.getUsername());
+        return TestConnectionResult.ok();
+    }
+
+    private TestConnectionResult testWebhook(NotificationConfig config) throws Exception {
+        WebhookConfig webhookConfig = parseConfigJson(config.getConfigJson(), WebhookConfig.class);
+        Map<String, String> headers = decryptWebhookHeaders(webhookConfig.getHeaders());
+        webhookClient.send(
+                CryptoUtil.decryptIfNeeded(webhookConfig.getUrl()),
+                webhookConfig.getMethod(),
+                headers,
+                webhookConfig.getBodyTemplate(),
+                webhookClient.buildPlaceholders("连接测试", "连接测试"),
+                webhookConfig.getTimeoutSeconds());
+        return TestConnectionResult.ok();
+    }
+
+    private Map<String, String> decryptWebhookHeaders(Map<String, String> headers) {
+        if (headers == null) {
+            return null;
+        }
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            result.put(entry.getKey(), CryptoUtil.decryptIfNeeded(entry.getValue()));
+        }
+        return result;
     }
 }

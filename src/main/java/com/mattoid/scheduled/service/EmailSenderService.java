@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 @Slf4j
@@ -21,6 +22,11 @@ import java.util.Properties;
 public class EmailSenderService {
 
     public void sendEmail(EmailConfig config, List<String> toList, String subject, String body, List<File> attachments) throws MessagingException, UnsupportedEncodingException {
+        sendEmail(config, toList, subject, body, attachments, null);
+    }
+
+    public void sendEmail(EmailConfig config, List<String> toList, String subject, String body, List<File> attachments,
+                          Map<String, File> inlineImages) throws MessagingException, UnsupportedEncodingException {
         JavaMailSender mailSender = buildMailSender(config);
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -38,6 +44,12 @@ public class EmailSenderService {
         if (attachments != null) {
             for (File file : attachments) {
                 helper.addAttachment(file.getName(), file);
+            }
+        }
+
+        if (inlineImages != null) {
+            for (Map.Entry<String, File> entry : inlineImages.entrySet()) {
+                helper.addInline(entry.getKey(), entry.getValue());
             }
         }
 

@@ -19,6 +19,9 @@ export interface TaskSqlConfig {
   templateId?: number
   groupId?: number
   outputFormat?: string
+  chartEnabled?: number
+  chartType?: string
+  chartTitle?: string
   fileSuffix?: string
   fileNamePattern?: string
   description?: string

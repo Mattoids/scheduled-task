@@ -15,6 +15,10 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +85,34 @@ public class WeComBotClient {
         body.put("file", fileMsg);
         post(webhookKey, body);
         log.info("企业微信群机器人文件消息发送成功: key={}, file={}", webhookKey, file.getName());
+    }
+
+    public void sendImage(String webhookKey, File imageFile) throws Exception {
+        if (imageFile == null || !imageFile.exists()) {
+            throw new IllegalArgumentException("图片文件不存在: " + (imageFile == null ? "null" : imageFile.getAbsolutePath()));
+        }
+        byte[] bytes = Files.readAllBytes(imageFile.toPath());
+        String base64 = Base64.getEncoder().encodeToString(bytes);
+        String md5 = md5Hex(bytes);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("msgtype", "image");
+        Map<String, String> image = new HashMap<>();
+        image.put("base64", base64);
+        image.put("md5", md5);
+        body.put("image", image);
+        post(webhookKey, body);
+        log.info("企业微信群机器人图片消息发送成功: key={}, file={}", webhookKey, imageFile.getName());
+    }
+
+    private String md5Hex(byte[] bytes) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("MD5");
+        byte[] digest = md.digest(bytes);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : digest) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
     }
 
     private String uploadMedia(String webhookKey, File file) throws Exception {

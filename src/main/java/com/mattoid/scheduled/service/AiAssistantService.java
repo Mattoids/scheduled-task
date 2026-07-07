@@ -14,7 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import com.mattoid.scheduled.util.TimeRangeParser;
 
 @Slf4j
 @Service
@@ -24,18 +28,30 @@ public class AiAssistantService {
             你是一个智能报表系统助手。请理解用户输入，并只返回 JSON 格式结果，不要包含任何解释。
             可用的 action 及参数如下：
             - VIEW_TASKS: 查看任务列表。参数：keyword(可选关键词)、status(ENABLE/DISABLE)
-            - TRIGGER_TASK: 手动触发任务。参数：taskId 或 taskName
+            - TRIGGER_TASK: 手动触发任务。参数：taskId 或 taskName，可选 timeRange（如 昨天、上周、本月）
             - VIEW_LOGS: 查看执行日志。参数：taskId、status(SUCCESS/FAILED/RUNNING)、date(如 today/yesterday/2024-01-01)
-            - CREATE_TASK: 创建任务。参数：taskName、triggerType(CRON/ONCE)、triggerConfig
+            - CREATE_TASK: 创建任务。参数：taskName、triggerType(CRON/ONCE)、triggerConfig、sqlIds(可选，逗号分隔)
+            - QUERY_DATA: 查询 SQL 数据。参数：keyword(数据主题关键词，如 道达尔渠道数据)、chartType(可选：line/bar/pie)、timeRange(时间描述，如 上个月)、channel(渠道/品牌等)
             - UNKNOWN: 无法识别
             返回格式：{"action":"VIEW_TASKS","params":{"keyword":"门店"},"summary":"查看与门店相关的任务"}
+            """;
+
+    private static final String SYSTEM_PROMPT_EXTRACT_PARAMS = """
+            请从用户查询中提取业务过滤参数。时间范围已由系统单独解析，你不需要返回 startTime 和 endTime。
+            只返回一个纯 JSON 对象，不要包含任何解释。键名使用英文小驼峰，例如 channel、brand、product、region、customer。
+            示例：
+            用户：给我上个月的道达尔渠道数据
+            输出：{"channel":"道达尔"}
+            用户：查询北京地区本月销售数据
+            输出：{"region":"北京"}
+            如果没有任何业务参数，请返回 {}。
             """;
 
     private static final String SYSTEM_PROMPT_NOTIFY = """
             你是一名专业的商务沟通助手。请根据用户提供的通知标题和正文，优化表达，使其：
             1. 简洁清晰，重点突出；
             2. 语气专业、礼貌；
-            3. 保留关键数据、变量占位符（如 {lastMonth}、{yyyyMMdd}）不变；
+            3. 保留关键数据、变量占位符（如 {lastMonth}、{yyyyMMdd}、${chart:sql编码}）不变；
             4. 邮件正文支持 HTML，可适当使用段落、加粗、列表提升可读性；
             5. 只返回优化后的 JSON 结果，不要解释。
             返回格式：{"subject":"优化后的标题","body":"优化后的正文"}
@@ -76,6 +92,44 @@ public class AiAssistantService {
         }
 
         return parseIntentJson(response.getContent());
+    }
+
+    /**
+     * 从自然语言中提取查询参数，包含系统解析的时间范围以及 AI 提取的业务参数。
+     */
+    public Map<String, String> extractQueryParams(String userInput) {
+        Map<String, String> result = new HashMap<>(TimeRangeParser.parse(userInput));
+
+        AiConfig config = aiConfigService.getDefaultConfig();
+        if (config == null) {
+            return result;
+        }
+
+        try {
+            List<AiMessage> messages = new ArrayList<>();
+            messages.add(AiMessage.system(SYSTEM_PROMPT_EXTRACT_PARAMS));
+            messages.add(AiMessage.user(userInput));
+
+            AiClient client = aiClientFactory.createClient(config);
+            AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+            if (!response.isSuccess()) {
+                log.error("Extract query params failed: {}", response.getErrorMessage());
+                return result;
+            }
+
+            JSONObject obj = JSON.parseObject(extractJson(response.getContent()));
+            if (obj != null) {
+                obj.forEach((k, v) -> {
+                    if ("startTime".equalsIgnoreCase(k) || "endTime".equalsIgnoreCase(k)) {
+                        return;
+                    }
+                    result.put(k, v != null ? v.toString() : "");
+                });
+            }
+        } catch (Exception e) {
+            log.error("Extract query params exception: {}", userInput, e);
+        }
+        return result;
     }
 
     /**
