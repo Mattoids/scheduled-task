@@ -13,6 +13,8 @@ import com.mattoid.scheduled.entity.TaskWebCrawlSelector;
 import com.mattoid.scheduled.service.ReportTemplateService;
 import com.mattoid.scheduled.service.TaskWebCrawlConfigService;
 import com.mattoid.scheduled.service.TaskWebCrawlSelectorService;
+import com.mattoid.scheduled.task.WebCrawlExecutor;
+import com.mattoid.scheduled.task.WebCrawlPreviewResult;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -28,13 +30,16 @@ public class TaskWebCrawlConfigController {
     private final TaskWebCrawlConfigService taskWebCrawlConfigService;
     private final TaskWebCrawlSelectorService taskWebCrawlSelectorService;
     private final ReportTemplateService reportTemplateService;
+    private final WebCrawlExecutor webCrawlExecutor;
 
     public TaskWebCrawlConfigController(TaskWebCrawlConfigService taskWebCrawlConfigService,
                                         TaskWebCrawlSelectorService taskWebCrawlSelectorService,
-                                        ReportTemplateService reportTemplateService) {
+                                        ReportTemplateService reportTemplateService,
+                                        WebCrawlExecutor webCrawlExecutor) {
         this.taskWebCrawlConfigService = taskWebCrawlConfigService;
         this.taskWebCrawlSelectorService = taskWebCrawlSelectorService;
         this.reportTemplateService = reportTemplateService;
+        this.webCrawlExecutor = webCrawlExecutor;
     }
 
     @PreAuthorize("hasAuthority('taskCrawl:view')")
@@ -56,6 +61,12 @@ public class TaskWebCrawlConfigController {
         return Result.ok(taskWebCrawlConfigService.lambdaQuery()
                 .eq(TaskWebCrawlConfig::getStatus, 1)
                 .list());
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @PostMapping("/preview")
+    public Result<WebCrawlPreviewResult> preview(@RequestBody TaskWebCrawlConfig config) {
+        return Result.ok(webCrawlExecutor.preview(config, null));
     }
 
     @PreAuthorize("hasAuthority('taskCrawl:view')")

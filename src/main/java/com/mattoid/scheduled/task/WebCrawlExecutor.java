@@ -127,6 +127,54 @@ public class WebCrawlExecutor {
         }
     }
 
+    public WebCrawlPreviewResult preview(TaskWebCrawlConfig config, Map<String, Object> params) {
+        if (config == null) {
+            return WebCrawlPreviewResult.failure("爬取配置不能为空");
+        }
+        if (!StringUtils.hasText(config.getRequestUrl())) {
+            return WebCrawlPreviewResult.failure("请求 URL 不能为空");
+        }
+        decryptSensitiveFields(config);
+        Map<String, Object> mergedParams = mergeParams(config, params);
+
+        String tunnelId = null;
+        SshTunnel tunnel = null;
+        try {
+            if (Integer.valueOf(1).equals(config.getSshEnabled())) {
+                SshConfig sshConfig = buildSshConfig(config);
+                tunnelId = "crawl_preview_" + System.currentTimeMillis();
+                tunnel = sshTunnelManager.createTunnel(sshConfig, tunnelId);
+            }
+
+            String url = replaceRequestVariables(config.getRequestUrl(), mergedParams);
+            String actualUrl = applySshTunnelToUrl(url, tunnel);
+
+            if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
+                Document document = webDriverManager.fetchPage(config, actualUrl, mergedParams);
+                return WebCrawlPreviewResult.success(200, "页面可访问", document.title());
+            }
+
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
+            Connection.Response response = connection.execute();
+            Document document = response.parse();
+            int statusCode = response.statusCode();
+            String title = document.title();
+            boolean ok = statusCode >= 200 && statusCode < 400;
+            if (!ok) {
+                return WebCrawlPreviewResult.success(statusCode,
+                        "请求返回非成功状态码: " + statusCode, title);
+            }
+            return WebCrawlPreviewResult.success(statusCode, "页面可访问", title);
+        } catch (Exception e) {
+            log.warn("网页爬取预览失败: {}", e.getMessage(), e);
+            return WebCrawlPreviewResult.failure("预览失败: " + e.getMessage());
+        } finally {
+            if (tunnelId != null) {
+                sshTunnelManager.closeTunnel(tunnelId);
+            }
+        }
+    }
+
     private Document fetchDocument(TaskWebCrawlConfig config, String url,
                                    Map<String, Object> params, SshTunnel tunnel) throws Exception {
         String actualUrl = applySshTunnelToUrl(url, tunnel);
@@ -145,6 +193,38 @@ public class WebCrawlExecutor {
                 .timeout(DEFAULT_TIMEOUT_MS)
                 .followRedirects(true)
                 .ignoreHttpErrors(false)
+                .ignoreContentType(false);
+
+        applyHeaders(connection, config.getRequestHeaders(), params);
+        applyCookies(connection, config.getCookies(), params);
+        applyAuth(connection, config);
+
+        Map<String, String> requestParams = parseJsonMap(replaceRequestVariables(config.getRequestParams(), params));
+        if (!requestParams.isEmpty()) {
+            connection.data(requestParams);
+        }
+        if (method == Connection.Method.POST || method == Connection.Method.PUT) {
+            String body = replaceRequestVariables(config.getRequestBody(), params);
+            if (StringUtils.hasText(body)) {
+                if (StringUtils.hasText(config.getRequestContentType())) {
+                    connection.requestBody(body);
+                    connection.header("Content-Type", config.getRequestContentType());
+                } else {
+                    connection.requestBody(body);
+                }
+            }
+        }
+        return connection;
+    }
+
+    private Connection buildPreviewConnection(TaskWebCrawlConfig config, String url,
+                                              Map<String, Object> params) throws IOException {
+        Connection.Method method = parseMethod(config.getRequestMethod());
+        Connection connection = Jsoup.connect(url)
+                .method(method)
+                .timeout(DEFAULT_TIMEOUT_MS)
+                .followRedirects(true)
+                .ignoreHttpErrors(true)
                 .ignoreContentType(false);
 
         applyHeaders(connection, config.getRequestHeaders(), params);

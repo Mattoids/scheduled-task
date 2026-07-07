@@ -2,6 +2,13 @@ import request from '@/utils/request'
 import type { PageQuery, PageResult } from '@/types'
 import type { TaskWebCrawlConfig } from '@/types/entity'
 
+export interface WebCrawlPreviewResult {
+  success: boolean
+  statusCode?: number
+  message?: string
+  title?: string
+}
+
 export const pageTaskCrawl = (params: PageQuery & { crawlName?: string; crawlCode?: string }) => {
   return request.get<PageResult<TaskWebCrawlConfig>>('/task-crawl/page', { params })
 }
@@ -24,4 +31,8 @@ export const updateTaskCrawl = (id: number, data: TaskWebCrawlConfig) => {
 
 export const deleteTaskCrawl = (id: number) => {
   return request.delete<void>(`/task-crawl/${id}`)
+}
+
+export const previewTaskCrawl = (data: TaskWebCrawlConfig) => {
+  return request.post<WebCrawlPreviewResult>('/task-crawl/preview', data)
 }

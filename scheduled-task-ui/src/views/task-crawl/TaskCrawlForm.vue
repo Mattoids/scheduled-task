@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getTaskCrawl, createTaskCrawl, updateTaskCrawl } from '@/api/taskCrawl'
+import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewTaskCrawl } from '@/api/taskCrawl'
 import type { TaskWebCrawlConfig, TaskWebCrawlSelector } from '@/types/entity'
 
 const props = defineProps<{
@@ -18,6 +18,7 @@ const emit = defineEmits<{
 const formRef = ref()
 const loading = ref(false)
 const saving = ref(false)
+const previewing = ref(false)
 
 const defaultSelector = (): TaskWebCrawlSelector => ({
   selectorType: 'CSS',
@@ -148,6 +149,28 @@ const handleSave = async () => {
     emit('success')
   } finally {
     saving.value = false
+  }
+}
+
+const handlePreview = async () => {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+  if (!form.requestUrl) {
+    ElMessage.warning('请输入请求 URL')
+    return
+  }
+  previewing.value = true
+  try {
+    const res = await previewTaskCrawl(form)
+    if (res.success) {
+      ElMessage.success(`预览成功：${res.title || res.message || ''}`)
+    } else {
+      ElMessage.error(`预览失败：${res.message || '未知错误'}`)
+    }
+  } catch (e: any) {
+    ElMessage.error(`预览失败：${e?.message || '未知错误'}`)
+  } finally {
+    previewing.value = false
   }
 }
 
@@ -575,6 +598,7 @@ watch(
 
     <template #footer>
       <span class="dialog-footer">
+        <el-button :loading="previewing" @click="handlePreview">预览</el-button>
         <el-button @click="handleClose">取消</el-button>
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </span>
