@@ -82,8 +82,8 @@ public class NotificationEventListener {
     @Async
     @EventListener
     public void onTaskExecutionEvent(TaskExecutionEvent event) {
-        Long taskId = event.getTask() != null ? event.getTask().getId() : null;
-        List<NotificationRule> rules = notificationRuleService.findEnabledByEventTypeAndTask(event.getEventType().name(), taskId);
+        String taskCode = event.getTask() != null ? event.getTask().getTaskCode() : null;
+        List<NotificationRule> rules = notificationRuleService.findEnabledByEventTypeAndTask(event.getEventType().name(), taskCode);
         if (rules.isEmpty()) {
             return;
         }
@@ -146,6 +146,22 @@ public class NotificationEventListener {
         return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
     }
 
+    private NotificationConfig resolveNotificationConfig(NotificationRule rule) {
+        if (rule == null || (rule.getConfigId() == null && !StringUtils.hasText(rule.getConfigCode()))) {
+            return null;
+        }
+        if (rule.getConfigId() != null) {
+            NotificationConfig config = notificationConfigService.getById(rule.getConfigId());
+            if (config != null) {
+                return config;
+            }
+        }
+        if (StringUtils.hasText(rule.getConfigCode())) {
+            return notificationConfigService.getByCode(rule.getConfigCode());
+        }
+        return null;
+    }
+
     private void dispatch(TaskExecutionEvent event, NotificationRule rule) throws Exception {
         switch (rule.getChannel()) {
             case "EMAIL" -> sendEmail(event, rule);
@@ -161,10 +177,10 @@ public class NotificationEventListener {
     }
 
     private void sendEmail(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"EMAIL".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("邮件配置不可用: {}", rule.getConfigId());
@@ -250,10 +266,10 @@ public class NotificationEventListener {
     }
 
     private void sendWeComApp(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"WECOM_APP".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("企业微信应用配置不可用: {}", rule.getConfigId());
@@ -304,10 +320,10 @@ public class NotificationEventListener {
     }
 
     private void sendWeComIntelligentBot(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"WECOM_INTELLIGENT_BOT".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("智能机器人配置不可用: {}", rule.getConfigId());
@@ -363,10 +379,10 @@ public class NotificationEventListener {
     }
 
     private void sendWeComBot(TaskExecutionEvent event, NotificationRule rule, String configType) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !configType.equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("{} 配置不可用: {}", configType, rule.getConfigId());
@@ -413,10 +429,10 @@ public class NotificationEventListener {
     }
 
     private void sendDingTalk(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"DINGTALK".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("钉钉配置不可用: {}", rule.getConfigId());
@@ -447,10 +463,10 @@ public class NotificationEventListener {
     }
 
     private void sendFeishu(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"FEISHU".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("飞书配置不可用: {}", rule.getConfigId());
@@ -475,10 +491,10 @@ public class NotificationEventListener {
     }
 
     private void sendSlack(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"SLACK".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("Slack 配置不可用: {}", rule.getConfigId());
@@ -494,10 +510,10 @@ public class NotificationEventListener {
     }
 
     private void sendWebhook(TaskExecutionEvent event, NotificationRule rule) throws Exception {
-        if (rule.getConfigId() == null) {
+        NotificationConfig notificationConfig = resolveNotificationConfig(rule);
+        if (notificationConfig == null) {
             return;
         }
-        NotificationConfig notificationConfig = notificationConfigService.getById(rule.getConfigId());
         if (notificationConfig == null || !"WEBHOOK".equals(notificationConfig.getConfigType()) ||
                 notificationConfig.getStatus() == null || notificationConfig.getStatus() != 1) {
             log.warn("Webhook 配置不可用: {}", rule.getConfigId());

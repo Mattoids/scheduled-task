@@ -2,7 +2,7 @@ import request from '@/utils/request'
 import type { PageQuery, PageResult } from '@/types'
 import type { TaskSqlConfig } from '@/types/entity'
 
-export const pageTaskSql = (params: PageQuery) => {
+export const pageTaskSql = (params: PageQuery & { sqlName?: string; sqlCode?: string; groupCode?: string }) => {
   return request.get<PageResult<TaskSqlConfig>>('/task-sql/page', { params })
 }
 

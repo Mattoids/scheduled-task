@@ -95,7 +95,7 @@ class NotificationEventListenerTest {
         rule.setRecipientIds("1");
         rule.setEnabled(1);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
 
         String configJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
@@ -129,7 +129,7 @@ class NotificationEventListenerTest {
         rule.setWecomToUser("user1");
         rule.setEnabled(1);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
 
         String configJson = "{\"corpId\":\"corp\",\"agentId\":1}";
@@ -150,7 +150,7 @@ class NotificationEventListenerTest {
         rule.setConfigId(3L);
         rule.setEnabled(1);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
 
         String configJson = "{\"webhookKey\":\"key123\"}";
@@ -175,7 +175,7 @@ class NotificationEventListenerTest {
         rule.setChannel("EMAIL");
         rule.setEnabled(0);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(Collections.emptyList());
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
@@ -200,7 +200,7 @@ class NotificationEventListenerTest {
         botRule.setConfigId(3L);
         botRule.setEnabled(1);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_SUCCESS", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_SUCCESS", "TEST_TASK"))
                 .thenReturn(List.of(emailRule, botRule));
 
         String emailJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
@@ -242,7 +242,7 @@ class NotificationEventListenerTest {
         rule.setRecipientIds("1");
         rule.setEnabled(1);
 
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L))
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
 
         String configJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";

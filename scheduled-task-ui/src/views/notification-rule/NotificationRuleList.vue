@@ -26,17 +26,17 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const queryForm = reactive({
   eventType: "",
   channel: "",
-  taskId: undefined as number | undefined,
+  taskCode: undefined as string | undefined,
 });
 
 const loading = ref(false);
 const formVisible = ref(false);
 const formId = ref<number | undefined>(undefined);
 
-const notificationConfigOptions = ref<{ label: string; value: number; configType: string }[]>([]);
+const notificationConfigOptions = ref<{ label: string; value: string; configType: string }[]>([]);
 const recipientOptions = ref<{ label: string; value: number }[]>([]);
 const recipientGroupOptions = ref<{ label: string; value: number }[]>([]);
-const taskOptions = ref<{ label: string; value: number }[]>([]);
+const taskOptions = ref<{ label: string; value: string }[]>([]);
 const aiConfigOptions = ref<{ label: string; value: number }[]>([]);
 const storageConfigOptions = ref<{ label: string; value: number }[]>([]);
 
@@ -92,8 +92,8 @@ const configPlaceholder = computed(() => {
 const form = ref<NotificationRule>({
   eventType: "TASK_COMPLETED",
   channel: "EMAIL",
-  configId: undefined,
-  taskId: undefined,
+  configCode: undefined,
+  taskCode: undefined,
   recipientIds: undefined,
   recipientGroupIds: undefined,
   wecomToUser: "",
@@ -128,7 +128,7 @@ const validateRecipient = (_rule: any, _value: any, callback: any) => {
 const rules = {
   eventType: [{ required: true, message: "请选择事件类型", trigger: "change" }],
   channel: [{ required: true, message: "请选择通知渠道", trigger: "change" }],
-  configId: [{ required: true, message: "请选择关联配置", trigger: "change" }],
+  configCode: [{ required: true, message: "请选择关联配置", trigger: "change" }],
   recipientIds: [{ validator: validateRecipient, trigger: "change" }],
   recipientGroupIds: [{ validator: validateRecipient, trigger: "change" }],
 };
@@ -145,11 +145,13 @@ const loadOptions = async () => {
     listAiConfig().catch(() => ({ records: [] })),
     listStorageConfig().catch(() => []),
   ]);
-  notificationConfigOptions.value = (configs.records || []).map((item: any) => ({
-    label: item.configName,
-    value: item.id,
-    configType: item.configType,
-  }));
+  notificationConfigOptions.value = (configs.records || [])
+    .filter((item: any) => item.configCode)
+    .map((item: any) => ({
+      label: `${item.configName} (${item.configCode})`,
+      value: String(item.configCode),
+      configType: item.configType,
+    }));
   recipientOptions.value = (rec || []).map((item: any) => ({
     label: `${item.recipientName || item.email} (${item.email})`,
     value: item.id,
@@ -158,10 +160,12 @@ const loadOptions = async () => {
     label: item.groupName,
     value: item.id,
   }));
-  taskOptions.value = (taskRes.records || []).map((item: TaskConfig) => ({
-    label: `${item.taskName} (${item.taskCode})`,
-    value: item.id!,
-  }));
+  taskOptions.value = (taskRes.records || [])
+    .filter((item: TaskConfig) => item.taskCode)
+    .map((item: TaskConfig) => ({
+      label: `${item.taskName} (${item.taskCode})`,
+      value: String(item.taskCode),
+    }));
   aiConfigOptions.value = (aiRes.records || []).map((item: AiConfig) => ({
     label: item.configName,
     value: item.id!,
@@ -176,8 +180,8 @@ const resetForm = () => {
   form.value = {
     eventType: "TASK_COMPLETED",
     channel: "EMAIL",
-    configId: undefined,
-    taskId: undefined,
+    configCode: undefined,
+    taskCode: undefined,
     recipientIds: undefined,
     recipientGroupIds: undefined,
     wecomToUser: "",
@@ -226,7 +230,7 @@ const handleSearch = () => {
 const handleReset = () => {
   queryForm.eventType = "";
   queryForm.channel = "";
-  queryForm.taskId = undefined;
+  queryForm.taskCode = undefined;
   reset();
   loadPage();
 };
@@ -312,16 +316,16 @@ const formatChannel = (value?: string) => {
 
 const formatConfigName = (row: NotificationRule) => {
   return (
-    notificationConfigOptions.value.find((item) => item.value === row.configId)
-      ?.label || row.configId || "-"
+    notificationConfigOptions.value.find((item) => item.value === row.configCode)
+      ?.label || row.configCode || "-"
   );
 };
 
 const formatTaskName = (row: NotificationRule) => {
-  if (!row.taskId) return "全部任务";
+  if (!row.taskCode) return "全部任务";
   return (
-    taskOptions.value.find((item) => item.value === row.taskId)?.label ||
-    row.taskId
+    taskOptions.value.find((item) => item.value === row.taskCode)?.label ||
+    row.taskCode
   );
 };
 
@@ -397,7 +401,7 @@ onMounted(() => {
         <el-col :span="6">
           <el-form-item label="关联任务">
             <el-select
-              v-model="queryForm.taskId"
+              v-model="queryForm.taskCode"
               placeholder="全部任务"
               clearable
             >
@@ -525,7 +529,7 @@ onMounted(() => {
           <el-col :span="12">
             <el-form-item label="关联任务">
               <el-select
-                v-model="form.taskId"
+                v-model="form.taskCode"
                 placeholder="全部任务（不指定则所有任务都通知）"
                 clearable
               >
@@ -539,9 +543,9 @@ onMounted(() => {
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="关联配置" prop="configId">
+            <el-form-item label="关联配置" prop="configCode">
               <el-select
-                v-model="form.configId"
+                v-model="form.configCode"
                 :placeholder="configPlaceholder"
                 clearable
               >

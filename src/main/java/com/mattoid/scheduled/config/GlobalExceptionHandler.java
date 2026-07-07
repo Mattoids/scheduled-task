@@ -50,6 +50,12 @@ public class GlobalExceptionHandler {
         return Result.error("请求方法不支持: " + request.getMethod() + " " + request.getRequestURI());
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    public Result<Void> handleIllegalArgumentException(IllegalArgumentException e) {
+        log.warn("参数校验失败: {}", e.getMessage());
+        return Result.error(400, e.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(HttpServletRequest request, Exception e) {
         log.error("系统异常: {} {}", request.getMethod(), request.getRequestURI(), e);

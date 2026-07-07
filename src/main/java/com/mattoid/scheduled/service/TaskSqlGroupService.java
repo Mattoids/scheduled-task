@@ -7,6 +7,7 @@ import com.mattoid.scheduled.entity.TaskSqlGroup;
 import com.mattoid.scheduled.mapper.TaskSqlConfigMapper;
 import com.mattoid.scheduled.mapper.TaskSqlGroupMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.Serializable;
 import java.util.List;
@@ -20,6 +21,13 @@ public class TaskSqlGroupService extends ServiceImpl<TaskSqlGroupMapper, TaskSql
         this.taskSqlConfigMapper = taskSqlConfigMapper;
     }
 
+    public TaskSqlGroup getByCode(String groupCode) {
+        if (!StringUtils.hasText(groupCode)) {
+            return null;
+        }
+        return lambdaQuery().eq(TaskSqlGroup::getGroupCode, groupCode).one();
+    }
+
     public List<TaskSqlGroup> listActive() {
         return lambdaQuery().eq(TaskSqlGroup::getStatus, 1).list();
     }
@@ -29,7 +37,8 @@ public class TaskSqlGroupService extends ServiceImpl<TaskSqlGroupMapper, TaskSql
         taskSqlConfigMapper.update(null,
                 new LambdaUpdateWrapper<TaskSqlConfig>()
                         .eq(TaskSqlConfig::getGroupId, id)
-                        .set(TaskSqlConfig::getGroupId, null));
+                        .set(TaskSqlConfig::getGroupId, null)
+                        .set(TaskSqlConfig::getGroupCode, null));
         return super.removeById(id);
     }
 }

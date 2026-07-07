@@ -10,6 +10,9 @@ import lombok.EqualsAndHashCode;
 public class NotificationConfig extends BaseEntity {
 
     private String configName;
+
+    private String configCode;
+
     private String configType;
     private String configJson;
     private Integer status;

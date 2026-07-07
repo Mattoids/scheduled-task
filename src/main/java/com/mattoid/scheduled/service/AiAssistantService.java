@@ -30,7 +30,7 @@ public class AiAssistantService {
             - VIEW_TASKS: 查看任务列表。参数：keyword(可选关键词)、status(ENABLE/DISABLE)
             - TRIGGER_TASK: 手动触发任务。参数：taskId 或 taskName，可选 timeRange（如 昨天、上周、本月）
             - VIEW_LOGS: 查看执行日志。参数：taskId、status(SUCCESS/FAILED/RUNNING)、date(如 today/yesterday/2024-01-01)
-            - CREATE_TASK: 创建任务。参数：taskName、triggerType(CRON/ONCE)、triggerConfig、sqlIds(可选，逗号分隔)
+            - CREATE_TASK: 创建任务。参数：taskName、triggerType(CRON/ONCE)、triggerConfig、sqlCodes(可选，逗号分隔的 SQL 编码)
             - QUERY_DATA: 查询 SQL 数据。参数：keyword(数据主题关键词，如 道达尔渠道数据)、chartType(可选：line/bar/pie)、timeRange(时间描述，如 上个月)、channel(渠道/品牌等)
             - UNKNOWN: 无法识别
             返回格式：{"action":"VIEW_TASKS","params":{"keyword":"门店"},"summary":"查看与门店相关的任务"}

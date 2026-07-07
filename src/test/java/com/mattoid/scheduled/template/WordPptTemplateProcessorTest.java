@@ -1,11 +1,14 @@
 package com.mattoid.scheduled.template;
 
+import com.mattoid.scheduled.service.ChartGenerationService;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFPictureShape;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XSLFTable;
 import org.apache.poi.xslf.usermodel.XSLFTableCell;
 import org.apache.poi.xslf.usermodel.XSLFTableRow;
 import org.apache.poi.xslf.usermodel.XSLFTextRun;
+import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
@@ -14,6 +17,7 @@ import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.junit.jupiter.api.Test;
 
+import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -21,8 +25,14 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class WordPptTemplateProcessorTest {
+
+    private PptTemplateProcessor createPptProcessor() {
+        return new PptTemplateProcessor(mock(ChartGenerationService.class));
+    }
 
     @Test
     void wordTableExpandsWithMultiRowData() throws Exception {
@@ -195,7 +205,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptTableExpandsWithMultiRowData() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -246,7 +256,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptTableRemovesExtraSampleRows() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -292,7 +302,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptSingleRowReplacesPlaceholdersInSampleRow() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -372,7 +382,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptTableExpandsWithPlainTextHeaders() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -412,7 +422,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptTableExpandsWithHeaderOnly() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -512,7 +522,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptTablePreservesSampleRowFormatting() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -568,7 +578,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptSingleRowDoesNotExpandTable() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -611,7 +621,7 @@ class WordPptTemplateProcessorTest {
 
     @Test
     void pptSingleRowHeaderOnlyReplacesPlaceholders() throws Exception {
-        PptTemplateProcessor processor = new PptTemplateProcessor();
+        PptTemplateProcessor processor = createPptProcessor();
 
         File template = File.createTempFile("template", ".pptx");
         template.deleteOnExit();
@@ -641,6 +651,97 @@ class WordPptTemplateProcessorTest {
             XSLFTableRow header = table.getRows().get(0);
             assertEquals("Alice", getCellText(header.getCells().get(0)));
             assertEquals("30", getCellText(header.getCells().get(1)));
+        }
+    }
+
+    @Test
+    void pptChartPlaceholderReplacedWithPicture() throws Exception {
+        ChartGenerationService realChartService = new ChartGenerationService();
+        List<Map<String, Object>> data = List.of(
+                Map.of("month", "Jan", "amount", 10),
+                Map.of("month", "Feb", "amount", 20)
+        );
+        File chartFile = realChartService.generateChart(data, "BAR", "月度数据");
+        assertNotNull(chartFile, "测试需要真实图表文件");
+
+        ChartGenerationService mockService = mock(ChartGenerationService.class);
+        when(mockService.generateChart(data, "BAR", "月度数据")).thenReturn(chartFile);
+
+        PptTemplateProcessor processor = new PptTemplateProcessor(mockService);
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTextShape textBox = slide.createTextBox();
+            textBox.setText("${chart}");
+            textBox.setAnchor(new Rectangle2D.Double(50, 50, 400, 300));
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        Map<String, Object> context = Map.of(
+                "chartEnabled", 1,
+                "chartType", "BAR",
+                "chartTitle", "月度数据",
+                "sqlCode", "SALES",
+                "sqlName", "销售"
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true, context);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            long pictureCount = slide.getShapes().stream().filter(s -> s instanceof XSLFPictureShape).count();
+            long textBoxCount = slide.getShapes().stream().filter(s -> s instanceof XSLFTextShape).count();
+            assertEquals(1, pictureCount, "应插入一个图表图片");
+            assertEquals(0, textBoxCount, "原占位符文本框应被移除");
+        }
+    }
+
+    @Test
+    void pptChartWithSqlCodePlaceholderReplacedWithPicture() throws Exception {
+        ChartGenerationService realChartService = new ChartGenerationService();
+        List<Map<String, Object>> data = List.of(
+                Map.of("month", "Jan", "amount", 10),
+                Map.of("month", "Feb", "amount", 20)
+        );
+        File chartFile = realChartService.generateChart(data, "LINE", "销售趋势");
+        assertNotNull(chartFile);
+
+        ChartGenerationService mockService = mock(ChartGenerationService.class);
+        when(mockService.generateChart(data, "LINE", "销售趋势")).thenReturn(chartFile);
+
+        PptTemplateProcessor processor = new PptTemplateProcessor(mockService);
+
+        File template = File.createTempFile("template", ".pptx");
+        template.deleteOnExit();
+        try (XMLSlideShow ppt = new XMLSlideShow();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            XSLFSlide slide = ppt.createSlide();
+            XSLFTextShape textBox = slide.createTextBox();
+            textBox.setText("${chart:SALES}");
+            textBox.setAnchor(new Rectangle2D.Double(10, 10, 300, 200));
+            ppt.write(fos);
+        }
+
+        File output = File.createTempFile("output", ".pptx");
+        output.deleteOnExit();
+        Map<String, Object> context = Map.of(
+                "chartEnabled", 1,
+                "chartType", "LINE",
+                "chartTitle", "销售趋势",
+                "sqlCode", "SALES",
+                "sqlName", "销售"
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true, context);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            XSLFSlide slide = ppt.getSlides().get(0);
+            assertEquals(1, slide.getShapes().stream().filter(s -> s instanceof XSLFPictureShape).count());
         }
     }
 

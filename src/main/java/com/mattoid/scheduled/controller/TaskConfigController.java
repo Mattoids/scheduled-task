@@ -63,7 +63,7 @@ public class TaskConfigController {
         }
         TaskConfigRequest request = new TaskConfigRequest();
         request.setTask(task);
-        request.setSqlIds(taskConfigService.getTaskSqlIds(id));
+        request.setSqlCodes(taskConfigService.getTaskSqlCodes(task.getTaskCode()));
         request.setDependencyIds(taskDependencyService.getDependencyIds(id));
         return Result.ok(request);
     }
@@ -72,7 +72,7 @@ public class TaskConfigController {
     @PreAuthorize("hasAuthority('task:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody TaskConfigRequest request) throws Exception {
-        return Result.ok(taskConfigService.saveOrUpdateTask(request.getTask(), request.getSqlIds(), request.getDependencyIds()));
+        return Result.ok(taskConfigService.saveOrUpdateTask(request.getTask(), request.getSqlCodes(), request.getDependencyIds()));
     }
 
     @OperationAudit(operationType = "UPDATE", resourceType = "TASK")
@@ -84,7 +84,7 @@ public class TaskConfigController {
             task = new TaskConfig();
         }
         task.setId(id);
-        return Result.ok(taskConfigService.saveOrUpdateTask(task, request.getSqlIds(), request.getDependencyIds()));
+        return Result.ok(taskConfigService.saveOrUpdateTask(task, request.getSqlCodes(), request.getDependencyIds()));
     }
 
     @OperationAudit(operationType = "UPDATE", resourceType = "TASK")

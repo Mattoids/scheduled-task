@@ -55,8 +55,25 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     @Override
     public boolean saveOrUpdate(NotificationConfig entity) {
+        validateConfigCode(entity);
         entity.setConfigJson(encryptSecrets(entity.getConfigType(), entity.getConfigJson()));
         return super.saveOrUpdate(entity);
+    }
+
+    private void validateConfigCode(NotificationConfig entity) {
+        String configCode = entity.getConfigCode();
+        if (!StringUtils.hasText(configCode)) {
+            throw new IllegalArgumentException("配置编码不能为空");
+        }
+        configCode = configCode.trim();
+        entity.setConfigCode(configCode);
+        NotificationConfig existing = lambdaQuery()
+                .eq(NotificationConfig::getConfigCode, configCode)
+                .ne(entity.getId() != null, NotificationConfig::getId, entity.getId())
+                .one();
+        if (existing != null) {
+            throw new IllegalArgumentException("配置编码已存在: " + configCode);
+        }
     }
 
     private String encryptSecrets(String configType, String configJson) {
@@ -112,6 +129,13 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         }
         String lower = key.toLowerCase();
         return lower.contains("authorization") || lower.contains("token") || lower.contains("api-key") || lower.contains("apikey") || lower.contains("secret");
+    }
+
+    public NotificationConfig getByCode(String configCode) {
+        if (!StringUtils.hasText(configCode)) {
+            return null;
+        }
+        return lambdaQuery().eq(NotificationConfig::getConfigCode, configCode).one();
     }
 
     public TestConnectionResult testConnection(NotificationConfig config) {

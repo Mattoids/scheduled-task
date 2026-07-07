@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import jakarta.annotation.PostConstruct;
 import java.util.*;
@@ -68,16 +69,17 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public boolean saveOrUpdateTask(TaskConfig task, List<Long> sqlIds) throws Exception {
-        return saveOrUpdateTask(task, sqlIds, null);
+    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes) throws Exception {
+        return saveOrUpdateTask(task, sqlCodes, null);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public boolean saveOrUpdateTask(TaskConfig task, List<Long> sqlIds, List<Long> dependencyIds) throws Exception {
+    public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes, List<Long> dependencyIds) throws Exception {
         boolean result = saveOrUpdate(task);
         Long taskId = task.getId();
-        if (taskId != null) {
-            saveTaskSqlRelations(taskId, sqlIds);
+        String taskCode = task.getTaskCode();
+        if (StringUtils.hasText(taskCode)) {
+            saveTaskSqlRelations(taskCode, sqlCodes);
             if (dependencyIds != null) {
                 taskDependencyService.saveDependencies(taskId, dependencyIds);
             }
@@ -90,23 +92,23 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         return result;
     }
 
-    private void saveTaskSqlRelations(Long taskId, List<Long> sqlIds) {
+    private void saveTaskSqlRelations(String taskCode, List<String> sqlCodes) {
         // 先删除旧关系
         taskSqlRelationService.lambdaUpdate()
-                .eq(TaskSqlRelation::getTaskId, taskId)
+                .eq(TaskSqlRelation::getTaskCode, taskCode)
                 .remove();
-        if (CollectionUtils.isEmpty(sqlIds)) {
+        if (CollectionUtils.isEmpty(sqlCodes)) {
             return;
         }
         // 去重并保留顺序
-        List<Long> distinctSqlIds = sqlIds.stream()
+        List<String> distinctSqlCodes = sqlCodes.stream()
                 .distinct()
                 .collect(Collectors.toList());
-        List<TaskSqlRelation> relations = IntStream.range(0, distinctSqlIds.size())
+        List<TaskSqlRelation> relations = IntStream.range(0, distinctSqlCodes.size())
                 .mapToObj(i -> {
                     TaskSqlRelation relation = new TaskSqlRelation();
-                    relation.setTaskId(taskId);
-                    relation.setSqlId(distinctSqlIds.get(i));
+                    relation.setTaskCode(taskCode);
+                    relation.setSqlCode(distinctSqlCodes.get(i));
                     relation.setSortOrder(i);
                     return relation;
                 })
@@ -114,21 +116,23 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
         taskSqlRelationService.saveBatch(relations);
     }
 
-    public List<Long> getTaskSqlIds(Long taskId) {
-        if (taskId == null) {
+    public List<String> getTaskSqlCodes(String taskCode) {
+        if (!StringUtils.hasText(taskCode)) {
             return Collections.emptyList();
         }
         return taskSqlRelationService.lambdaQuery()
-                .eq(TaskSqlRelation::getTaskId, taskId)
+                .eq(TaskSqlRelation::getTaskCode, taskCode)
                 .orderByAsc(TaskSqlRelation::getSortOrder)
                 .list()
                 .stream()
-                .map(TaskSqlRelation::getSqlId)
+                .map(TaskSqlRelation::getSqlCode)
+                .filter(StringUtils::hasText)
                 .collect(Collectors.toList());
     }
 
     public List<TaskSqlConfig> getTaskSqlConfigs(Long taskId) {
-        return taskSqlConfigService.listByTaskId(taskId);
+        TaskConfig task = getById(taskId);
+        return task != null ? taskSqlConfigService.listByTaskCode(task.getTaskCode()) : Collections.emptyList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -149,9 +153,13 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
 
     @Transactional(rollbackFor = Exception.class)
     public boolean removeTask(Long taskId) throws Exception {
+        TaskConfig task = getById(taskId);
+        if (task == null) {
+            return false;
+        }
         taskSchedulerService.removeTask(taskId);
         taskSqlRelationService.lambdaUpdate()
-                .eq(TaskSqlRelation::getTaskId, taskId)
+                .eq(TaskSqlRelation::getTaskCode, task.getTaskCode())
                 .remove();
         taskDependencyService.removeByTaskId(taskId);
         return removeById(taskId);

@@ -11,11 +11,15 @@ import java.util.List;
 @Service
 public class NotificationRuleService extends ServiceImpl<NotificationRuleMapper, NotificationRule> {
 
-    public List<NotificationRule> findEnabledByEventTypeAndTask(String eventType, Long taskId) {
+    public List<NotificationRule> findEnabledByEventTypeAndTask(String eventType, String taskCode) {
         LambdaQueryWrapper<NotificationRule> wrapper = new LambdaQueryWrapper<NotificationRule>()
                 .eq(NotificationRule::getEventType, eventType)
                 .eq(NotificationRule::getEnabled, 1)
-                .and(w -> w.isNull(NotificationRule::getTaskId).or().eq(NotificationRule::getTaskId, taskId));
+                .and(w -> w.isNull(NotificationRule::getTaskCode)
+                        .or()
+                        .eq(NotificationRule::getTaskCode, "")
+                        .or()
+                        .eq(NotificationRule::getTaskCode, taskCode));
         return baseMapper.selectList(wrapper);
     }
 }

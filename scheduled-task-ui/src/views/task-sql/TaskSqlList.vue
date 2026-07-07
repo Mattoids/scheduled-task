@@ -26,7 +26,7 @@ const { current, size, total, records, buildQuery, setPageResult, reset } =
 const queryForm = reactive({
   sqlName: "",
   sqlCode: "",
-  groupId: undefined as number | undefined,
+  groupCode: undefined as string | undefined,
 });
 
 const groupQuery = reactive({
@@ -43,9 +43,9 @@ const groupFormVisible = ref(false);
 const groupFormId = ref<number | undefined>(undefined);
 
 const datasourceOptions = ref<{ label: string; value: number }[]>([]);
-const templateOptions = ref<{ label: string; value: number }[]>([]);
+const templateOptions = ref<{ label: string; value: string }[]>([]);
 const groupOptions = ref<
-  { label: string; value: number; fileNamePattern?: string }[]
+  { label: string; value: string; fileNamePattern?: string }[]
 >([]);
 
 const loadOptions = async () => {
@@ -58,15 +58,19 @@ const loadOptions = async () => {
     label: item.name,
     value: item.id,
   }));
-  templateOptions.value = (tpl.records || []).map((item: any) => ({
-    label: `${item.templateName} (${item.templateType})`,
-    value: item.id,
-  }));
-  groupOptions.value = (grp || []).map((item: TaskSqlGroup) => ({
-    label: item.groupName,
-    value: item.id!,
-    fileNamePattern: item.fileNamePattern,
-  }));
+  templateOptions.value = (tpl.records || [])
+    .filter((item: any) => item.templateCode)
+    .map((item: any) => ({
+      label: `${item.templateName} (${item.templateType})`,
+      value: String(item.templateCode),
+    }));
+  groupOptions.value = (grp || [])
+    .filter((item: TaskSqlGroup) => item.groupCode)
+    .map((item: TaskSqlGroup) => ({
+      label: item.groupName,
+      value: String(item.groupCode),
+      fileNamePattern: item.fileNamePattern,
+    }));
 };
 
 const loadPage = async () => {
@@ -97,7 +101,7 @@ const handleSearch = () => {
 const handleReset = () => {
   queryForm.sqlName = "";
   queryForm.sqlCode = "";
-  queryForm.groupId = undefined;
+  queryForm.groupCode = undefined;
   reset();
   loadPage();
 };
@@ -210,7 +214,7 @@ onMounted(() => {
             <el-col :span="6">
               <el-form-item label="分组">
                 <el-select
-                    v-model="queryForm.groupId"
+                    v-model="queryForm.groupCode"
                     placeholder="全部分组"
                     clearable
                 >
@@ -265,7 +269,7 @@ onMounted(() => {
           <el-table-column label="模板" min-width="160" show-overflow-tooltip>
             <template #default="{ row }">
               {{
-                templateOptions.find((t) => t.value === row.templateId)
+                templateOptions.find((t) => t.value === row.templateCode)
                   ?.label || "-"
               }}
             </template>

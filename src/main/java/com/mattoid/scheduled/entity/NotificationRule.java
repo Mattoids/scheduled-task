@@ -20,14 +20,24 @@ public class NotificationRule extends BaseEntity {
     private String channel;
 
     /**
-     * 对应 email_config / wecom_app_config / wecom_bot_config 的 id
+     * 对应 notification_config 的 id，保留兼容
      */
     private Long configId;
 
     /**
-     * 指定任务 ID，为空表示不固定任务（所有任务都通知）
+     * 对应 notification_config 的编码，优先使用
+     */
+    private String configCode;
+
+    /**
+     * 指定任务 ID，保留兼容
      */
     private Long taskId;
+
+    /**
+     * 指定任务编码，优先使用
+     */
+    private String taskCode;
 
     /**
      * EMAIL 渠道：收件人 id，逗号分隔

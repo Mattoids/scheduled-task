@@ -3,8 +3,10 @@ package com.mattoid.scheduled.task;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,5 +64,48 @@ class SqlExecutorTest {
         String result = executor.processSqlVariables(sql);
         String month = YearMonth.now().minusMonths(1).format(DateTimeFormatter.ofPattern("M"));
         assertEquals("SELECT city_name AS '城市', checkin_num AS '" + month + "月打卡门店次数' FROM t", result);
+    }
+
+    @Test
+    void formatsDateParamWithPattern() {
+        String sql = "SELECT * FROM t WHERE date >= '${startTime:yyyy-MM-dd}'";
+        Map<String, Object> params = Map.of("startTime", LocalDateTime.of(2026, 7, 7, 10, 30, 0));
+        String result = executor.processSqlVariables(sql, params);
+        assertEquals("SELECT * FROM t WHERE date >= '2026-07-07'", result);
+    }
+
+    @Test
+    void formatsStringDateParamWithPattern() {
+        String sql = "SELECT * FROM t WHERE month = '${startTime:yyyy-MM}'";
+        Map<String, Object> params = Map.of("startTime", "2026-07-07");
+        String result = executor.processSqlVariables(sql, params);
+        assertEquals("SELECT * FROM t WHERE month = '2026-07'", result);
+    }
+
+    @Test
+    void fallsBackToPlainStringWhenFormatInvalid() {
+        String sql = "SELECT * FROM t WHERE id = '${code:abc}'";
+        Map<String, Object> params = Map.of("code", "XYZ");
+        String result = executor.processSqlVariables(sql, params);
+        assertEquals("SELECT * FROM t WHERE id = 'XYZ'", result);
+    }
+
+    @Test
+    void replacesFirstDayOfLastMonth() {
+        String sql = "SELECT * FROM t WHERE date >= '${firstDayOfLastMonth}' AND date <= '${lastDayOfLastMonth:yyyy/MM/dd}'";
+        String result = executor.processSqlVariables(sql);
+        LocalDate today = LocalDate.now();
+        LocalDate firstDay = today.minusMonths(1).withDayOfMonth(1);
+        LocalDate lastDay = today.minusMonths(1).with(java.time.temporal.TemporalAdjusters.lastDayOfMonth());
+        assertTrue(result.contains("'" + firstDay + "'"), result);
+        assertTrue(result.contains("'" + lastDay.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + "'"), result);
+    }
+
+    @Test
+    void customParamsTakePrecedenceOverBuiltInVariables() {
+        String sql = "SELECT * FROM t WHERE month = '${lastMonth}'";
+        Map<String, Object> params = Map.of("lastMonth", "custom-value");
+        String result = executor.processSqlVariables(sql, params);
+        assertEquals("SELECT * FROM t WHERE month = 'custom-value'", result);
     }
 }

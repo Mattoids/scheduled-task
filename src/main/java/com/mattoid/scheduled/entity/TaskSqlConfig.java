@@ -20,7 +20,11 @@ public class TaskSqlConfig extends BaseEntity {
 
     private Long templateId;
 
+    private String templateCode;
+
     private Long groupId;
+
+    private String groupCode;
 
     /**
      * CSV / EXCEL / WORD / PPT / TXT / INLINE；无模板时默认 CSV
@@ -43,11 +47,26 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private String chartTitle;
 
+    /**
+     * 图表分类过多时是否自动合并相邻数据：1 开启，0 关闭
+     */
+    private Integer chartAutoMerge;
+
+    /**
+     * X 轴标签旋转角度：AUTO / 0 / 45 / 90
+     */
+    private String chartLabelRotation;
+
     private String fileSuffix;
 
     private String fileNamePattern;
 
     private String description;
+
+    /**
+     * 自定义参数 JSON，key 对应 SQL 中的 ${xxx} 占位符
+     */
+    private String customParams;
 
     private Integer status;
 

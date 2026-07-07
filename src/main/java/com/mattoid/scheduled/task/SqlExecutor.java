@@ -3,6 +3,7 @@ package com.mattoid.scheduled.task;
 import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.service.DatasourceConfigService;
 import com.mattoid.scheduled.util.CryptoUtil;
+import com.mattoid.scheduled.util.PlaceholderUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.support.JdbcUtils;
 import org.springframework.stereotype.Component;
@@ -81,12 +82,73 @@ public class SqlExecutor {
      *   nextYear             -> 明年（默认 yyyy）
      *   now / date           -> 当前时间（默认 yyyy-MM-dd）
      *   today                -> 当前日期（默认 yyyy-MM-dd）
-     * 也可通过 ${var:format} 自定义格式，如 ${lastMonth:MM}、${year:yy}。
+     *   firstDayOfThisWeek   -> 本周第一天（周一，默认 yyyy-MM-dd）
+     *   lastDayOfThisWeek    -> 本周最后一天（周日，默认 yyyy-MM-dd）
+     *   firstDayOfLastWeek   -> 上周第一天（周一，默认 yyyy-MM-dd）
+     *   lastDayOfLastWeek    -> 上周最后一天（周日，默认 yyyy-MM-dd）
+     *   firstDayOfThisMonth  -> 本月第一天（默认 yyyy-MM-dd）
+     *   lastDayOfThisMonth   -> 本月最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfLastMonth  -> 上月第一天（默认 yyyy-MM-dd）
+     *   lastDayOfLastMonth   -> 上月最后一天（默认 yyyy-MM-dd）
+     * 也可通过 ${var:format} 自定义格式，如 ${lastMonth:MM}、${year:yy}、${firstDayOfLastMonth:yyyy-MM-dd}。
      */
     String processSqlVariables(String sql, Map<String, Object> params) {
         if (sql == null || !sql.contains("${")) {
             return sql;
         }
+        // 先替换自定义参数，再替换内置变量，避免内置变量名与参数值冲突
+        String afterParams = replaceParamPlaceholders(sql, params);
+        return replaceBuiltInPlaceholders(afterParams);
+    }
+
+    String processSqlVariables(String sql) {
+        return processSqlVariables(sql, java.util.Collections.emptyMap());
+    }
+
+    private String replaceParamPlaceholders(String sql, Map<String, Object> params) {
+        Matcher matcher = SQL_PLACEHOLDER_PATTERN.matcher(sql);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String placeholder = matcher.group(1);
+            String replacement = resolveParamPlaceholder(placeholder, params);
+            if (replacement == null) {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
+            } else {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+            }
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private String resolveParamPlaceholder(String placeholder, Map<String, Object> params) {
+        String variable;
+        String format;
+        int colonIndex = placeholder.indexOf(':');
+        if (colonIndex >= 0) {
+            variable = placeholder.substring(0, colonIndex);
+            format = placeholder.substring(colonIndex + 1);
+        } else {
+            variable = placeholder;
+            format = null;
+        }
+        if (!params.containsKey(variable)) {
+            return null;
+        }
+        Object value = params.get(variable);
+        if (value == null) {
+            return null;
+        }
+        if (format != null && !format.isEmpty()) {
+            String formatted = PlaceholderUtils.formatValue(value, format);
+            if (formatted != null) {
+                return formatted;
+            }
+        }
+        return value.toString();
+    }
+
+    private String replaceBuiltInPlaceholders(String sql) {
         LocalDateTime now = LocalDateTime.now();
         LocalDate today = LocalDate.now();
         YearMonth currentMonth = YearMonth.now();
@@ -100,7 +162,7 @@ public class SqlExecutor {
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String placeholder = matcher.group(1);
-            String replacement = resolveSqlPlaceholder(placeholder, params, now, today, currentMonth, lastMonth, nextMonth, currentYear, lastYear, nextYear);
+            String replacement = resolveBuiltInPlaceholder(placeholder, now, today, currentMonth, lastMonth, nextMonth, currentYear, lastYear, nextYear);
             if (replacement == null) {
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
             } else {
@@ -111,20 +173,15 @@ public class SqlExecutor {
         return sb.toString();
     }
 
-    String processSqlVariables(String sql) {
-        return processSqlVariables(sql, java.util.Collections.emptyMap());
-    }
-
-    private String resolveSqlPlaceholder(String placeholder,
-                                         Map<String, Object> params,
-                                         LocalDateTime now,
-                                         LocalDate today,
-                                         YearMonth currentMonth,
-                                         YearMonth lastMonth,
-                                         YearMonth nextMonth,
-                                         Year currentYear,
-                                         Year lastYear,
-                                         Year nextYear) {
+    private String resolveBuiltInPlaceholder(String placeholder,
+                                             LocalDateTime now,
+                                             LocalDate today,
+                                             YearMonth currentMonth,
+                                             YearMonth lastMonth,
+                                             YearMonth nextMonth,
+                                             Year currentYear,
+                                             Year lastYear,
+                                             Year nextYear) {
         String variable;
         String format;
         int colonIndex = placeholder.indexOf(':');
@@ -134,14 +191,6 @@ public class SqlExecutor {
         } else {
             variable = placeholder;
             format = null;
-        }
-
-        if (params.containsKey(variable)) {
-            Object value = params.get(variable);
-            if (value == null) {
-                return null;
-            }
-            return value.toString();
         }
 
         return switch (variable) {
@@ -155,6 +204,13 @@ public class SqlExecutor {
             case "nextYear" -> format(nextYear, format, "yyyy");
             case "now", "date" -> format(now, format, "yyyy-MM-dd");
             case "today" -> format(today, format, "yyyy-MM-dd");
+            case "firstDayOfThisWeek", "lastDayOfThisWeek",
+                    "firstDayOfLastWeek", "lastDayOfLastWeek",
+                    "firstDayOfThisMonth", "lastDayOfThisMonth",
+                    "firstDayOfLastMonth", "lastDayOfLastMonth" -> {
+                Object builtIn = PlaceholderUtils.resolveBuiltInVariable(variable);
+                yield builtIn != null ? format(builtIn, format, "yyyy-MM-dd") : null;
+            }
             default -> null;
         };
     }

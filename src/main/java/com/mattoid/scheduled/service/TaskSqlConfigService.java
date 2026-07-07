@@ -2,9 +2,11 @@ package com.mattoid.scheduled.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.entity.TaskSqlGroup;
 import com.mattoid.scheduled.entity.TaskSqlRelation;
+import com.mattoid.scheduled.mapper.TaskConfigMapper;
 import com.mattoid.scheduled.mapper.TaskSqlConfigMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +15,7 @@ import org.springframework.util.StringUtils;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,11 +23,14 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
 
     private final TaskSqlRelationService taskSqlRelationService;
     private final TaskSqlGroupService taskSqlGroupService;
+    private final TaskConfigMapper taskConfigMapper;
 
     public TaskSqlConfigService(TaskSqlRelationService taskSqlRelationService,
-                                TaskSqlGroupService taskSqlGroupService) {
+                                TaskSqlGroupService taskSqlGroupService,
+                                TaskConfigMapper taskConfigMapper) {
         this.taskSqlRelationService = taskSqlRelationService;
         this.taskSqlGroupService = taskSqlGroupService;
+        this.taskConfigMapper = taskConfigMapper;
     }
 
     @Override
@@ -47,9 +53,11 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
         if (!StringUtils.hasText(config.getFileNamePattern())) {
             config.setFileNamePattern(null);
         }
-        Long groupId = config.getGroupId();
-        if (groupId != null) {
-            TaskSqlGroup group = taskSqlGroupService.getById(groupId);
+        String groupCode = config.getGroupCode();
+        if (StringUtils.hasText(groupCode)) {
+            TaskSqlGroup group = taskSqlGroupService.lambdaQuery()
+                    .eq(TaskSqlGroup::getGroupCode, groupCode)
+                    .one();
             if (group != null && StringUtils.hasText(group.getFileNamePattern())) {
                 config.setFileNamePattern(null);
             }
@@ -60,30 +68,39 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
         if (taskId == null) {
             return Collections.emptyList();
         }
-        List<TaskSqlRelation> relations = taskSqlRelationService.lambdaQuery()
-                .eq(TaskSqlRelation::getTaskId, taskId)
-                .orderByAsc(TaskSqlRelation::getSortOrder)
-                .list();
-        if (relations.isEmpty()) {
+        TaskConfig task = taskConfigMapper.selectById(taskId);
+        return task != null ? listByTaskCode(task.getTaskCode()) : Collections.emptyList();
+    }
+
+    public List<TaskSqlConfig> listByTaskCode(String taskCode) {
+        if (!StringUtils.hasText(taskCode)) {
             return Collections.emptyList();
         }
-        List<Long> sqlIds = relations.stream()
-                .map(TaskSqlRelation::getSqlId)
+        List<String> sqlCodes = taskSqlRelationService.lambdaQuery()
+                .eq(TaskSqlRelation::getTaskCode, taskCode)
+                .orderByAsc(TaskSqlRelation::getSortOrder)
+                .list()
+                .stream()
+                .map(TaskSqlRelation::getSqlCode)
+                .filter(StringUtils::hasText)
                 .collect(Collectors.toList());
-        List<TaskSqlConfig> sqlConfigs = listByIds(sqlIds);
+        return listBySqlCodes(sqlCodes);
+    }
+
+    private List<TaskSqlConfig> listBySqlCodes(List<String> sqlCodes) {
+        if (sqlCodes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<TaskSqlConfig> sqlConfigs = lambdaQuery()
+                .in(TaskSqlConfig::getSqlCode, sqlCodes)
+                .list();
         populateGroups(sqlConfigs);
-        return relations.stream()
-                .map(relation -> {
-                    TaskSqlConfig config = sqlConfigs.stream()
-                            .filter(sql -> sql.getId().equals(relation.getSqlId()))
-                            .findFirst()
-                            .orElse(null);
-                    if (config != null) {
-                        config.setSortOrder(relation.getSortOrder());
-                    }
-                    return config;
-                })
-                .filter(config -> config != null)
+        // 保持与 relation 一致的顺序
+        Map<String, TaskSqlConfig> configMap = sqlConfigs.stream()
+                .collect(Collectors.toMap(TaskSqlConfig::getSqlCode, c -> c, (a, b) -> a));
+        return sqlCodes.stream()
+                .map(configMap::get)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 
@@ -91,18 +108,21 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
         if (configs == null || configs.isEmpty()) {
             return;
         }
-        List<Long> groupIds = configs.stream()
-                .map(TaskSqlConfig::getGroupId)
+        List<String> groupCodes = configs.stream()
+                .map(TaskSqlConfig::getGroupCode)
                 .distinct()
-                .filter(id -> id != null)
+                .filter(StringUtils::hasText)
                 .collect(Collectors.toList());
-        if (groupIds.isEmpty()) {
+        if (groupCodes.isEmpty()) {
             return;
         }
-        Map<Long, TaskSqlGroup> groupMap = taskSqlGroupService.listByIds(groupIds).stream()
-                .collect(Collectors.toMap(TaskSqlGroup::getId, g -> g));
+        Map<String, TaskSqlGroup> groupMap = taskSqlGroupService.lambdaQuery()
+                .in(TaskSqlGroup::getGroupCode, groupCodes)
+                .list()
+                .stream()
+                .collect(Collectors.toMap(TaskSqlGroup::getGroupCode, g -> g));
         for (TaskSqlConfig config : configs) {
-            TaskSqlGroup group = groupMap.get(config.getGroupId());
+            TaskSqlGroup group = groupMap.get(config.getGroupCode());
             if (group != null) {
                 config.setTaskSqlGroup(group);
                 config.setGroupName(group.getGroupName());
@@ -112,9 +132,12 @@ public class TaskSqlConfigService extends ServiceImpl<TaskSqlConfigMapper, TaskS
 
     @Transactional(rollbackFor = Exception.class)
     public boolean removeSqlConfig(Long sqlId) {
-        taskSqlRelationService.lambdaUpdate()
-                .eq(TaskSqlRelation::getSqlId, sqlId)
-                .remove();
+        TaskSqlConfig config = getById(sqlId);
+        if (config != null && StringUtils.hasText(config.getSqlCode())) {
+            taskSqlRelationService.lambdaUpdate()
+                    .eq(TaskSqlRelation::getSqlCode, config.getSqlCode())
+                    .remove();
+        }
         return removeById(sqlId);
     }
 }

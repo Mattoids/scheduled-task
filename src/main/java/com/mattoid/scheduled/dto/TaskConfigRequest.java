@@ -10,7 +10,7 @@ public class TaskConfigRequest {
 
     private TaskConfig task;
 
-    private List<Long> sqlIds;
+    private List<String> sqlCodes;
 
     private List<Long> dependencyIds;
 }

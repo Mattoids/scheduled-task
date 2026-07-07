@@ -11,7 +11,11 @@ public class TaskSqlRelation extends BaseEntity {
 
     private Long taskId;
 
+    private String taskCode;
+
     private Long sqlId;
+
+    private String sqlCode;
 
     private Integer sortOrder;
 }

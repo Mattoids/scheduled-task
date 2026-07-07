@@ -41,7 +41,7 @@ class NotificationRuleServiceTest {
         when(notificationRuleMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(List.of(rule));
 
-        List<NotificationRule> result = notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", 1L);
+        List<NotificationRule> result = notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK");
 
         assertEquals(1, result.size());
         assertEquals("EMAIL", result.get(0).getChannel());

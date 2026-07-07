@@ -37,15 +37,13 @@ const form = ref<TaskConfig>({
 });
 
 const sqlOptions = ref<TaskSqlConfig[]>([]);
-const selectedSqlIds = ref<number[]>([]);
-const treeSelectedKeys = ref<Array<string | number>>([]);
+const selectedSqlCodes = ref<string[]>([]);
+const treeSelectedKeys = ref<string[]>([]);
 
 watch(
   treeSelectedKeys,
   (keys) => {
-    selectedSqlIds.value = keys
-      .filter((k) => typeof k === "number" || !String(k).startsWith("group_"))
-      .map((k) => Number(k));
+    selectedSqlCodes.value = keys.filter((k) => !k.startsWith("group_"));
   },
   { deep: true },
 );
@@ -65,8 +63,8 @@ const isEdit = computed(() => !!props.id);
 const title = computed(() => (isEdit.value ? "编辑任务" : "新增任务"));
 
 const selectedSqlList = computed(() => {
-  return selectedSqlIds.value
-    .map((id) => sqlOptions.value.find((sql) => sql.id === id))
+  return selectedSqlCodes.value
+    .map((code) => sqlOptions.value.find((sql) => sql.sqlCode === code))
     .filter((sql): sql is TaskSqlConfig => !!sql);
 });
 
@@ -96,7 +94,7 @@ const sqlTreeData = computed(() => {
     id: `group_${group.label}`,
     label: group.label,
     children: group.options.map((item) => ({
-      id: item.id!,
+      id: item.sqlCode,
       label: `${item.sqlName} (${item.sqlCode})`,
     })),
   }));
@@ -166,7 +164,7 @@ const resetForm = () => {
     triggerConfig: "",
     status: "ENABLE",
   };
-  selectedSqlIds.value = [];
+  selectedSqlCodes.value = [];
   treeSelectedKeys.value = [];
 };
 
@@ -182,8 +180,8 @@ const loadDetail = async () => {
       triggerConfig: "",
       status: "ENABLE",
     };
-    selectedSqlIds.value = res.sqlIds || [];
-    treeSelectedKeys.value = [...selectedSqlIds.value];
+    selectedSqlCodes.value = res.sqlCodes || [];
+    treeSelectedKeys.value = [...selectedSqlCodes.value];
   } finally {
     loading.value = false;
   }
@@ -203,33 +201,33 @@ watch(
 
 const moveSqlUp = (index: number) => {
   if (index <= 0) return;
-  const arr = [...selectedSqlIds.value];
+  const arr = [...selectedSqlCodes.value];
   const temp = arr[index];
   arr[index] = arr[index - 1];
   arr[index - 1] = temp;
-  selectedSqlIds.value = arr;
+  selectedSqlCodes.value = arr;
 };
 
 const moveSqlDown = (index: number) => {
-  if (index >= selectedSqlIds.value.length - 1) return;
-  const arr = [...selectedSqlIds.value];
+  if (index >= selectedSqlCodes.value.length - 1) return;
+  const arr = [...selectedSqlCodes.value];
   const temp = arr[index];
   arr[index] = arr[index + 1];
   arr[index + 1] = temp;
-  selectedSqlIds.value = arr;
+  selectedSqlCodes.value = arr;
 };
 
 const removeSql = (index: number) => {
-  const arr = [...selectedSqlIds.value];
+  const arr = [...selectedSqlCodes.value];
   arr.splice(index, 1);
-  selectedSqlIds.value = arr;
+  selectedSqlCodes.value = arr;
 };
 
 const handleSubmit = async () => {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
 
-  if (selectedSqlIds.value.length === 0) {
+  if (selectedSqlCodes.value.length === 0) {
     ElMessage.warning("请选择至少一条 SQL");
     return;
   }
@@ -238,7 +236,7 @@ const handleSubmit = async () => {
   try {
     const request: TaskConfigRequest = {
       task: form.value,
-      sqlIds: selectedSqlIds.value,
+      sqlCodes: selectedSqlCodes.value,
     };
     if (isEdit.value) {
       await updateTask(props.id!, request);
@@ -371,7 +369,7 @@ onMounted(() => {
           />
           <el-table-column label="模板" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ row.templateId ? "有" : "无" }}
+              {{ row.templateCode ? "有" : "无" }}
             </template>
           </el-table-column>
           <el-table-column

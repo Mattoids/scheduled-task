@@ -17,13 +17,18 @@ export interface TaskSqlConfig {
   datasourceId: number
   sqlContent: string
   templateId?: number
+  templateCode?: string
   groupId?: number
+  groupCode?: string
   outputFormat?: string
   chartEnabled?: number
   chartType?: string
   chartTitle?: string
+  chartAutoMerge?: number
+  chartLabelRotation?: string
   fileSuffix?: string
   fileNamePattern?: string
+  customParams?: string
   description?: string
   status?: number
   sortOrder?: number
@@ -59,7 +64,9 @@ export interface NotificationRule {
   eventType: 'TASK_SUCCESS' | 'TASK_FAILURE' | 'TASK_COMPLETED'
   channel: NotificationChannel
   configId?: number
+  configCode?: string
   taskId?: number
+  taskCode?: string
   recipientIds?: string
   recipientGroupIds?: string
   wecomToUser?: string
@@ -76,7 +83,7 @@ export interface NotificationRule {
 
 export interface TaskConfigRequest {
   task: TaskConfig
-  sqlIds?: number[]
+  sqlCodes?: string[]
 }
 
 export interface TaskLog {
@@ -252,6 +259,7 @@ export interface WebhookConfig {
 export interface NotificationConfig {
   id?: number
   configName: string
+  configCode?: string
   configType: NotificationChannel
   configJson: any
   status?: number

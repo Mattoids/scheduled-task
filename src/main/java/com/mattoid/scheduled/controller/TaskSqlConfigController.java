@@ -7,8 +7,10 @@ import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.dto.PageQuery;
+import com.mattoid.scheduled.entity.ReportTemplate;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.entity.TaskSqlGroup;
+import com.mattoid.scheduled.service.ReportTemplateService;
 import com.mattoid.scheduled.service.TaskSqlConfigService;
 import com.mattoid.scheduled.service.TaskSqlGroupService;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,11 +27,14 @@ public class TaskSqlConfigController {
 
     private final TaskSqlConfigService taskSqlConfigService;
     private final TaskSqlGroupService taskSqlGroupService;
+    private final ReportTemplateService reportTemplateService;
 
     public TaskSqlConfigController(TaskSqlConfigService taskSqlConfigService,
-                                   TaskSqlGroupService taskSqlGroupService) {
+                                   TaskSqlGroupService taskSqlGroupService,
+                                   ReportTemplateService reportTemplateService) {
         this.taskSqlConfigService = taskSqlConfigService;
         this.taskSqlGroupService = taskSqlGroupService;
+        this.reportTemplateService = reportTemplateService;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -37,11 +42,11 @@ public class TaskSqlConfigController {
     public Result<PageResult<TaskSqlConfig>> page(PageQuery query,
                                                   @RequestParam(required = false) String sqlName,
                                                   @RequestParam(required = false) String sqlCode,
-                                                  @RequestParam(required = false) Long groupId) {
+                                                  @RequestParam(required = false) String groupCode) {
         LambdaQueryWrapper<TaskSqlConfig> wrapper = new LambdaQueryWrapper<>();
         wrapper.like(StringUtils.hasText(sqlName), TaskSqlConfig::getSqlName, sqlName)
                 .like(StringUtils.hasText(sqlCode), TaskSqlConfig::getSqlCode, sqlCode)
-                .eq(groupId != null, TaskSqlConfig::getGroupId, groupId)
+                .eq(StringUtils.hasText(groupCode), TaskSqlConfig::getGroupCode, groupCode)
                 .orderByDesc(TaskSqlConfig::getCreateTime);
         Page<TaskSqlConfig> page = taskSqlConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         populateGroupNames(page.getRecords());
@@ -62,10 +67,21 @@ public class TaskSqlConfigController {
     @GetMapping("/{id}")
     public Result<TaskSqlConfig> detail(@PathVariable Long id) {
         TaskSqlConfig config = taskSqlConfigService.getById(id);
-        if (config != null && config.getGroupId() != null) {
-            TaskSqlGroup group = taskSqlGroupService.getById(config.getGroupId());
-            config.setTaskSqlGroup(group);
-            config.setGroupName(group != null ? group.getGroupName() : null);
+        if (config != null) {
+            if (config.getGroupId() != null && !StringUtils.hasText(config.getGroupCode())) {
+                TaskSqlGroup group = taskSqlGroupService.getById(config.getGroupId());
+                config.setTaskSqlGroup(group);
+                config.setGroupName(group != null ? group.getGroupName() : null);
+                config.setGroupCode(group != null ? group.getGroupCode() : null);
+            } else if (StringUtils.hasText(config.getGroupCode())) {
+                TaskSqlGroup group = taskSqlGroupService.getByCode(config.getGroupCode());
+                config.setTaskSqlGroup(group);
+                config.setGroupName(group != null ? group.getGroupName() : null);
+            }
+            if (config.getTemplateId() != null && !StringUtils.hasText(config.getTemplateCode())) {
+                ReportTemplate template = reportTemplateService.getById(config.getTemplateId());
+                config.setTemplateCode(template != null ? template.getTemplateCode() : null);
+            }
         }
         return Result.ok(config);
     }
@@ -74,6 +90,7 @@ public class TaskSqlConfigController {
     @PreAuthorize("hasAuthority('task:create')")
     @PostMapping
     public Result<Boolean> create(@RequestBody TaskSqlConfig config) {
+        resolveTemplateAndGroup(config);
         return Result.ok(taskSqlConfigService.save(config));
     }
 
@@ -82,6 +99,7 @@ public class TaskSqlConfigController {
     @PutMapping("/{id}")
     public Result<Boolean> update(@PathVariable Long id, @RequestBody TaskSqlConfig config) {
         config.setId(id);
+        resolveTemplateAndGroup(config);
         return Result.ok(taskSqlConfigService.updateById(config));
     }
 
@@ -92,22 +110,44 @@ public class TaskSqlConfigController {
         return Result.ok(taskSqlConfigService.removeSqlConfig(id));
     }
 
+    private void resolveTemplateAndGroup(TaskSqlConfig config) {
+        if (StringUtils.hasText(config.getTemplateCode())) {
+            ReportTemplate template = reportTemplateService.getByCode(config.getTemplateCode());
+            if (template == null) {
+                throw new IllegalArgumentException("报表模板编码不存在: " + config.getTemplateCode());
+            }
+            config.setTemplateId(template.getId());
+        } else {
+            config.setTemplateId(null);
+        }
+        if (StringUtils.hasText(config.getGroupCode())) {
+            TaskSqlGroup group = taskSqlGroupService.getByCode(config.getGroupCode());
+            if (group != null) {
+                config.setGroupId(group.getId());
+            }
+        } else {
+            config.setGroupId(null);
+        }
+    }
+
     private void populateGroupNames(List<TaskSqlConfig> configs) {
         if (configs == null || configs.isEmpty()) {
             return;
         }
-        List<Long> groupIds = configs.stream()
-                .map(TaskSqlConfig::getGroupId)
+        List<String> groupCodes = configs.stream()
+                .map(TaskSqlConfig::getGroupCode)
                 .distinct()
-                .filter(id -> id != null)
+                .filter(StringUtils::hasText)
                 .collect(Collectors.toList());
-        if (groupIds.isEmpty()) {
+        if (groupCodes.isEmpty()) {
             return;
         }
-        Map<Long, TaskSqlGroup> groupMap = taskSqlGroupService.listByIds(groupIds).stream()
-                .collect(Collectors.toMap(TaskSqlGroup::getId, g -> g));
+        Map<String, TaskSqlGroup> groupMap = taskSqlGroupService.lambdaQuery()
+                .in(TaskSqlGroup::getGroupCode, groupCodes)
+                .list().stream()
+                .collect(Collectors.toMap(TaskSqlGroup::getGroupCode, g -> g));
         for (TaskSqlConfig config : configs) {
-            TaskSqlGroup group = groupMap.get(config.getGroupId());
+            TaskSqlGroup group = groupMap.get(config.getGroupCode());
             if (group != null) {
                 config.setTaskSqlGroup(group);
                 config.setGroupName(group.getGroupName());

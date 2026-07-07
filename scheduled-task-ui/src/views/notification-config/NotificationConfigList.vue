@@ -143,6 +143,7 @@ onMounted(loadPage);
     <el-table v-loading="loading" :data="records" border stripe>
       <el-table-column prop="id" label="ID" width="80" align="center" />
       <el-table-column prop="configName" label="配置名称" min-width="160" />
+      <el-table-column prop="configCode" label="配置编码" min-width="140" />
       <el-table-column label="配置类型" min-width="160">
         <template #default="{ row }">{{ formatType(row.configType) }}</template>
       </el-table-column>

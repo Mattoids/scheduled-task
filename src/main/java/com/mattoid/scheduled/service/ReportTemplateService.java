@@ -21,6 +21,13 @@ public class ReportTemplateService extends ServiceImpl<ReportTemplateMapper, Rep
     @Value("${report.upload.path}")
     private String uploadPath;
 
+    public ReportTemplate getByCode(String templateCode) {
+        if (!StringUtils.hasText(templateCode)) {
+            return null;
+        }
+        return lambdaQuery().eq(ReportTemplate::getTemplateCode, templateCode).one();
+    }
+
     public ReportTemplate uploadTemplate(MultipartFile file, String templateName, String templateCode, String description) throws IOException {
         Path dir = Paths.get(uploadPath, "templates");
         if (!Files.exists(dir)) {

@@ -71,6 +71,7 @@ const defaultConfigJson = (type: string) => {
 
 const form = ref<NotificationConfig>({
   configName: "",
+  configCode: "",
   configType: "EMAIL",
   configJson: defaultConfigJson("EMAIL"),
   status: 1,
@@ -89,6 +90,7 @@ const typeOptions = [
 
 const rules = {
   configName: [{ required: true, message: "请输入配置名称", trigger: "blur" }],
+  configCode: [{ required: true, message: "请输入配置编码", trigger: "blur" }],
   configType: [
     { required: true, message: "请选择配置类型", trigger: "change" },
   ],
@@ -118,6 +120,7 @@ const headersText = computed({
 const resetForm = () => {
   form.value = {
     configName: "",
+    configCode: "",
     configType: "EMAIL",
     configJson: defaultConfigJson("EMAIL"),
     status: 1,
@@ -232,6 +235,10 @@ const handleTest = async () => {
     >
       <el-form-item label="配置名称" prop="configName">
         <el-input v-model="form.configName" placeholder="配置名称" />
+      </el-form-item>
+
+      <el-form-item label="配置编码" prop="configCode">
+        <el-input v-model="form.configCode" placeholder="配置编码，用于通知规则关联" />
       </el-form-item>
 
       <el-form-item label="配置类型" prop="configType">

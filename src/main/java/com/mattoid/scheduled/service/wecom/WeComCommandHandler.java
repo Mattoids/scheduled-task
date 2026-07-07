@@ -241,17 +241,16 @@ public class WeComCommandHandler {
         if (!StringUtils.hasText(triggerType)) {
             triggerType = triggerConfig.trim().contains(" ") ? "CRON" : "ONCE";
         }
-        List<Long> sqlIds = new ArrayList<>();
-        String sqlIdsStr = params.get("sqlIds");
-        if (StringUtils.hasText(sqlIdsStr)) {
+        List<String> sqlCodes = new ArrayList<>();
+        String sqlCodesStr = params.get("sqlCodes");
+        if (StringUtils.hasText(sqlCodesStr)) {
             try {
-                sqlIds = Arrays.stream(sqlIdsStr.split(","))
+                sqlCodes = Arrays.stream(sqlCodesStr.split(","))
                         .map(String::trim)
                         .filter(StringUtils::hasText)
-                        .map(Long::parseLong)
                         .collect(Collectors.toList());
             } catch (NumberFormatException e) {
-                return new CommandResult("SQL ID 格式错误，请使用逗号分隔的数字。");
+                return new CommandResult("SQL 编码格式错误，请使用逗号分隔的 SQL 编码。");
             }
         }
 
@@ -262,7 +261,7 @@ public class WeComCommandHandler {
             task.setTriggerType(triggerType.toUpperCase());
             task.setTriggerConfig(triggerConfig.trim());
             task.setStatus("ENABLE");
-            taskConfigService.saveOrUpdateTask(task, sqlIds);
+            taskConfigService.saveOrUpdateTask(task, sqlCodes);
             return new CommandResult("任务创建成功: " + task.getTaskName() + " (ID: " + task.getId() + ")");
         } catch (Exception e) {
             log.error("AI 创建任务失败: params={}", params, e);
@@ -624,13 +623,12 @@ public class WeComCommandHandler {
         String taskName = parts[0].trim();
         String taskCode = parts[1].trim();
         String triggerConfig = parts[2].trim();
-        List<Long> sqlIds = Arrays.stream(parts[3].split(","))
+        List<String> sqlCodes = Arrays.stream(parts[3].split(","))
                 .map(String::trim)
                 .filter(StringUtils::hasText)
-                .map(Long::parseLong)
                 .collect(Collectors.toList());
-        if (sqlIds.isEmpty()) {
-            return "请至少指定一个 SQL ID。";
+        if (sqlCodes.isEmpty()) {
+            return "请至少指定一个 SQL 编码。";
         }
 
         TaskConfig task = new TaskConfig();
@@ -639,7 +637,7 @@ public class WeComCommandHandler {
         task.setTriggerType(triggerConfig.contains(" ") ? "CRON" : "ONCE");
         task.setTriggerConfig(triggerConfig);
         task.setStatus("ENABLE");
-        taskConfigService.saveOrUpdateTask(task, sqlIds);
+        taskConfigService.saveOrUpdateTask(task, sqlCodes);
         return "任务创建成功: " + task.getTaskName() + " (ID: " + task.getId() + ")";
     }
 
