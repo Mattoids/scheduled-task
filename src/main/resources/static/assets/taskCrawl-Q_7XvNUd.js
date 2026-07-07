@@ -1,0 +1,1 @@
+import{a as e}from"./index-Bixvy9mN.js";var t=t=>e.get(`/task-crawl/page`,{params:t}),n=()=>e.get(`/task-crawl/list`),r=t=>e.get(`/task-crawl/${t}`),i=t=>e.post(`/task-crawl`,t),a=(t,n)=>e.put(`/task-crawl/${t}`,n),o=t=>e.delete(`/task-crawl/${t}`);export{t as a,n as i,o as n,a as o,r,i as t};

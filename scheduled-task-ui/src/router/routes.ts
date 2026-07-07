@@ -17,7 +17,7 @@ export const menuRoutes: RouteRecordRaw[] = [
     path: '/task-crawl',
     name: 'TaskCrawl',
     component: () => import('@/views/task-crawl/TaskCrawlList.vue'),
-    meta: { title: '网页爬取', icon: 'Globe', permission: 'taskCrawl:view' },
+    meta: { title: '网页爬取', icon: 'ChromeFilled', permission: 'taskCrawl:view' },
   },
   {
     path: '/task',
