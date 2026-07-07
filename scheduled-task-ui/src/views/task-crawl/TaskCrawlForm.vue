@@ -19,6 +19,9 @@ const formRef = ref()
 const loading = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
+const previewVisible = ref(false)
+const previewContent = ref('')
+const previewTitle = ref('')
 
 const defaultSelector = (): TaskWebCrawlSelector => ({
   selectorType: 'CSS',
@@ -163,7 +166,9 @@ const handlePreview = async () => {
   try {
     const res = await previewTaskCrawl(form)
     if (res.success) {
-      ElMessage.success(`预览成功：${res.title || res.message || ''}`)
+      previewTitle.value = res.title || '网页预览'
+      previewContent.value = res.content || ''
+      previewVisible.value = true
     } else {
       ElMessage.error(`预览失败：${res.message || '未知错误'}`)
     }
@@ -603,6 +608,19 @@ watch(
         <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </span>
     </template>
+  </el-dialog>
+
+  <el-dialog
+    v-model="previewVisible"
+    :title="previewTitle || '网页预览'"
+    width="90%"
+    top="5vh"
+    destroy-on-close
+  >
+    <iframe
+      :srcdoc="previewContent"
+      style="width: 100%; height: 70vh; border: 1px solid #dcdfe6; border-radius: 4px"
+    />
   </el-dialog>
 </template>
 

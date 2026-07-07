@@ -151,7 +151,7 @@ public class WebCrawlExecutor {
 
             if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
                 Document document = webDriverManager.fetchPage(config, actualUrl, mergedParams);
-                return WebCrawlPreviewResult.success(200, "页面可访问", document.title());
+                return WebCrawlPreviewResult.success(200, "页面可访问", document.title(), document.html());
             }
 
             Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
@@ -162,9 +162,9 @@ public class WebCrawlExecutor {
             boolean ok = statusCode >= 200 && statusCode < 400;
             if (!ok) {
                 return WebCrawlPreviewResult.success(statusCode,
-                        "请求返回非成功状态码: " + statusCode, title);
+                        "请求返回非成功状态码: " + statusCode, title, document.html());
             }
-            return WebCrawlPreviewResult.success(statusCode, "页面可访问", title);
+            return WebCrawlPreviewResult.success(statusCode, "页面可访问", title, document.html());
         } catch (Exception e) {
             log.warn("网页爬取预览失败: {}", e.getMessage(), e);
             return WebCrawlPreviewResult.failure("预览失败: " + e.getMessage());

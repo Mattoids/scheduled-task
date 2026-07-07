@@ -7,6 +7,7 @@ export interface WebCrawlPreviewResult {
   statusCode?: number
   message?: string
   title?: string
+  content?: string
 }
 
 export const pageTaskCrawl = (params: PageQuery & { crawlName?: string; crawlCode?: string }) => {

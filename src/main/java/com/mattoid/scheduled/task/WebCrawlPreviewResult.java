@@ -13,12 +13,13 @@ public class WebCrawlPreviewResult {
     private Integer statusCode;
     private String message;
     private String title;
+    private String content;
 
-    public static WebCrawlPreviewResult success(Integer statusCode, String message, String title) {
-        return new WebCrawlPreviewResult(true, statusCode, message, title);
+    public static WebCrawlPreviewResult success(Integer statusCode, String message, String title, String content) {
+        return new WebCrawlPreviewResult(true, statusCode, message, title, content);
     }
 
     public static WebCrawlPreviewResult failure(String message) {
-        return new WebCrawlPreviewResult(false, null, message, null);
+        return new WebCrawlPreviewResult(false, null, message, null, null);
     }
 }
