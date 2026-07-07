@@ -377,7 +377,7 @@ watch(
           </template>
         </el-tab-pane>
 
-        <el-tab-pane label="认证与 SSH">
+        <el-tab-pane label="认证">
           <el-row :gutter="20">
             <el-col :span="8">
               <el-form-item label="认证方式">
@@ -400,7 +400,17 @@ watch(
               placeholder='JSON 格式，如 {"username": "", "password": ""}，保存时自动加密'
             />
           </el-form-item>
-          <el-divider />
+        </el-tab-pane>
+
+        <el-tab-pane label="SSH 跳板机">
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="说明"
+            description="通过跳板机 A 建立 SSH 隧道，把内网服务器 B 的服务映射到本地 127.0.0.1:<本地端口>，请求 URL 中的主机/端口会在执行时自动替换。"
+            style="margin-bottom: 16px"
+          />
           <el-form-item label="启用 SSH 隧道">
             <el-switch v-model="form.sshEnabled" :active-value="1" :inactive-value="0" />
           </el-form-item>
@@ -446,12 +456,19 @@ watch(
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item label="远程目标主机">
-                  <el-input v-model="form.sshRemoteHost" placeholder="请求 URL 主机 或 内网目标" />
+                  <el-input v-model="form.sshRemoteHost" placeholder="内网目标主机，如 10.0.0.5" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="远程目标端口">
                   <el-input-number v-model="form.sshRemotePort" :min="1" :max="65535" placeholder="请求 URL 端口" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="本地映射端口">
+                  <el-input-number v-model="form.sshLocalPort" :min="0" :max="65535" placeholder="0=自动分配" />
                 </el-form-item>
               </el-col>
             </el-row>
