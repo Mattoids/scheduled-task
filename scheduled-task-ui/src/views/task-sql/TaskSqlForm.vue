@@ -85,8 +85,11 @@ watch(
       form.value.templateCode = undefined;
       form.value.fileSuffix = "";
       form.value.fileNamePattern = "";
+    } else {
+      form.value.chartEnabled = 0;
     }
   },
+  { immediate: true }
 );
 
 const outputFormatOptions = [
@@ -451,75 +454,11 @@ const handleClose = () => {
         </el-col>
       </el-row>
 
-      <el-divider content-position="left">图表配置</el-divider>
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="生成图表">
-            <el-switch
-              v-model="form.chartEnabled"
-              :active-value="1"
-              :inactive-value="0"
-              active-text="启用"
-              inactive-text="禁用"
-            />
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <template v-if="form.chartEnabled === 1">
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="图表类型">
-              <el-select v-model="form.chartType" placeholder="请选择图表类型" style="width: 100%">
-                <el-option
-                  v-for="item in chartTypeOptions"
-                  :key="item.value"
-                  :label="item.label"
-                  :value="item.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="图表标题">
-              <el-input
-                v-model="form.chartTitle"
-                placeholder="留空使用 SQL 名称"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="自动合并">
-              <el-switch
-                v-model="form.chartAutoMerge"
-                :active-value="1"
-                :inactive-value="0"
-                active-text="开启"
-                inactive-text="关闭"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="标签旋转">
-              <el-select v-model="form.chartLabelRotation" placeholder="请选择标签旋转角度" style="width: 100%">
-                <el-option
-                  v-for="item in chartLabelRotationOptions"
-                  :key="item.value"
-                  :label="item.label"
-                  :value="item.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item>
-          <span class="form-tip"
-            >在通知内容中可通过占位符 <code>${chart:{{ form.sqlCode || 'sql编码' }}}</code> 插入该图表</span
-          >
-        </el-form-item>
-      </template>
+      <el-form-item v-if="form.outputFormat === 'EXCEL'">
+        <span class="form-tip"
+          >Excel 输出时，若 SQL 结果包含 <code>_sheet_name</code> 列，系统会自动按该列值分 sheet 生成；输出后该列不会写入单元格</span
+        >
+      </el-form-item>
 
       <el-row :gutter="16">
         <el-col :span="12">
@@ -584,6 +523,78 @@ const handleClose = () => {
           inactive-text="禁用"
         />
       </el-form-item>
+
+      <template v-if="form.outputFormat === 'INLINE'">
+        <el-divider content-position="left">图表配置</el-divider>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="生成图表">
+              <el-switch
+                v-model="form.chartEnabled"
+                :active-value="1"
+                :inactive-value="0"
+                active-text="启用"
+                inactive-text="禁用"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <template v-if="form.chartEnabled === 1">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="图表类型">
+                <el-select v-model="form.chartType" placeholder="请选择图表类型" style="width: 100%">
+                  <el-option
+                    v-for="item in chartTypeOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="图表标题">
+                <el-input
+                  v-model="form.chartTitle"
+                  placeholder="留空使用 SQL 名称"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="自动合并">
+                <el-switch
+                  v-model="form.chartAutoMerge"
+                  :active-value="1"
+                  :inactive-value="0"
+                  active-text="开启"
+                  inactive-text="关闭"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="标签旋转">
+                <el-select v-model="form.chartLabelRotation" placeholder="请选择标签旋转角度" style="width: 100%">
+                  <el-option
+                    v-for="item in chartLabelRotationOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item>
+            <span class="form-tip"
+              >在通知内容中可通过占位符 <code>${chart:{{ form.sqlCode || 'sql编码' }}}</code> 插入该图表</span
+            >
+          </el-form-item>
+        </template>
+      </template>
     </el-form>
 
     <template #footer>

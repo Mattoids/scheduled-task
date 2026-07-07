@@ -301,7 +301,7 @@ WHERE date >= '${firstDayOfLastMonth:yyyy/MM/dd}'
 | `chart_auto_merge` | 分类过多时是否自动合并相邻数据：`1` 开启（默认），`0` 关闭 |
 | `chart_label_rotation` | X 轴标签旋转角度：`AUTO`（自动，默认）、`0`、`45`、`90`；选择 `90` 时标签竖向显示 |
 
-> 图表生成与 `output_format` 无关。只要 SQL 未绑定模板（即非模板链中的 SQL），开启 `chart_enabled` 后任务执行时就会自动生成图表。
+> 图表配置仅在 `output_format` 为 `INLINE`（内联到通知）时展示和生效。选择其他输出格式时，前端会自动关闭「生成图表」开关。只要 SQL 未绑定模板（即非模板链中的 SQL），开启 `chart_enabled` 后任务执行时就会自动生成图表并嵌入通知内容。
 
 #### 数据要求
 
