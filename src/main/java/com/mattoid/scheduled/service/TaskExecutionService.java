@@ -13,8 +13,6 @@ import com.mattoid.scheduled.util.PlaceholderUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
@@ -22,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -51,6 +48,7 @@ public class TaskExecutionService {
     private final TaskSqlGroupService taskSqlGroupService;
     private final TaskDependencyService taskDependencyService;
     private final ChartGenerationService chartGenerationService;
+    private final ExcelGenerationService excelGenerationService;
 
     public TaskExecutionService(TaskConfigMapper taskConfigMapper,
                                 TaskLogMapper taskLogMapper,
@@ -61,7 +59,8 @@ public class TaskExecutionService {
                                 ApplicationEventPublisher eventPublisher,
                                 TaskSqlGroupService taskSqlGroupService,
                                 TaskDependencyService taskDependencyService,
-                                ChartGenerationService chartGenerationService) {
+                                ChartGenerationService chartGenerationService,
+                                ExcelGenerationService excelGenerationService) {
         this.taskConfigMapper = taskConfigMapper;
         this.taskLogMapper = taskLogMapper;
         this.sqlExecutor = sqlExecutor;
@@ -72,6 +71,7 @@ public class TaskExecutionService {
         this.taskSqlGroupService = taskSqlGroupService;
         this.taskDependencyService = taskDependencyService;
         this.chartGenerationService = chartGenerationService;
+        this.excelGenerationService = excelGenerationService;
     }
 
     public void executeTask(Long taskId, String triggerMode) {
@@ -214,7 +214,62 @@ public class TaskExecutionService {
                 }
                 results.addFile(processTemplateChain(task, template, group, params, results));
             } else {
-                for (TaskSqlConfig sql : group) {
+                // 按 Excel 合并组拆分：同组合并输出，非同组保持独立
+                Map<String, List<Integer>> excelMergeGroups = new LinkedHashMap<>();
+                List<Integer> individualIndexes = new ArrayList<>();
+                for (int i = 0; i < group.size(); i++) {
+                    TaskSqlConfig sql = group.get(i);
+                    if ("EXCEL".equalsIgnoreCase(sql.getOutputFormat()) && StringUtils.hasText(sql.getExcelMergeGroup())) {
+                        excelMergeGroups.computeIfAbsent(sql.getExcelMergeGroup(), k -> new ArrayList<>()).add(i);
+                    } else {
+                        individualIndexes.add(i);
+                    }
+                }
+
+                for (Map.Entry<String, List<Integer>> mergeEntry : excelMergeGroups.entrySet()) {
+                    List<TaskSqlConfig> mergeSqls = new ArrayList<>();
+                    List<List<Map<String, Object>>> mergeDataList = new ArrayList<>();
+                    for (int idx : mergeEntry.getValue()) {
+                        TaskSqlConfig sql = group.get(idx);
+                        Map<String, Object> mergedParams = mergeSqlParams(sql, params);
+                        List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), mergedParams);
+                        mergeSqls.add(sql);
+                        mergeDataList.add(data);
+                        File chartFile = generateChartFile(task, sql, data);
+                        if (chartFile != null) {
+                            results.addChartFile(sql.getSqlCode(), chartFile);
+                        }
+                    }
+                    List<ExcelGenerationService.ExcelSheetSource> sources = new ArrayList<>();
+                    for (int i = 0; i < mergeSqls.size(); i++) {
+                        TaskSqlConfig sql = mergeSqls.get(i);
+                        List<Map<String, Object>> data = mergeDataList.get(i);
+                        if (data == null || data.isEmpty()) {
+                            continue;
+                        }
+                        boolean hasSheetNameColumn = !data.isEmpty() && data.get(0).containsKey("_sheet_name");
+                        if (hasSheetNameColumn) {
+                            Map<String, List<Map<String, Object>>> subGroups = new LinkedHashMap<>();
+                            for (Map<String, Object> row : data) {
+                                Object sheetNameValue = row.get("_sheet_name");
+                                String sheetName = sheetNameValue == null ? "" : sheetNameValue.toString();
+                                subGroups.computeIfAbsent(sheetName, k -> new ArrayList<>()).add(row);
+                            }
+                            for (Map.Entry<String, List<Map<String, Object>>> subEntry : subGroups.entrySet()) {
+                                sources.add(new ExcelGenerationService.ExcelSheetSource(subEntry.getKey(), stripSheetNameColumn(subEntry.getValue())));
+                            }
+                        } else {
+                            String sheetName = StringUtils.hasText(sql.getExcelSheetName()) ? sql.getExcelSheetName() : sql.getSqlName();
+                            sources.add(new ExcelGenerationService.ExcelSheetSource(sheetName, data));
+                        }
+                    }
+                    String extension = resolveExtension("EXCEL", mergeSqls.get(0).getFileSuffix());
+                    String outputPath = buildOutputPath(task, mergeSqls.get(0), extension);
+                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath));
+                }
+
+                for (int idx : individualIndexes) {
+                    TaskSqlConfig sql = group.get(idx);
                     Map<String, Object> mergedParams = mergeSqlParams(sql, params);
                     List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), mergedParams);
                     if ("INLINE".equalsIgnoreCase(sql.getOutputFormat())) {
@@ -325,6 +380,16 @@ public class TaskExecutionService {
         return context;
     }
 
+    private List<Map<String, Object>> stripSheetNameColumn(List<Map<String, Object>> data) {
+        List<Map<String, Object>> result = new ArrayList<>(data.size());
+        for (Map<String, Object> row : data) {
+            Map<String, Object> copy = new LinkedHashMap<>(row);
+            copy.remove("_sheet_name");
+            result.add(copy);
+        }
+        return result;
+    }
+
     private File resolveTemplateFile(String filePath) {
         if (!StringUtils.hasText(filePath)) {
             throw new IllegalArgumentException("模板文件路径为空");
@@ -366,7 +431,7 @@ public class TaskExecutionService {
         return switch (upperFormat) {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")
                     .process(createTempCsvTemplate(data), data, outputPath);
-            case "EXCEL" -> generateExcelFromData(data, outputPath);
+            case "EXCEL" -> excelGenerationService.generateSingleExcel(data, outputPath);
             case "TXT" -> {
                 File templateFile = createTempTemplate(upperFormat, data);
                 yield templateProcessorFactory.getProcessor(upperFormat)
@@ -378,53 +443,6 @@ public class TaskExecutionService {
                         .process(createTempCsvTemplate(data), data, csvPath);
             }
         };
-    }
-
-    private boolean isSequenceHeader(String header) {
-        if (header == null) {
-            return false;
-        }
-        String trimmed = header.trim();
-        return "序号".equals(trimmed) || "seq".equalsIgnoreCase(trimmed);
-    }
-
-    private File generateExcelFromData(List<Map<String, Object>> data, String outputPath) throws Exception {
-        File output = new File(outputPath);
-        try (Workbook workbook = new XSSFWorkbook();
-             FileOutputStream fos = new FileOutputStream(output)) {
-            Sheet sheet = workbook.createSheet("Sheet1");
-            if (!data.isEmpty()) {
-                List<String> headers = new ArrayList<>(data.get(0).keySet());
-                Row headerRow = sheet.createRow(0);
-                for (int i = 0; i < headers.size(); i++) {
-                    Cell cell = headerRow.createCell(i);
-                    cell.setCellValue(headers.get(i));
-                }
-                for (int i = 0; i < data.size(); i++) {
-                    Row row = sheet.createRow(i + 1);
-                    Map<String, Object> rowData = data.get(i);
-                    for (int c = 0; c < headers.size(); c++) {
-                        String header = headers.get(c);
-                        Object value = isSequenceHeader(header) ? i + 1 : rowData.get(header);
-                        setExcelCellValue(row.createCell(c), value);
-                    }
-                }
-            }
-            workbook.write(fos);
-        }
-        return output;
-    }
-
-    private void setExcelCellValue(Cell cell, Object value) {
-        if (value == null) {
-            cell.setBlank();
-        } else if (value instanceof Number number) {
-            cell.setCellValue(number.doubleValue());
-        } else if (value instanceof Boolean b) {
-            cell.setCellValue(b);
-        } else {
-            cell.setCellValue(value.toString());
-        }
     }
 
     private File createTempCsvTemplate(List<Map<String, Object>> data) throws Exception {

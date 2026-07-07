@@ -38,6 +38,8 @@ const form = ref<TaskSqlConfig>({
   chartTitle: "",
   chartAutoMerge: 1,
   chartLabelRotation: "AUTO",
+  excelMergeGroup: "",
+  excelSheetName: "",
   fileSuffix: "",
   fileNamePattern: "",
   customParams: "",
@@ -144,6 +146,8 @@ const resetForm = () => {
     chartTitle: "",
     chartAutoMerge: 1,
     chartLabelRotation: "AUTO",
+    excelMergeGroup: "",
+    excelSheetName: "",
     fileSuffix: "",
     fileNamePattern: "",
     customParams: "",
@@ -457,6 +461,30 @@ const handleClose = () => {
       <el-form-item v-if="form.outputFormat === 'EXCEL'">
         <span class="form-tip"
           >Excel 输出时，若 SQL 结果包含 <code>_sheet_name</code> 列，系统会自动按该列值分 sheet 生成；输出后该列不会写入单元格</span
+        >
+      </el-form-item>
+
+      <el-row :gutter="16" v-if="form.outputFormat === 'EXCEL'">
+        <el-col :span="12">
+          <el-form-item label="Excel 合并组">
+            <el-input
+              v-model="form.excelMergeGroup"
+              placeholder="同组合并到同一 Excel 文件（可选）"
+            />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="Sheet 名称">
+            <el-input
+              v-model="form.excelSheetName"
+              placeholder="默认使用 SQL 名称（可选）"
+            />
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-form-item v-if="form.outputFormat === 'EXCEL' && form.excelMergeGroup">
+        <span class="form-tip"
+          >同一合并组内：相同 Sheet 名称的 SQL 会追加到同一页，不同 Sheet 名称会分到多页</span
         >
       </el-form-item>
 

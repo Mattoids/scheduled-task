@@ -283,11 +283,19 @@ WHERE date >= '${firstDayOfLastMonth:yyyy/MM/dd}'
 | 格式 | 说明 |
 |------|------|
 | CSV | 默认，使用 SQL 列别名作为表头 |
-| EXCEL | 生成 `.xlsx`，使用 SQL 列别名作为表头；支持按 `_sheet_name` 列分 sheet |
+| EXCEL | 生成 `.xlsx`，使用 SQL 列别名作为表头；支持按 `_sheet_name` 列分 sheet，也支持通过 `excel_merge_group` + `excel_sheet_name` 实现多 SQL 合并输出 |
 | TXT | 按模板中 `${字段名}` 逐行渲染 |
 | WORD / PPT | 无模板时无法生成有效文件，自动回退为 CSV |
 
-**Excel 分 sheet**：当 SQL 结果中包含名为 `_sheet_name` 的列时，Excel 输出会自动按该列值分组，每个分组生成一个独立 sheet，sheet 名即为该列值。输出时 `_sheet_name` 列不会作为数据写入单元格。若不存在该列，则默认只生成一个名为 `数据` 的 sheet。
+**Excel 输出模式**：
+
+1. **默认单 sheet**：未配置合并组时，每个 SQL 独立生成一个 Excel 文件；若 SQL 结果包含 `_sheet_name` 列，则按该列值分 sheet，sheet 名即为列值，输出时 `_sheet_name` 列不会写入单元格。
+2. **多 SQL 写入同一 sheet**：在 SQL 管理中为多个 SQL 设置相同的 `excel_merge_group`，且 `excel_sheet_name` 相同；这些 SQL 的结果会追加到同一个 sheet 中，列头自动取并集。
+3. **多 SQL 写入多 sheet**：多个 SQL 设置相同的 `excel_merge_group`，但 `excel_sheet_name` 不同；系统会将它们输出到同一个 Excel 文件的不同 sheet。
+4. **单 SQL 写入多 sheet**：在 SQL 结果中包含 `_sheet_name` 列，系统按列值拆分为多个 sheet；该模式可与 `excel_merge_group` 结合使用。
+
+> `excel_merge_group`：Excel 合并组名，相同组名的 SQL 会合并到同一个 Excel 文件。  
+> `excel_sheet_name`：Excel 中的 sheet 名称；同一合并组内相同 sheet 名的 SQL 会追加到同一页，不同 sheet 名会创建新页；留空时默认使用 SQL 名称。
 
 ### SQL 图表生成
 

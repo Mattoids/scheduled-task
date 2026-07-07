@@ -57,6 +57,16 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private String chartLabelRotation;
 
+    /**
+     * Excel 合并组名，相同组名的 SQL 结果会合并到同一个 Excel 文件
+     */
+    private String excelMergeGroup;
+
+    /**
+     * Excel 中 sheet 页名称；同一合并组内相同 sheet 名的 SQL 会追加到同一页
+     */
+    private String excelSheetName;
+
     private String fileSuffix;
 
     private String fileNamePattern;

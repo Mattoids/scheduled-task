@@ -26,6 +26,8 @@ export interface TaskSqlConfig {
   chartTitle?: string
   chartAutoMerge?: number
   chartLabelRotation?: string
+  excelMergeGroup?: string
+  excelSheetName?: string
   fileSuffix?: string
   fileNamePattern?: string
   customParams?: string
