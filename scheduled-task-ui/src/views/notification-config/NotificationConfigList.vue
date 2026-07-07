@@ -27,6 +27,10 @@ const typeOptions = [
   { label: "企业微信应用", value: "WECOM_APP" },
   { label: "企业微信群机器人", value: "WECOM_BOT" },
   { label: "企业微信智能机器人", value: "WECOM_INTELLIGENT_BOT" },
+  { label: "钉钉群机器人", value: "DINGTALK" },
+  { label: "飞书群机器人", value: "FEISHU" },
+  { label: "Slack", value: "SLACK" },
+  { label: "Webhook", value: "WEBHOOK" },
 ];
 
 const formatType = (value?: string) => {

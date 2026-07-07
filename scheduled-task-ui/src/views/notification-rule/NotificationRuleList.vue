@@ -51,6 +51,10 @@ const channelOptions = [
   { label: "企业微信应用", value: "WECOM_APP" },
   { label: "企业微信机器人", value: "WECOM_BOT" },
   { label: "企业微信智能机器人", value: "WECOM_INTELLIGENT_BOT" },
+  { label: "钉钉群机器人", value: "DINGTALK" },
+  { label: "飞书群机器人", value: "FEISHU" },
+  { label: "Slack", value: "SLACK" },
+  { label: "Webhook", value: "WEBHOOK" },
 ];
 
 const configOptions = computed(() => {
@@ -63,11 +67,26 @@ const configOptions = computed(() => {
 
 const configPlaceholder = computed(() => {
   const channel = form.value.channel;
-  if (channel === "EMAIL") return "请选择邮箱配置";
-  if (channel === "WECOM_APP") return "请选择企业微信应用配置";
-  if (channel === "WECOM_BOT") return "请选择企业微信群机器人配置";
-  if (channel === "WECOM_INTELLIGENT_BOT") return "请选择企业微信智能机器人配置";
-  return "请选择配置";
+  switch (channel) {
+    case "EMAIL":
+      return "请选择邮箱配置";
+    case "WECOM_APP":
+      return "请选择企业微信应用配置";
+    case "WECOM_BOT":
+      return "请选择企业微信群机器人配置";
+    case "WECOM_INTELLIGENT_BOT":
+      return "请选择企业微信智能机器人配置";
+    case "DINGTALK":
+      return "请选择钉钉群机器人配置";
+    case "FEISHU":
+      return "请选择飞书群机器人配置";
+    case "SLACK":
+      return "请选择 Slack 配置";
+    case "WEBHOOK":
+      return "请选择 Webhook 配置";
+    default:
+      return "请选择配置";
+  }
 });
 
 const form = ref<NotificationRule>({
@@ -253,11 +272,7 @@ const handleSubmit = async () => {
       data.subject = undefined;
       data.body = undefined;
     }
-    if (
-      data.channel !== "WECOM_APP" &&
-      data.channel !== "WECOM_BOT" &&
-      data.channel !== "WECOM_INTELLIGENT_BOT"
-    ) {
+    if (data.channel === "WEBHOOK" || data.channel === "SLACK") {
       data.wecomToUser = undefined;
     }
     if (isEdit.value) {
@@ -427,6 +442,7 @@ onMounted(() => {
           <span v-if="row.channel === 'EMAIL'">
             {{ row.recipientIds || row.recipientGroupIds ? "已配置" : "-" }}
           </span>
+          <span v-else-if="row.channel === 'WEBHOOK' || row.channel === 'SLACK'">-</span>
           <span v-else>{{ row.wecomToUser || "-" }}</span>
         </template>
       </el-table-column>
@@ -604,18 +620,61 @@ onMounted(() => {
           v-if="
             form.channel === 'WECOM_APP' ||
             form.channel === 'WECOM_BOT' ||
-            form.channel === 'WECOM_INTELLIGENT_BOT'
+            form.channel === 'WECOM_INTELLIGENT_BOT' ||
+            form.channel === 'DINGTALK'
           "
         >
           <el-row :gutter="16">
             <el-col :span="12">
-              <el-form-item label="接收人">
+              <el-form-item :label="form.channel === 'DINGTALK' ? '被@手机号' : '接收人'">
                 <el-input
                   v-model="form.wecomToUser"
-                  placeholder="企业微信用户 ID，多个用 | 分隔，为空则不指定"
+                  :placeholder="
+                    form.channel === 'DINGTALK'
+                      ? '被@人的手机号，多个用 | 分隔，为空则不@'
+                      : '企业微信用户 ID，多个用 | 分隔，为空则不指定'
+                  "
                 />
               </el-form-item>
             </el-col>
+            <el-col :span="12">
+              <el-form-item label="存储配置">
+                <el-select
+                  v-model="form.storageConfigId"
+                  placeholder="未选择时直接发送文件，选择后上传到存储系统并发送链接"
+                  clearable
+                >
+                  <el-option
+                    v-for="item in storageConfigOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <el-row>
+            <el-col>
+              <el-form-item label="消息内容">
+                <RichTextEditor
+                    v-model="form.content"
+                    placeholder="支持占位符、Markdown 和 HTML 标签，可用 ${chart:sql编码} 插入 SQL 图表，留空使用默认内容"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
+
+        <template
+          v-if="
+            form.channel === 'FEISHU' ||
+            form.channel === 'SLACK' ||
+            form.channel === 'WEBHOOK'
+          "
+        >
+          <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="存储配置">
                 <el-select

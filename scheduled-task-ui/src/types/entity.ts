@@ -44,10 +44,20 @@ export interface TaskSqlGroup {
   updateTime?: string
 }
 
+export type NotificationChannel =
+  | 'EMAIL'
+  | 'WECOM_APP'
+  | 'WECOM_BOT'
+  | 'WECOM_INTELLIGENT_BOT'
+  | 'DINGTALK'
+  | 'FEISHU'
+  | 'SLACK'
+  | 'WEBHOOK'
+
 export interface NotificationRule {
   id?: number
   eventType: 'TASK_SUCCESS' | 'TASK_FAILURE' | 'TASK_COMPLETED'
-  channel: 'EMAIL' | 'WECOM_APP' | 'WECOM_BOT' | 'WECOM_INTELLIGENT_BOT'
+  channel: NotificationChannel
   configId?: number
   taskId?: number
   recipientIds?: string
@@ -180,7 +190,60 @@ export interface WeComBotConfig {
 export interface WeComIntelligentBotConfig {
   id?: number
   configName: string
-  webhookKey: string
+  mode?: 'LONGCHAIN' | 'CALLBACK'
+  corpId?: string
+  agentId?: number
+  secret?: string
+  botId?: string
+  botSecret?: string
+  token?: string
+  aesKey?: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface DingTalkConfig {
+  id?: number
+  configName: string
+  webhookUrl: string
+  secret?: string
+  atMobiles?: string
+  atAll?: number
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface FeishuConfig {
+  id?: number
+  configName: string
+  webhookUrl: string
+  secret?: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface SlackConfig {
+  id?: number
+  configName: string
+  webhookUrl: string
+  channel?: string
+  username?: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface WebhookConfig {
+  id?: number
+  configName: string
+  url: string
+  method?: 'GET' | 'POST' | 'PUT'
+  headers?: Record<string, string>
+  bodyTemplate?: string
+  timeoutSeconds?: number
   status?: number
   createTime?: string
   updateTime?: string
@@ -189,7 +252,7 @@ export interface WeComIntelligentBotConfig {
 export interface NotificationConfig {
   id?: number
   configName: string
-  configType: 'EMAIL' | 'WECOM_APP' | 'WECOM_BOT' | 'WECOM_INTELLIGENT_BOT'
+  configType: NotificationChannel
   configJson: any
   status?: number
   createTime?: string

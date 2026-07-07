@@ -56,6 +56,14 @@ const defaultConfigJson = (type: string) => {
       return { webhookKey: "" };
     case "WECOM_INTELLIGENT_BOT":
       return { mode: "LONGCHAIN", corpId: "", botId: "", botSecret: "" };
+    case "DINGTALK":
+      return { webhookUrl: "", secret: "", atMobiles: "", atAll: 0 };
+    case "FEISHU":
+      return { webhookUrl: "", secret: "" };
+    case "SLACK":
+      return { webhookUrl: "", channel: "", username: "" };
+    case "WEBHOOK":
+      return { url: "", method: "POST", headers: "", bodyTemplate: "", timeoutSeconds: 30 };
     default:
       return {};
   }
@@ -73,6 +81,10 @@ const typeOptions = [
   { label: "企业微信应用", value: "WECOM_APP" },
   { label: "企业微信群机器人", value: "WECOM_BOT" },
   { label: "企业微信智能机器人", value: "WECOM_INTELLIGENT_BOT" },
+  { label: "钉钉群机器人", value: "DINGTALK" },
+  { label: "飞书群机器人", value: "FEISHU" },
+  { label: "Slack", value: "SLACK" },
+  { label: "Webhook", value: "WEBHOOK" },
 ];
 
 const rules = {
@@ -86,6 +98,22 @@ const isEdit = computed(() => !!props.id);
 const title = computed(() =>
   isEdit.value ? "编辑通知配置" : "新增通知配置",
 );
+
+const headersText = computed({
+  get: () => {
+    const headers = form.value.configJson?.headers;
+    if (!headers) return "";
+    if (typeof headers === "string") return headers;
+    try {
+      return JSON.stringify(headers, null, 2);
+    } catch {
+      return "";
+    }
+  },
+  set: (val) => {
+    form.value.configJson.headers = val;
+  },
+});
 
 const resetForm = () => {
   form.value = {
@@ -143,6 +171,13 @@ watch(
 
 const buildSubmitData = () => {
   const data = { ...form.value };
+  if (data.configType === "WEBHOOK" && typeof data.configJson.headers === "string") {
+    try {
+      data.configJson.headers = JSON.parse(data.configJson.headers);
+    } catch {
+      data.configJson.headers = {};
+    }
+  }
   data.configJson =
     typeof data.configJson === "string"
       ? data.configJson
@@ -406,6 +441,119 @@ const handleTest = async () => {
             </el-col>
           </el-row>
         </template>
+      </template>
+
+      <template v-if="form.configType === 'DINGTALK'">
+        <el-form-item label="Webhook 地址" required>
+          <el-input
+            v-model="form.configJson.webhookUrl"
+            placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx"
+          />
+        </el-form-item>
+        <el-form-item label="加签密钥">
+          <el-input
+            v-model="form.configJson.secret"
+            type="password"
+            placeholder="机器人安全设置中的加签密钥"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item label="默认@手机号">
+          <el-input
+            v-model="form.configJson.atMobiles"
+            placeholder="被@人的手机号，多个用逗号分隔（可选）"
+          />
+        </el-form-item>
+        <el-form-item label="@所有人">
+          <el-switch
+            v-model="form.configJson.atAll"
+            :active-value="1"
+            :inactive-value="0"
+          />
+        </el-form-item>
+      </template>
+
+      <template v-if="form.configType === 'FEISHU'">
+        <el-form-item label="Webhook 地址" required>
+          <el-input
+            v-model="form.configJson.webhookUrl"
+            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+          />
+        </el-form-item>
+        <el-form-item label="加签密钥">
+          <el-input
+            v-model="form.configJson.secret"
+            type="password"
+            placeholder="机器人安全设置中的签名校验密钥"
+            show-password
+          />
+        </el-form-item>
+      </template>
+
+      <template v-if="form.configType === 'SLACK'">
+        <el-form-item label="Webhook 地址" required>
+          <el-input
+            v-model="form.configJson.webhookUrl"
+            placeholder="https://hooks.slack.com/services/..."
+          />
+        </el-form-item>
+        <el-form-item label="频道">
+          <el-input
+            v-model="form.configJson.channel"
+            placeholder="#general（留空使用 Webhook 默认频道）"
+          />
+        </el-form-item>
+        <el-form-item label="发送者名称">
+          <el-input
+            v-model="form.configJson.username"
+            placeholder="Scheduled Task Bot"
+          />
+        </el-form-item>
+      </template>
+
+      <template v-if="form.configType === 'WEBHOOK'">
+        <el-form-item label="请求地址" required>
+          <el-input
+            v-model="form.configJson.url"
+            placeholder="https://example.com/api/notify"
+          />
+        </el-form-item>
+        <el-form-item label="请求方法" required>
+          <el-select v-model="form.configJson.method" placeholder="请选择请求方法">
+            <el-option label="GET" value="GET" />
+            <el-option label="POST" value="POST" />
+            <el-option label="PUT" value="PUT" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="请求头">
+          <el-input
+            v-model="headersText"
+            type="textarea"
+            :rows="4"
+            placeholder='{"Content-Type":"application/json"}'
+          />
+        </el-form-item>
+        <el-form-item label="请求体模板">
+          <el-input
+            v-model="form.configJson.bodyTemplate"
+            type="textarea"
+            :rows="6"
+            placeholder='{"title":"${title}","content":"${content}"}'
+          />
+        </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="超时秒数">
+              <el-input-number
+                v-model="form.configJson.timeoutSeconds"
+                :min="1"
+                :max="300"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </template>
 
       <el-form-item label="状态">
