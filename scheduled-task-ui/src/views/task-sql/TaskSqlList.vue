@@ -44,6 +44,7 @@ const groupFormId = ref<number | undefined>(undefined);
 
 const datasourceOptions = ref<{ label: string; value: number }[]>([]);
 const templateOptions = ref<{ label: string; value: string }[]>([]);
+const templateFileOptions = ref<{ label: string; value: string; templateType: string }[]>([]);
 const groupOptions = ref<
   { label: string; value: string; fileNamePattern?: string }[]
 >([]);
@@ -63,6 +64,13 @@ const loadOptions = async () => {
     .map((item: any) => ({
       label: `${item.templateName} (${item.templateType})`,
       value: String(item.templateCode),
+    }));
+  templateFileOptions.value = (tpl.records || [])
+    .filter((item: any) => item.filePath)
+    .map((item: any) => ({
+      label: `${item.templateName} (${item.templateType})`,
+      value: String(item.filePath),
+      templateType: String(item.templateType),
     }));
   groupOptions.value = (grp || [])
     .filter((item: TaskSqlGroup) => item.groupCode)
@@ -405,6 +413,7 @@ onMounted(() => {
       :id="formId"
       :datasource-options="datasourceOptions"
       :template-options="templateOptions"
+      :template-file-options="templateFileOptions"
       :group-options="groupOptions"
       @success="onFormSuccess"
     />

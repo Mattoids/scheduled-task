@@ -55,6 +55,7 @@ public class TaskExecutionService {
     private final TaskDependencyService taskDependencyService;
     private final ChartGenerationService chartGenerationService;
     private final ExcelGenerationService excelGenerationService;
+    private final ExcelLoopHelper excelLoopHelper;
 
     public TaskExecutionService(TaskConfigMapper taskConfigMapper,
                                 TaskLogMapper taskLogMapper,
@@ -68,7 +69,8 @@ public class TaskExecutionService {
                                 TaskSqlGroupService taskSqlGroupService,
                                 TaskDependencyService taskDependencyService,
                                 ChartGenerationService chartGenerationService,
-                                ExcelGenerationService excelGenerationService) {
+                                ExcelGenerationService excelGenerationService,
+                                ExcelLoopHelper excelLoopHelper) {
         this.taskConfigMapper = taskConfigMapper;
         this.taskLogMapper = taskLogMapper;
         this.sqlExecutor = sqlExecutor;
@@ -82,6 +84,7 @@ public class TaskExecutionService {
         this.taskDependencyService = taskDependencyService;
         this.chartGenerationService = chartGenerationService;
         this.excelGenerationService = excelGenerationService;
+        this.excelLoopHelper = excelLoopHelper;
     }
 
     public void executeTask(Long taskId, String triggerMode) {
@@ -252,8 +255,7 @@ public class TaskExecutionService {
                     List<List<Map<String, Object>>> mergeDataList = new ArrayList<>();
                     for (int idx : mergeEntry.getValue()) {
                         TaskSqlConfig sql = group.get(idx);
-                        Map<String, Object> mergedParams = mergeSqlParams(sql, params);
-                        List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), mergedParams);
+                        List<Map<String, Object>> data = executeSqlWithLoop(sql, params);
                         mergeSqls.add(sql);
                         mergeDataList.add(data);
                         File chartFile = generateChartFile(task, sql, data);
@@ -286,13 +288,21 @@ public class TaskExecutionService {
                     }
                     String extension = resolveExtension("EXCEL", mergeSqls.get(0).getFileSuffix());
                     String outputPath = buildOutputPath(task, mergeSqls.get(0), extension);
-                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath));
+                    String baseFilePath = null;
+                    if (isAppendModeEnabled(mergeSqls.get(0))) {
+                        File baseFile = resolveBaseFile(mergeSqls.get(0));
+                        String appendOutputPath = resolveAppendOutputPath(mergeSqls.get(0), extension);
+                        if (StringUtils.hasText(appendOutputPath)) {
+                            outputPath = appendOutputPath;
+                            baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+                        }
+                    }
+                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath));
                 }
 
                 for (int idx : individualIndexes) {
                     TaskSqlConfig sql = group.get(idx);
-                    Map<String, Object> mergedParams = mergeSqlParams(sql, params);
-                    List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), mergedParams);
+                    List<Map<String, Object>> data = executeSqlWithLoop(sql, params);
                     if ("INLINE".equalsIgnoreCase(sql.getOutputFormat())) {
                         results.addInline(new InlineSqlResult(sql.getSqlName(), sql.getSqlCode(), data));
                     } else {
@@ -325,6 +335,19 @@ public class TaskExecutionService {
             merged.putAll(params);
         }
         return merged;
+    }
+
+    private List<Map<String, Object>> executeSqlWithLoop(TaskSqlConfig sqlConfig, Map<String, Object> params) throws Exception {
+        Map<String, Object> mergedParams = mergeSqlParams(sqlConfig, params);
+        if (!excelLoopHelper.isLoopEnabled(sqlConfig)) {
+            return sqlExecutor.executeQuery(sqlConfig.getDatasourceId(), sqlConfig.getSqlContent(), mergedParams);
+        }
+        List<ExcelLoopHelper.LoopIterationResult> iterations = excelLoopHelper.expandLoop(sqlConfig, mergedParams);
+        List<Map<String, Object>> combined = new ArrayList<>();
+        for (ExcelLoopHelper.LoopIterationResult iteration : iterations) {
+            combined.addAll(iteration.data());
+        }
+        return combined;
     }
 
     private static class SqlExecutionResults {
@@ -533,13 +556,20 @@ public class TaskExecutionService {
         File templateFile = resolveTemplateFile(template.getFilePath());
         String extension = resolveExtension(templateType, sqlConfigs.get(0).getFileSuffix());
         String outputFileName = buildOutputPath(task, sqlConfigs.get(0), extension);
+        File baseFile = null;
+        if (isAppendModeEnabled(sqlConfigs.get(0))) {
+            baseFile = resolveBaseFile(sqlConfigs.get(0));
+            String appendOutputPath = resolveAppendOutputPath(sqlConfigs.get(0), extension);
+            if (StringUtils.hasText(appendOutputPath)) {
+                outputFileName = appendOutputPath;
+            }
+        }
 
         File currentFile = templateFile;
         File previousTempFile = null;
         for (int i = 0; i < sqlConfigs.size(); i++) {
             TaskSqlConfig sql = sqlConfigs.get(i);
-            Map<String, Object> mergedParams = mergeSqlParams(sql, params);
-            List<Map<String, Object>> data = sqlExecutor.executeQuery(sql.getDatasourceId(), sql.getSqlContent(), mergedParams);
+            List<Map<String, Object>> data = executeSqlWithLoop(sql, params);
             File chartFile = generateChartFile(task, sql, data);
             if (chartFile != null) {
                 results.addChartFile(sql.getSqlCode(), chartFile);
@@ -552,6 +582,13 @@ public class TaskExecutionService {
                 Files.deleteIfExists(previousTempFile.toPath());
             }
             previousTempFile = isLast ? null : currentFile;
+        }
+        if (baseFile != null) {
+            File finalOutput = new File(outputFileName);
+            excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName);
+            if (!currentFile.equals(finalOutput)) {
+                Files.deleteIfExists(currentFile.toPath());
+            }
         }
         return new File(outputFileName);
     }
@@ -591,6 +628,31 @@ public class TaskExecutionService {
         return Paths.get(uploadPath, filePath).toFile();
     }
 
+    private boolean isAppendModeEnabled(TaskSqlConfig sqlConfig) {
+        return sqlConfig.getExcelAppendMode() != null && sqlConfig.getExcelAppendMode() == 1;
+    }
+
+    private File resolveBaseFile(TaskSqlConfig sqlConfig) {
+        String baseFilePath = sqlConfig.getExcelBaseFilePath();
+        if (!StringUtils.hasText(baseFilePath)) {
+            return null;
+        }
+        String resolved = PlaceholderUtils.replacePlaceholders(baseFilePath);
+        Path path = Paths.get(resolved);
+        if (path.isAbsolute()) {
+            return path.toFile();
+        }
+        return Paths.get(uploadPath, resolved).toFile();
+    }
+
+    private String resolveAppendOutputPath(TaskSqlConfig sqlConfig, String extension) {
+        File baseFile = resolveBaseFile(sqlConfig);
+        if (baseFile == null) {
+            return null;
+        }
+        return ensureExtension(baseFile.getAbsolutePath(), extension);
+    }
+
     private File generateChartFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) {
         if (sqlConfig.getChartEnabled() == null || sqlConfig.getChartEnabled() != 1) {
             return null;
@@ -617,13 +679,36 @@ public class TaskExecutionService {
         String upperFormat = outputFormat.toUpperCase();
         String extension = resolveExtension(upperFormat, sqlConfig.getFileSuffix());
         String outputPath = buildOutputPath(task, sqlConfig, extension);
+        String baseFilePath = null;
+        if (isAppendModeEnabled(sqlConfig)) {
+            File baseFile = resolveBaseFile(sqlConfig);
+            String appendOutputPath = resolveAppendOutputPath(sqlConfig, extension);
+            if (StringUtils.hasText(appendOutputPath)) {
+                outputPath = appendOutputPath;
+                baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+            }
+        }
 
         return switch (upperFormat) {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")
                     .process(createTempCsvTemplate(data), data, outputPath);
             case "EXCEL" -> {
-                String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
-                yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName);
+                if (data != null && !data.isEmpty() && data.get(0).containsKey("_sheet_name")) {
+                    Map<String, List<Map<String, Object>>> subGroups = new LinkedHashMap<>();
+                    for (Map<String, Object> row : data) {
+                        Object sheetNameValue = row.get("_sheet_name");
+                        String sheetName = sheetNameValue == null ? "" : sheetNameValue.toString();
+                        subGroups.computeIfAbsent(sheetName, k -> new ArrayList<>()).add(row);
+                    }
+                    List<ExcelGenerationService.ExcelSheetSource> sources = new ArrayList<>();
+                    for (Map.Entry<String, List<Map<String, Object>>> subEntry : subGroups.entrySet()) {
+                        sources.add(new ExcelGenerationService.ExcelSheetSource(subEntry.getKey(), stripSheetNameColumn(subEntry.getValue())));
+                    }
+                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath);
+                } else {
+                    String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
+                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath);
+                }
             }
             case "TXT" -> {
                 File templateFile = createTempTemplate(upperFormat, data);

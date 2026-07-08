@@ -9,6 +9,7 @@ interface Props {
   id?: number;
   datasourceOptions: { label: string; value: number }[];
   templateOptions: { label: string; value: string }[];
+  templateFileOptions: { label: string; value: string; templateType: string }[];
   groupOptions: { label: string; value: string; fileNamePattern?: string }[];
 }
 
@@ -41,11 +42,44 @@ const form = ref<TaskSqlConfig>({
   chartBackgroundColor: "",
   excelMergeGroup: "",
   excelSheetName: "",
+  excelLoopEnabled: 0,
+  excelLoopConfig: "",
+  excelAppendMode: 0,
+  excelBaseFilePath: "",
   fileSuffix: "",
   fileNamePattern: "",
   customParams: "",
   description: "",
   status: 1,
+});
+
+const loopConfigForm = ref({
+  startExpr: "",
+  endExpr: "",
+  unit: "MONTH",
+  step: 1,
+  sheetNameExpr: "${loopValue:yyyy年MM月}",
+  condition: "",
+  skipEmptySheet: false,
+});
+
+const selectedAppendFile = ref("");
+
+const loopUnitOptions = [
+  { label: "月", value: "MONTH" },
+  { label: "天", value: "DAY" },
+  { label: "周", value: "WEEK" },
+  { label: "年", value: "YEAR" },
+];
+
+const isExcelOutput = computed(() => form.value.outputFormat === "EXCEL");
+const isLoopEnabled = computed(() => form.value.excelLoopEnabled === 1);
+const isAppendEnabled = computed(() => form.value.excelAppendMode === 1);
+
+watch(selectedAppendFile, (val) => {
+  if (val) {
+    form.value.excelBaseFilePath = val;
+  }
 });
 
 const defaultTime = ref("");
@@ -174,12 +208,26 @@ const resetForm = () => {
     chartBackgroundColor: "",
     excelMergeGroup: "",
     excelSheetName: "",
+    excelLoopEnabled: 0,
+    excelLoopConfig: "",
+    excelAppendMode: 0,
+    excelBaseFilePath: "",
     fileSuffix: "",
     fileNamePattern: "",
     customParams: "",
     description: "",
     status: 1,
   };
+  loopConfigForm.value = {
+    startExpr: "",
+    endExpr: "",
+    unit: "MONTH",
+    step: 1,
+    sheetNameExpr: "${loopValue:yyyy年MM月}",
+    condition: "",
+    skipEmptySheet: false,
+  };
+  selectedAppendFile.value = "";
   defaultTime.value = "";
   defaultTimeDays.value = 7;
 };
@@ -303,12 +351,30 @@ const loadDetail = async () => {
       ...res,
       customParams: res.customParams || "",
     };
-    defaultTime.value = "";
     if (res.outputFormat === "INLINE") {
       form.value.templateCode = undefined;
       form.value.fileSuffix = "";
       form.value.fileNamePattern = "";
     }
+    if (res.excelLoopConfig) {
+      try {
+        const parsed = JSON.parse(res.excelLoopConfig);
+        loopConfigForm.value = {
+          startExpr: parsed.startExpr || "",
+          endExpr: parsed.endExpr || "",
+          unit: parsed.unit || "MONTH",
+          step: parsed.step ?? 1,
+          sheetNameExpr: parsed.sheetNameExpr || "${loopValue:yyyy年MM月}",
+          condition: parsed.condition || "",
+          skipEmptySheet: parsed.skipEmptySheet || false,
+        };
+      } catch {
+        // 非法 JSON 忽略
+      }
+    }
+    selectedAppendFile.value =
+      props.templateFileOptions.find((item) => item.value === res.excelBaseFilePath)?.value ||
+      "";
   } finally {
     loading.value = false;
   }
@@ -347,6 +413,22 @@ const handleSubmit = async () => {
       templateCode: form.value.templateCode ?? "",
       groupCode: form.value.groupCode ?? "",
       customParams: raw || undefined,
+      excelLoopConfig:
+        form.value.excelLoopEnabled === 1
+          ? JSON.stringify(
+              {
+                startExpr: loopConfigForm.value.startExpr,
+                endExpr: loopConfigForm.value.endExpr,
+                unit: loopConfigForm.value.unit,
+                step: loopConfigForm.value.step,
+                sheetNameExpr: loopConfigForm.value.sheetNameExpr,
+                condition: loopConfigForm.value.condition,
+                skipEmptySheet: loopConfigForm.value.skipEmptySheet,
+              },
+              null,
+              2,
+            )
+          : undefined,
     };
     if (isEdit.value) {
       await updateTaskSql(props.id!, payload);
@@ -515,6 +597,119 @@ const handleClose = () => {
           >同一合并组内：相同 Sheet 名称的 SQL 会追加到同一页，不同 Sheet 名称会分到多页</span
         >
       </el-form-item>
+
+      <template v-if="isExcelOutput">
+        <el-divider content-position="left">Excel 循环生成</el-divider>
+        <el-form-item>
+          <el-switch
+            v-model="form.excelLoopEnabled"
+            :active-value="1"
+            :inactive-value="0"
+            active-text="启用循环"
+            inactive-text="禁用循环"
+          />
+          <span class="form-tip" style="margin-left: 12px"
+            >启用后系统会按配置循环执行 SQL，每次循环结果生成独立 sheet</span
+          >
+        </el-form-item>
+
+        <template v-if="isLoopEnabled">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="开始表达式">
+                <el-input
+                  v-model="loopConfigForm.startExpr"
+                  placeholder="如 2025-05 或 {firstDayOfLastMonth}"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="结束表达式">
+                <el-input
+                  v-model="loopConfigForm.endExpr"
+                  placeholder="如 {currentMonth} 或 2026-12"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="循环单位">
+                <el-select v-model="loopConfigForm.unit" style="width: 100%">
+                  <el-option
+                    v-for="item in loopUnitOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="步长">
+                <el-input-number v-model="loopConfigForm.step" :min="1" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="Sheet 名称">
+            <el-input
+              v-model="loopConfigForm.sheetNameExpr"
+              placeholder="如 ${loopValue:yyyy年MM月}"
+            />
+            <span class="form-tip"
+              >支持 ${loopValue}、${loopIndex}、${loopStart}、${loopEnd}、${loopStartTime}、${loopEndTime} 等变量，如 ${loopValue:yyyy年MM月}、${loopStartTime:yyyy-MM-dd HH:mm:ss}</span
+            >
+          </el-form-item>
+          <el-form-item label="循环条件">
+            <el-input
+              v-model="loopConfigForm.condition"
+              placeholder="可选 SpEL 条件，如 #loopIndex < 12"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-checkbox v-model="loopConfigForm.skipEmptySheet"
+              >结果为空时跳过生成该 sheet</el-checkbox
+            >
+          </el-form-item>
+        </template>
+      </template>
+
+      <template v-if="isExcelOutput">
+        <el-divider content-position="left">Excel 追加模式</el-divider>
+        <el-form-item>
+          <el-switch
+            v-model="form.excelAppendMode"
+            :active-value="1"
+            :inactive-value="0"
+            active-text="追加到基础文件"
+            inactive-text="生成新文件"
+          />
+          <span class="form-tip" style="margin-left: 12px"
+            >启用后会将新 sheet 追加到基础 Excel 文件；同名 sheet 自动跳过</span
+          >
+        </el-form-item>
+        <el-form-item v-if="isAppendEnabled" label="追加文件">
+          <el-select
+            v-model="selectedAppendFile"
+            placeholder="请选择要追加的 Excel 文件（可选）"
+            clearable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in templateFileOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="isAppendEnabled" label="基础文件路径">
+          <el-input
+            v-model="form.excelBaseFilePath"
+            placeholder="如 reports/2026渠道数据.xlsx，支持 {yyyy} 等占位符"
+          />
+        </el-form-item>
+      </template>
 
       <el-row :gutter="16">
         <el-col :span="12">

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -128,6 +129,38 @@ class ExcelGenerationServiceTest {
         try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {
             assertEquals(1, workbook.getNumberOfSheets());
             assertEquals("Sheet1", workbook.getSheetAt(0).getSheetName());
+        }
+    }
+
+    @Test
+    void shouldAppendNewSheetsAndSkipExisting() throws Exception {
+        File base = File.createTempFile("excel_base_", ".xlsx");
+        base.deleteOnExit();
+        try (Workbook baseWorkbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(base)) {
+            Sheet sheet = baseWorkbook.createSheet("Existing");
+            Row row = sheet.createRow(0);
+            row.createCell(0).setCellValue("existing");
+            baseWorkbook.write(fos);
+        }
+
+        List<Map<String, Object>> data = List.of(row("name", "A", "value", 1));
+        File output = File.createTempFile("excel_append_", ".xlsx");
+        output.deleteOnExit();
+
+        List<ExcelGenerationService.ExcelSheetSource> sources = List.of(
+                new ExcelGenerationService.ExcelSheetSource("Existing", data),
+                new ExcelGenerationService.ExcelSheetSource("New", data)
+        );
+        File result = service.generateMergedExcel(sources, output.getAbsolutePath(), base.getAbsolutePath());
+        assertNotNull(result);
+
+        try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {
+            assertEquals(2, workbook.getNumberOfSheets());
+            assertNotNull(workbook.getSheet("Existing"));
+            assertNotNull(workbook.getSheet("New"));
+            assertEquals(1, workbook.getSheet("Existing").getLastRowNum() + 1);
+            assertEquals(2, workbook.getSheet("New").getLastRowNum() + 1);
         }
     }
 

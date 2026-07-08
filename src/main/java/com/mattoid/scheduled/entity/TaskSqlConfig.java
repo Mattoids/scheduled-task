@@ -72,6 +72,26 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private String excelSheetName;
 
+    /**
+     * 是否启用 Excel 循环生成 sheet：1 启用，0 禁用
+     */
+    private Integer excelLoopEnabled;
+
+    /**
+     * Excel 循环生成配置 JSON
+     */
+    private String excelLoopConfig;
+
+    /**
+     * 是否启用 Excel 追加模式：1 启用，0 禁用
+     */
+    private Integer excelAppendMode;
+
+    /**
+     * Excel 基础文件路径（追加模式），支持占位符
+     */
+    private String excelBaseFilePath;
+
     private String fileSuffix;
 
     private String fileNamePattern;

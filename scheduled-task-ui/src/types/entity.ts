@@ -30,6 +30,10 @@ export interface TaskSqlConfig {
   chartBackgroundColor?: string
   excelMergeGroup?: string
   excelSheetName?: string
+  excelLoopEnabled?: number
+  excelLoopConfig?: string
+  excelAppendMode?: number
+  excelBaseFilePath?: string
   fileSuffix?: string
   fileNamePattern?: string
   customParams?: string

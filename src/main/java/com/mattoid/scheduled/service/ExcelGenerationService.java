@@ -1,7 +1,9 @@
 package com.mattoid.scheduled.service;
 
 import com.mattoid.scheduled.util.PlaceholderUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -10,19 +12,31 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.*;
 
+@Slf4j
 @Service
 public class ExcelGenerationService {
 
     private static final int MAX_SHEET_NAME_LENGTH = 31;
 
     public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName) throws Exception {
+        return generateSingleExcel(data, outputPath, sheetName, null);
+    }
+
+    public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName, String baseFilePath) throws Exception {
         String resolvedSheetName = resolveSheetName(sheetName);
-        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath);
+        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath, baseFilePath);
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath) throws Exception {
+        return generateMergedExcel(sources, outputPath, null);
+    }
+
+    public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath, String baseFilePath) throws Exception {
         File output = new File(outputPath);
-        try (Workbook workbook = new XSSFWorkbook();
+        File baseFile = StringUtils.hasText(baseFilePath) ? new File(baseFilePath) : null;
+        boolean useBaseFile = baseFile != null && baseFile.exists();
+
+        try (Workbook workbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
              FileOutputStream fos = new FileOutputStream(output)) {
             Map<String, SheetInfo> sheets = new LinkedHashMap<>();
 
@@ -30,16 +44,91 @@ public class ExcelGenerationService {
                 if (source.data() == null || source.data().isEmpty()) {
                     continue;
                 }
+                String resolvedSheetName = resolveSheetName(source.sheetName());
+                if (useBaseFile && workbook.getSheet(resolvedSheetName) != null) {
+                    log.info("Excel 追加模式跳过已存在 sheet: {}", resolvedSheetName);
+                    continue;
+                }
                 writeDataToSheet(workbook, sheets, source.sheetName(), source.data());
             }
 
-            if (sheets.isEmpty()) {
+            if (sheets.isEmpty() && workbook.getNumberOfSheets() == 0) {
                 workbook.createSheet("Sheet1");
             }
 
             workbook.write(fos);
         }
         return output;
+    }
+
+    /**
+     * 将 sourceFile 中的所有 sheet 按名称合并到 baseFile 中，baseFile 中已存在的 sheet 会被跳过。
+     */
+    public File appendSheetsToBaseFile(File baseFile, File sourceFile, String outputPath) throws Exception {
+        File output = new File(outputPath);
+        boolean useBaseFile = baseFile != null && baseFile.exists();
+        try (Workbook baseWorkbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
+             Workbook sourceWorkbook = WorkbookFactory.create(sourceFile);
+             FileOutputStream fos = new FileOutputStream(output)) {
+            for (int i = 0; i < sourceWorkbook.getNumberOfSheets(); i++) {
+                Sheet sourceSheet = sourceWorkbook.getSheetAt(i);
+                String sheetName = sourceSheet.getSheetName();
+                if (baseWorkbook.getSheet(sheetName) != null) {
+                    log.info("Excel 追加模式跳过已存在 sheet: {}", sheetName);
+                    continue;
+                }
+                Sheet targetSheet = baseWorkbook.createSheet(sheetName);
+                copySheet(sourceSheet, targetSheet);
+            }
+            if (baseWorkbook.getNumberOfSheets() == 0) {
+                baseWorkbook.createSheet("Sheet1");
+            }
+            baseWorkbook.write(fos);
+        }
+        return output;
+    }
+
+    private void copySheet(Sheet sourceSheet, Sheet targetSheet) {
+        Workbook targetWorkbook = targetSheet.getWorkbook();
+        Map<CellStyle, CellStyle> styleCache = new HashMap<>();
+        for (Row sourceRow : sourceSheet) {
+            Row targetRow = targetSheet.createRow(sourceRow.getRowNum());
+            if (sourceRow.getRowStyle() != null) {
+                CellStyle cached = styleCache.computeIfAbsent(sourceRow.getRowStyle(), s -> {
+                    CellStyle targetStyle = targetWorkbook.createCellStyle();
+                    targetStyle.cloneStyleFrom(s);
+                    return targetStyle;
+                });
+                targetRow.setRowStyle(cached);
+            }
+            for (Cell sourceCell : sourceRow) {
+                Cell targetCell = targetRow.createCell(sourceCell.getColumnIndex(), sourceCell.getCellType());
+                copyCellValue(sourceCell, targetCell);
+                if (sourceCell.getCellStyle() != null) {
+                    CellStyle cached = styleCache.computeIfAbsent(sourceCell.getCellStyle(), s -> {
+                        CellStyle targetStyle = targetWorkbook.createCellStyle();
+                        targetStyle.cloneStyleFrom(s);
+                        return targetStyle;
+                    });
+                    targetCell.setCellStyle(cached);
+                }
+            }
+        }
+        for (int i = 0; i < sourceSheet.getNumMergedRegions(); i++) {
+            CellRangeAddress region = sourceSheet.getMergedRegion(i);
+            targetSheet.addMergedRegion(region);
+        }
+    }
+
+    private void copyCellValue(Cell source, Cell target) {
+        switch (source.getCellType()) {
+            case STRING -> target.setCellValue(source.getStringCellValue());
+            case NUMERIC -> target.setCellValue(source.getNumericCellValue());
+            case BOOLEAN -> target.setCellValue(source.getBooleanCellValue());
+            case FORMULA -> target.setCellFormula(source.getCellFormula());
+            case BLANK -> target.setBlank();
+            default -> target.setCellValue(source.toString());
+        }
     }
 
     private void writeDataToSheet(Workbook workbook, Map<String, SheetInfo> sheets,
