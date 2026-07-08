@@ -90,6 +90,18 @@ public class SqlExecutor {
      *   lastDayOfThisMonth   -> 本月最后一天（默认 yyyy-MM-dd）
      *   firstDayOfLastMonth  -> 上月第一天（默认 yyyy-MM-dd）
      *   lastDayOfLastMonth   -> 上月最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfThisYear   -> 今年第一天（默认 yyyy-MM-dd）
+     *   lastDayOfThisYear    -> 今年最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfLastYear   -> 去年第一天（默认 yyyy-MM-dd）
+     *   lastDayOfLastYear    -> 去年最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfNextYear   -> 明年第一天（默认 yyyy-MM-dd）
+     *   lastDayOfNextYear    -> 明年最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfThisQuarter-> 本季度第一天（默认 yyyy-MM-dd）
+     *   lastDayOfThisQuarter -> 本季度最后一天（默认 yyyy-MM-dd）
+     *   firstDayOfLastQuarter-> 上季度第一天（默认 yyyy-MM-dd）
+     *   lastDayOfLastQuarter -> 上季度最后一天（默认 yyyy-MM-dd）
+     *   yesterday            -> 昨天（默认 yyyy-MM-dd）
+     *   tomorrow             -> 明天（默认 yyyy-MM-dd）
      * 也可通过 ${var:format} 自定义格式，如 ${lastMonth:MM}、${year:yy}、${firstDayOfLastMonth:yyyy-MM-dd}。
      */
     String processSqlVariables(String sql, Map<String, Object> params) {
@@ -207,7 +219,13 @@ public class SqlExecutor {
             case "firstDayOfThisWeek", "lastDayOfThisWeek",
                     "firstDayOfLastWeek", "lastDayOfLastWeek",
                     "firstDayOfThisMonth", "lastDayOfThisMonth",
-                    "firstDayOfLastMonth", "lastDayOfLastMonth" -> {
+                    "firstDayOfLastMonth", "lastDayOfLastMonth",
+                    "firstDayOfThisYear", "lastDayOfThisYear",
+                    "firstDayOfLastYear", "lastDayOfLastYear",
+                    "firstDayOfNextYear", "lastDayOfNextYear",
+                    "firstDayOfThisQuarter", "lastDayOfThisQuarter",
+                    "firstDayOfLastQuarter", "lastDayOfLastQuarter",
+                    "yesterday", "tomorrow" -> {
                 Object builtIn = PlaceholderUtils.resolveBuiltInVariable(variable);
                 yield builtIn != null ? format(builtIn, format, "yyyy-MM-dd") : null;
             }

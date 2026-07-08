@@ -1,1 +1,0 @@
-import{a as e}from"./index-DVc8_bDz.js";var t=t=>e.get(`/template/page`,{params:t}),n=e=>t({...e,current:1,size:1e3}),r=t=>e.post(`/template/upload`,t,{headers:{"Content-Type":`multipart/form-data`}}),i=(t,n)=>e.put(`/template/${t}`,n),a=t=>e.delete(`/template/${t}`);export{r as a,i,n,t as r,a as t};

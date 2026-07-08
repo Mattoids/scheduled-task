@@ -266,6 +266,18 @@ SELECT * FROM orders WHERE date >= '${startTime:yyyy-MM-dd}';
 | `${lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` |
 | `${firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` |
 | `${lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfThisYear}` | 今年第一天 | `yyyy-MM-dd` |
+| `${lastDayOfThisYear}` | 今年最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfLastYear}` | 去年第一天 | `yyyy-MM-dd` |
+| `${lastDayOfLastYear}` | 去年最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfNextYear}` | 明年第一天 | `yyyy-MM-dd` |
+| `${lastDayOfNextYear}` | 明年最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfThisQuarter}` | 本季度第一天 | `yyyy-MM-dd` |
+| `${lastDayOfThisQuarter}` | 本季度最后一天 | `yyyy-MM-dd` |
+| `${firstDayOfLastQuarter}` | 上季度第一天 | `yyyy-MM-dd` |
+| `${lastDayOfLastQuarter}` | 上季度最后一天 | `yyyy-MM-dd` |
+| `${yesterday}` | 昨天 | `yyyy-MM-dd` |
+| `${tomorrow}` | 明天 | `yyyy-MM-dd` |
 
 内置变量同样支持格式后缀：
 
@@ -431,7 +443,7 @@ ${chart:daily_sales}
 3. ...
 4. 最后一条 SQL 生成最终报表文件
 
-该机制常用于 Word / PPT 中先替换基础信息，再展开明细表格。
+该机制常用于 Word / PPT / Excel 中先替换基础信息，再展开明细表格或汇总区域。
 
 ## 模板说明
 
@@ -448,22 +460,35 @@ ${chart:daily_sales}
 
 ### Excel 模板
 
-- 第一行为表头，可使用 `${字段名}` 或纯字段名
-- 系统从第二行开始按 SQL 结果逐行填充
-- 表头下方无需预留样例行
-- 支持 `${chart}` / `${chart:sql编码}` 占位符插入图表图片；建议将占位符放在独立单元格，避免被数据填充覆盖
+- 第一行可使用纯文本作为**显示表头**（如 `城市`、`门店`），其下方的 `${字段名}` 行作为数据起始行；此时 `${字段名}` 所在行会被第一条数据替换，第二行开始写入第二条数据。
+- 如果没有显示表头，则 `${字段名}` 行作为字段名表头，数据从下一行开始填充。
+- 同一 sheet 中，多个不相邻的 `${}` 列组会被识别为独立数据区域；多 SQL 链式处理时，每个 SQL 只展开自己匹配的区域列，不会把其他区域的内容整体向下推。
+- 支持**自动汇总行**：在某个数据区域下方的行中，如果在该区域列范围内包含 `SUM` 公式，系统会将其视为汇总行。当数据行超过一行时，汇总行会自动下移到所有数据之后，并把 `SUM(单单元格)` 扩展为 `SUM(首行:末行)`。
+- 展开新增的行会复制样例数据行的单元格样式（如边框）。
+- 支持 `${chart}` / `${chart:sql编码}` 占位符插入图表图片；建议将占位符放在独立单元格，避免被数据填充覆盖。
 
-示例：
+示例（带显示表头）：
 
 | 城市 | 门店 | 打卡次数 |
 |------|------|----------|
 | `${city_name}` | `${store_name}` | `${checkin_num}` |
 
-或：
+或（无显示表头）：
 
 ```
 city_name | store_name | checkin_num
 ```
+
+#### 汇总行示例
+
+在数据区域下方预留一行汇总，写入 `SUM` 公式：
+
+| 城市 | 门店 | 打卡次数 |
+|------|------|----------|
+| `${city_name}` | `${store_name}` | `${checkin_num}` |
+| 汇总 | `=SUM(C2)` | `=SUM(C2)` |
+
+当 SQL 返回 3 条数据时，汇总行会自动下移到第 5 行，公式被更新为 `=SUM(C2:C4)`。
 
 ### Word 模板
 
@@ -546,6 +571,18 @@ city_name | store_name | checkin_num
 | `{lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` | `2026-07-31` |
 | `{firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` | `2026-06-01` |
 | `{lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` | `2026-06-30` |
+| `{firstDayOfThisYear}` | 今年第一天 | `yyyy-MM-dd` | `2026-01-01` |
+| `{lastDayOfThisYear}` | 今年最后一天 | `yyyy-MM-dd` | `2026-12-31` |
+| `{firstDayOfLastYear}` | 去年第一天 | `yyyy-MM-dd` | `2025-01-01` |
+| `{lastDayOfLastYear}` | 去年最后一天 | `yyyy-MM-dd` | `2025-12-31` |
+| `{firstDayOfNextYear}` | 明年第一天 | `yyyy-MM-dd` | `2027-01-01` |
+| `{lastDayOfNextYear}` | 明年最后一天 | `yyyy-MM-dd` | `2027-12-31` |
+| `{firstDayOfThisQuarter}` | 本季度第一天 | `yyyy-MM-dd` | `2026-07-01` |
+| `{lastDayOfThisQuarter}` | 本季度最后一天 | `yyyy-MM-dd` | `2026-09-30` |
+| `{firstDayOfLastQuarter}` | 上季度第一天 | `yyyy-MM-dd` | `2026-04-01` |
+| `{lastDayOfLastQuarter}` | 上季度最后一天 | `yyyy-MM-dd` | `2026-06-30` |
+| `{yesterday}` | 昨天 | `yyyy-MM-dd` | `2026-07-03` |
+| `{tomorrow}` | 明天 | `yyyy-MM-dd` | `2026-07-05` |
 | `{yyyyMMddHHmmss}` | 当前时间 | - | `20260704123045` |
 | `{yyyyMMdd}` | 当前日期 | - | `20260704` |
 | `{yyyy-MM-dd}` | 当前日期 | - | `2026-07-04` |
@@ -618,6 +655,7 @@ report_{yyyyMMddHHmmss}.csv
 | 收件人群组列表 | `GET /api/email-recipient/group/list` |
 | 模板分页 | `GET /api/template/page` |
 | 模板上传 | `POST /api/template/upload` |
+| 删除模板 | `DELETE /api/template/{id}` |
 | 通知配置分页 | `GET /api/notification-config/page` |
 | 测试通知配置 | `POST /api/notification-config/test` |
 | 通知规则分页 | `GET /api/notification-rule/page` |

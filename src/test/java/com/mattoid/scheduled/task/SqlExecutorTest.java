@@ -102,6 +102,28 @@ class SqlExecutorTest {
     }
 
     @Test
+    void replacesYearBoundaryVariables() {
+        String sql = "SELECT * FROM t WHERE date >= '${firstDayOfThisYear}' AND date <= '${lastDayOfThisYear}'";
+        String result = executor.processSqlVariables(sql);
+        LocalDate today = LocalDate.now();
+        LocalDate firstDay = today.with(java.time.temporal.TemporalAdjusters.firstDayOfYear());
+        LocalDate lastDay = today.with(java.time.temporal.TemporalAdjusters.lastDayOfYear());
+        assertTrue(result.contains("'" + firstDay + "'"), result);
+        assertTrue(result.contains("'" + lastDay + "'"), result);
+    }
+
+    @Test
+    void replacesYesterdayAndTomorrow() {
+        String sql = "SELECT * FROM t WHERE date >= '${yesterday}' AND date <= '${tomorrow:yyyy/MM/dd}'";
+        String result = executor.processSqlVariables(sql);
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        LocalDate tomorrow = today.plusDays(1);
+        assertTrue(result.contains("'" + yesterday + "'"), result);
+        assertTrue(result.contains("'" + tomorrow.format(DateTimeFormatter.ofPattern("yyyy/MM/dd")) + "'"), result);
+    }
+
+    @Test
     void customParamsTakePrecedenceOverBuiltInVariables() {
         String sql = "SELECT * FROM t WHERE month = '${lastMonth}'";
         Map<String, Object> params = Map.of("lastMonth", "custom-value");

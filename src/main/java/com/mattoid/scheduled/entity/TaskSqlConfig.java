@@ -92,6 +92,11 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private String excelBaseFilePath;
 
+    /**
+     * Excel 追加模式是否更新同名 sheet：1 更新，0 跳过
+     */
+    private Integer excelAppendUpdateSameSheet;
+
     private String fileSuffix;
 
     private String fileNamePattern;

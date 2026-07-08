@@ -43,3 +43,8 @@ report:
     key: ${API_KEY:}
   default:
     page-size: 20
+
+logging:
+  level:
+    # 关闭 sshj StreamCopier 的 ERROR 噪音（隧道强制断开时的正常输出）
+    net.schmizz.sshj.common.StreamCopier: OFF

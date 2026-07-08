@@ -304,9 +304,38 @@ public class WebCrawlExecutor {
         }
     }
 
-    private void applyCookies(Connection connection, String cookiesJson, Map<String, Object> params) {
-        Map<String, String> cookies = parseJsonMap(replaceRequestVariables(cookiesJson, params));
+    private void applyCookies(Connection connection, String cookiesString, Map<String, Object> params) {
+        Map<String, String> cookies = parseCookieMap(replaceRequestVariables(cookiesString, params));
         cookies.forEach(connection::cookie);
+    }
+
+    private Map<String, String> parseCookieMap(String value) {
+        Map<String, String> cookies = new LinkedHashMap<>();
+        if (!StringUtils.hasText(value)) {
+            return cookies;
+        }
+        // 优先尝试 JSON 格式
+        try {
+            Map<String, Object> map = objectMapper.readValue(value, new TypeReference<Map<String, Object>>() {
+            });
+            map.forEach((k, v) -> cookies.put(k, v != null ? String.valueOf(v) : ""));
+            return cookies;
+        } catch (Exception ignored) {
+        }
+        // 回退到标准 HTTP Cookie 格式：name=value; name=value
+        for (String part : value.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int eq = trimmed.indexOf('=');
+            if (eq > 0) {
+                cookies.put(trimmed.substring(0, eq), trimmed.substring(eq + 1));
+            } else {
+                cookies.put(trimmed, "");
+            }
+        }
+        return cookies;
     }
 
     private void applyAuth(Connection connection, TaskWebCrawlConfig config) {
@@ -314,37 +343,70 @@ public class WebCrawlExecutor {
         if (!StringUtils.hasText(authType) || "NONE".equalsIgnoreCase(authType)) {
             return;
         }
-        Map<String, String> auth = parseJsonMap(config.getAuthConfig());
         switch (authType.toUpperCase()) {
-            case "BASIC" -> {
-                String username = auth.get("username");
-                String password = auth.get("password");
-                if (StringUtils.hasText(username)) {
-                    String credentials = Base64.getEncoder()
-                            .encodeToString((username + ":" + (password != null ? password : "")).getBytes(StandardCharsets.UTF_8));
-                    connection.header("Authorization", "Basic " + credentials);
-                }
-            }
-            case "TOKEN" -> {
-                String token = auth.get("token");
-                String headerName = auth.getOrDefault("headerName", "Authorization");
-                String prefix = auth.getOrDefault("prefix", "Bearer");
-                if (StringUtils.hasText(token)) {
-                    connection.header(headerName, (prefix + " " + token).trim());
-                }
-            }
+            case "BASIC" -> applyBasicAuth(connection, config.getAuthConfig());
+            case "TOKEN" -> applyTokenAuth(connection, config.getAuthConfig());
             case "FORM" -> {
                 // FORM 认证需要先登录获取 cookie，这里仅设置已有 cookie 即可
                 // 如需先登录，可在 customParams 中设置 loginUrl/loginBody 由外部预处理
                 log.warn("FORM 认证建议先通过预处理获取 Cookie 后配置到 cookies 字段");
             }
-            case "OAUTH2" -> {
-                String token = auth.get("accessToken");
-                if (StringUtils.hasText(token)) {
-                    connection.header("Authorization", "Bearer " + token);
-                }
-            }
+            case "OAUTH2" -> applyOAuth2Auth(connection, config.getAuthConfig());
             default -> log.warn("不支持的认证类型: {}", authType);
+        }
+    }
+
+    private void applyBasicAuth(Connection connection, String authConfig) {
+        if (!StringUtils.hasText(authConfig)) {
+            return;
+        }
+        Map<String, String> auth = parseJsonMap(authConfig, false);
+        if (!auth.isEmpty()) {
+            String username = auth.get("username");
+            String password = auth.get("password");
+            if (StringUtils.hasText(username)) {
+                String credentials = Base64.getEncoder()
+                        .encodeToString((username + ":" + (password != null ? password : "")).getBytes(StandardCharsets.UTF_8));
+                connection.header("Authorization", "Basic " + credentials);
+            }
+            return;
+        }
+        // 非 JSON：直接视为 Base64 凭证或完整 Authorization 头值
+        String value = authConfig.trim();
+        if (value.toUpperCase().startsWith("BASIC ")) {
+            connection.header("Authorization", value);
+        } else {
+            connection.header("Authorization", "Basic " + value);
+        }
+    }
+
+    private void applyTokenAuth(Connection connection, String authConfig) {
+        if (!StringUtils.hasText(authConfig)) {
+            return;
+        }
+        Map<String, String> auth = parseJsonMap(authConfig, false);
+        String token;
+        String headerName;
+        String prefix;
+        if (!auth.isEmpty()) {
+            token = auth.get("token");
+            headerName = auth.getOrDefault("headerName", "Authorization");
+            prefix = auth.getOrDefault("prefix", "Bearer");
+        } else {
+            token = authConfig.trim();
+            headerName = "Authorization";
+            prefix = "Bearer";
+        }
+        if (StringUtils.hasText(token)) {
+            connection.header(headerName, (prefix + " " + token).trim());
+        }
+    }
+
+    private void applyOAuth2Auth(Connection connection, String authConfig) {
+        Map<String, String> auth = parseJsonMap(authConfig, false);
+        String token = auth.get("accessToken");
+        if (StringUtils.hasText(token)) {
+            connection.header("Authorization", "Bearer " + token);
         }
     }
 
@@ -578,6 +640,10 @@ public class WebCrawlExecutor {
     }
 
     private Map<String, String> parseJsonMap(String json) {
+        return parseJsonMap(json, true);
+    }
+
+    private Map<String, String> parseJsonMap(String json, boolean logWarning) {
         if (!StringUtils.hasText(json)) {
             return new LinkedHashMap<>();
         }
@@ -592,7 +658,9 @@ public class WebCrawlExecutor {
                             LinkedHashMap::new
                     ));
         } catch (Exception e) {
-            log.warn("解析 JSON 失败: {}", e.getMessage());
+            if (logWarning) {
+                log.warn("解析 JSON 失败: {}", e.getMessage());
+            }
             return new LinkedHashMap<>();
         }
     }
@@ -610,38 +678,42 @@ public class WebCrawlExecutor {
 
     private SshConfig buildSshConfig(TaskWebCrawlConfig config) {
         SshConfig sshConfig = new SshConfig();
+
+        // SSH 服务器（目标服务所在机器）
+        sshConfig.setHost(config.getSshHost());
+        sshConfig.setPort(config.getSshPort());
+        sshConfig.setUsername(config.getSshUsername());
+        sshConfig.setAuthType(config.getSshAuthType());
+        boolean useKey = "KEY".equalsIgnoreCase(config.getSshAuthType());
+        if (useKey) {
+            sshConfig.setPrivateKey(config.getSshPrivateKey());
+            sshConfig.setPassphrase(config.getSshPassphrase());
+            sshConfig.setPassword(null);
+        } else {
+            sshConfig.setPassword(config.getSshPassword());
+            sshConfig.setPrivateKey(null);
+            sshConfig.setPassphrase(null);
+        }
+
+        // 跳板机（仅用于打通到 SSH 服务器的网络通道）
         boolean useJumpHost = Integer.valueOf(1).equals(config.getSshJumpHostEnabled());
         if (useJumpHost) {
-            sshConfig.setHost(config.getSshJumpHostHost());
-            sshConfig.setPort(config.getSshJumpHostPort());
-            sshConfig.setUsername(config.getSshJumpHostUsername());
-            sshConfig.setAuthType(config.getSshJumpHostAuthType());
-            boolean useKey = "KEY".equalsIgnoreCase(config.getSshJumpHostAuthType());
-            if (useKey) {
-                sshConfig.setPrivateKey(config.getSshJumpHostPrivateKey());
-                sshConfig.setPassphrase(config.getSshJumpHostPassphrase());
-                sshConfig.setPassword(null);
+            sshConfig.setJumpHost(config.getSshJumpHostHost());
+            sshConfig.setJumpPort(config.getSshJumpHostPort());
+            sshConfig.setJumpUsername(config.getSshJumpHostUsername());
+            sshConfig.setJumpAuthType(config.getSshJumpHostAuthType());
+            boolean jumpUseKey = "KEY".equalsIgnoreCase(config.getSshJumpHostAuthType());
+            if (jumpUseKey) {
+                sshConfig.setJumpPrivateKey(config.getSshJumpHostPrivateKey());
+                sshConfig.setJumpPassphrase(config.getSshJumpHostPassphrase());
+                sshConfig.setJumpPassword(null);
             } else {
-                sshConfig.setPassword(config.getSshJumpHostPassword());
-                sshConfig.setPrivateKey(null);
-                sshConfig.setPassphrase(null);
-            }
-        } else {
-            sshConfig.setHost(config.getSshHost());
-            sshConfig.setPort(config.getSshPort());
-            sshConfig.setUsername(config.getSshUsername());
-            sshConfig.setAuthType(config.getSshAuthType());
-            boolean useKey = "KEY".equalsIgnoreCase(config.getSshAuthType());
-            if (useKey) {
-                sshConfig.setPrivateKey(config.getSshPrivateKey());
-                sshConfig.setPassphrase(config.getSshPassphrase());
-                sshConfig.setPassword(null);
-            } else {
-                sshConfig.setPassword(config.getSshPassword());
-                sshConfig.setPrivateKey(null);
-                sshConfig.setPassphrase(null);
+                sshConfig.setJumpPassword(config.getSshJumpHostPassword());
+                sshConfig.setJumpPrivateKey(null);
+                sshConfig.setJumpPassphrase(null);
             }
         }
+
         sshConfig.setLocalPort(config.getSshLocalPort());
 
         String remoteHost = config.getSshRemoteHost();

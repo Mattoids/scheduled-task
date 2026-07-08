@@ -60,6 +60,13 @@ public class SshTunnelManager {
 
     public SshTunnel createTunnel(SshConfig config, String tunnelId) throws Exception {
         closeTunnel(tunnelId);
+        if (config.getJumpHost() != null && !config.getJumpHost().isBlank()) {
+            return createDoubleHopTunnel(config, tunnelId);
+        }
+        return createSingleHopTunnel(config, tunnelId);
+    }
+
+    private SshTunnel createSingleHopTunnel(SshConfig config, String tunnelId) throws Exception {
         Path keyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
         SSHClient client = createClient();
         try {
@@ -106,6 +113,136 @@ public class SshTunnelManager {
             }
             client.close();
             throw e;
+        }
+    }
+
+    private SshTunnel createDoubleHopTunnel(SshConfig config, String tunnelId) throws Exception {
+        Path jumpKeyPath = writeKeyFile(config.getJumpPrivateKey(), tunnelId + "_jump");
+        SSHClient jumpClient = createClient();
+        ServerSocket jumpServerSocket = null;
+        LocalPortForwarder jumpForwarder = null;
+        Thread jumpForwarderThread = null;
+        try {
+            jumpClient.connect(config.getJumpHost(), config.getJumpPort() == null ? 22 : config.getJumpPort());
+            authenticate(jumpClient, buildJumpAuthConfig(config), jumpKeyPath);
+
+            int intermediatePort = findAvailablePort();
+            jumpServerSocket = new ServerSocket();
+            jumpServerSocket.setReuseAddress(true);
+            jumpServerSocket.bind(new InetSocketAddress("127.0.0.1", intermediatePort));
+
+            Parameters jumpParams = new Parameters(
+                    "127.0.0.1", jumpServerSocket.getLocalPort(),
+                    config.getHost(), config.getPort() == null ? 22 : config.getPort()
+            );
+            jumpForwarder = new LocalPortForwarder(
+                    jumpClient.getConnection(), jumpParams, jumpServerSocket, LoggerFactory.DEFAULT
+            );
+            final LocalPortForwarder finalJumpForwarder = jumpForwarder;
+            jumpForwarderThread = new Thread(() -> {
+                try {
+                    finalJumpForwarder.listen();
+                } catch (IOException e) {
+                    if (!"Socket closed".equals(e.getMessage())) {
+                        log.error("跳板机端口转发监听线程异常: {}", tunnelId, e);
+                    }
+                }
+            }, "ssh-tunnel-jump-" + tunnelId);
+            jumpForwarderThread.setDaemon(true);
+            jumpForwarderThread.start();
+
+            // 等待跳板机本地监听线程进入 accept，避免第二跳连接时因线程尚未启动而失败
+            waitForForwarderStartup(200);
+
+            Path targetKeyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
+            SSHClient targetClient = createClient();
+            try {
+                targetClient.connect("127.0.0.1", intermediatePort);
+                authenticate(targetClient, config, targetKeyPath);
+
+                int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
+                        ? config.getLocalPort() : findAvailablePort();
+                String remoteHost = config.getRemoteHost();
+                int remotePort = config.getRemotePort() == null ? 0 : config.getRemotePort();
+
+                ServerSocket serverSocket = new ServerSocket();
+                serverSocket.setReuseAddress(true);
+                serverSocket.bind(new InetSocketAddress("127.0.0.1", localPort));
+
+                Parameters params = new Parameters(
+                        "127.0.0.1", serverSocket.getLocalPort(), remoteHost, remotePort
+                );
+                LocalPortForwarder forwarder = new LocalPortForwarder(
+                        targetClient.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
+                );
+                Thread forwarderThread = new Thread(() -> {
+                    try {
+                        forwarder.listen();
+                    } catch (IOException e) {
+                        if (!"Socket closed".equals(e.getMessage())) {
+                            log.error("SSH 隧道监听线程异常: {}", tunnelId, e);
+                        }
+                    }
+                }, "ssh-tunnel-" + tunnelId);
+                forwarderThread.setDaemon(true);
+                forwarderThread.start();
+
+                SshTunnel tunnel = new SshTunnel(tunnelId, targetClient, forwarder, forwarderThread,
+                        serverSocket.getLocalPort(), "127.0.0.1");
+                tunnel.setKeyFilePath(targetKeyPath);
+                tunnel.setJumpClient(jumpClient);
+                tunnel.setJumpForwarder(jumpForwarder);
+                tunnel.setJumpForwarderThread(jumpForwarderThread);
+                tunnel.setJumpKeyFilePath(jumpKeyPath);
+                tunnels.put(tunnelId, tunnel);
+                log.info("SSH double-hop tunnel created for {}: 127.0.0.1:{} -> {}:{} via jump {}",
+                        tunnelId, tunnel.getLocalPort(), remoteHost, remotePort, config.getJumpHost());
+                return tunnel;
+            } catch (Exception e) {
+                if (targetKeyPath != null) {
+                    Files.deleteIfExists(targetKeyPath);
+                }
+                targetClient.close();
+                throw e;
+            }
+        } catch (Exception e) {
+            if (jumpKeyPath != null) {
+                Files.deleteIfExists(jumpKeyPath);
+            }
+            if (jumpForwarder != null) {
+                try {
+                    jumpForwarder.close();
+                } catch (Exception ignored) {
+                }
+            }
+            if (jumpServerSocket != null && !jumpServerSocket.isClosed()) {
+                try {
+                    jumpServerSocket.close();
+                } catch (Exception ignored) {
+                }
+            }
+            jumpClient.close();
+            throw e;
+        }
+    }
+
+    private SshConfig buildJumpAuthConfig(SshConfig config) {
+        SshConfig jumpConfig = new SshConfig();
+        jumpConfig.setHost(config.getJumpHost());
+        jumpConfig.setPort(config.getJumpPort());
+        jumpConfig.setUsername(config.getJumpUsername());
+        jumpConfig.setPassword(config.getJumpPassword());
+        jumpConfig.setPrivateKey(config.getJumpPrivateKey());
+        jumpConfig.setPassphrase(config.getJumpPassphrase());
+        jumpConfig.setAuthType(config.getJumpAuthType());
+        return jumpConfig;
+    }
+
+    private void waitForForwarderStartup(int waitMs) {
+        try {
+            Thread.sleep(waitMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

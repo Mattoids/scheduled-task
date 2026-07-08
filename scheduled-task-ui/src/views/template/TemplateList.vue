@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePagination } from "@/composables/usePagination";
-import { pageTemplate, deleteTemplate, uploadTemplate, updateTemplate } from "@/api/template";
+import { pageTemplate, deleteTemplate, uploadTemplate, updateTemplate, downloadTemplate } from "@/api/template";
 import type { ReportTemplate } from "@/types/entity";
 import { useAppStore } from "@/stores/app";
 
@@ -58,6 +58,14 @@ const openEdit = (row: ReportTemplate) => {
   editForm.templateName = row.templateName || "";
   editForm.description = row.description || "";
   editVisible.value = true;
+};
+
+const handleDownload = async (row: ReportTemplate) => {
+  try {
+    await downloadTemplate(row.id!, row.fileName || undefined);
+  } catch (error) {
+    ElMessage.error("下载失败");
+  }
 };
 
 const handleEditSubmit = async () => {
@@ -152,7 +160,13 @@ onMounted(loadPage);
         label="文件名"
         min-width="180"
         show-overflow-tooltip
-      />
+      >
+        <template #default="{ row }">
+          <el-link type="primary" :underline="false" @click="handleDownload(row)">
+            {{ row.fileName }}
+          </el-link>
+        </template>
+      </el-table-column>
       <el-table-column
         prop="description"
         label="描述"

@@ -27,4 +27,24 @@ public class SshConfig {
      * PASSWORD / KEY
      */
     private String authType;
+
+    /**
+     * 跳板机地址
+     */
+    private String jumpHost;
+
+    private Integer jumpPort;
+
+    private String jumpUsername;
+
+    private String jumpPassword;
+
+    private String jumpPrivateKey;
+
+    private String jumpPassphrase;
+
+    /**
+     * PASSWORD / KEY
+     */
+    private String jumpAuthType;
 }

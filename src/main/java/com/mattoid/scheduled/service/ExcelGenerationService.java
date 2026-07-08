@@ -10,6 +10,9 @@ import org.springframework.util.StringUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 @Slf4j
@@ -23,8 +26,12 @@ public class ExcelGenerationService {
     }
 
     public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName, String baseFilePath) throws Exception {
+        return generateSingleExcel(data, outputPath, sheetName, baseFilePath, false);
+    }
+
+    public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName, String baseFilePath, boolean updateExistingSheet) throws Exception {
         String resolvedSheetName = resolveSheetName(sheetName);
-        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath, baseFilePath);
+        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath, baseFilePath, updateExistingSheet);
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath) throws Exception {
@@ -32,12 +39,19 @@ public class ExcelGenerationService {
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath, String baseFilePath) throws Exception {
+        return generateMergedExcel(sources, outputPath, baseFilePath, false);
+    }
+
+    public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath, String baseFilePath, boolean updateExistingSheet) throws Exception {
         File output = new File(outputPath);
         File baseFile = StringUtils.hasText(baseFilePath) ? new File(baseFilePath) : null;
         boolean useBaseFile = baseFile != null && baseFile.exists();
 
+        // 当输出路径与基础文件路径相同时，直接写入输出流会导致读取基础文件时被截断，
+        // 因此先写入临时文件，再原子替换到目标位置。
+        Path tempOutput = Files.createTempFile("excel_gen_", ".xlsx");
         try (Workbook workbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
-             FileOutputStream fos = new FileOutputStream(output)) {
+             FileOutputStream fos = new FileOutputStream(tempOutput.toFile())) {
             Map<String, SheetInfo> sheets = new LinkedHashMap<>();
 
             for (ExcelSheetSource source : sources) {
@@ -46,8 +60,12 @@ public class ExcelGenerationService {
                 }
                 String resolvedSheetName = resolveSheetName(source.sheetName());
                 if (useBaseFile && workbook.getSheet(resolvedSheetName) != null) {
-                    log.info("Excel 追加模式跳过已存在 sheet: {}", resolvedSheetName);
-                    continue;
+                    if (updateExistingSheet) {
+                        workbook.removeSheetAt(workbook.getSheetIndex(resolvedSheetName));
+                    } else {
+                        log.info("Excel 追加模式跳过已存在 sheet: {}", resolvedSheetName);
+                        continue;
+                    }
                 }
                 writeDataToSheet(workbook, sheets, source.sheetName(), source.data());
             }
@@ -58,6 +76,7 @@ public class ExcelGenerationService {
 
             workbook.write(fos);
         }
+        Files.move(tempOutput, output.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return output;
     }
 
@@ -65,17 +84,34 @@ public class ExcelGenerationService {
      * 将 sourceFile 中的所有 sheet 按名称合并到 baseFile 中，baseFile 中已存在的 sheet 会被跳过。
      */
     public File appendSheetsToBaseFile(File baseFile, File sourceFile, String outputPath) throws Exception {
+        return appendSheetsToBaseFile(baseFile, sourceFile, outputPath, false);
+    }
+
+    /**
+     * 将 sourceFile 中的所有 sheet 按名称合并到 baseFile 中。
+     *
+     * @param updateExistingSheet 为 true 时，覆盖 baseFile 中已存在的同名 sheet；为 false 时跳过。
+     */
+    public File appendSheetsToBaseFile(File baseFile, File sourceFile, String outputPath, boolean updateExistingSheet) throws Exception {
         File output = new File(outputPath);
         boolean useBaseFile = baseFile != null && baseFile.exists();
+
+        // 当输出路径与基础文件路径相同时，直接写入输出流会导致读取基础文件时被截断，
+        // 因此先写入临时文件，再原子替换到目标位置。
+        Path tempOutput = Files.createTempFile("excel_append_", ".xlsx");
         try (Workbook baseWorkbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
              Workbook sourceWorkbook = WorkbookFactory.create(sourceFile);
-             FileOutputStream fos = new FileOutputStream(output)) {
+             FileOutputStream fos = new FileOutputStream(tempOutput.toFile())) {
             for (int i = 0; i < sourceWorkbook.getNumberOfSheets(); i++) {
                 Sheet sourceSheet = sourceWorkbook.getSheetAt(i);
                 String sheetName = sourceSheet.getSheetName();
                 if (baseWorkbook.getSheet(sheetName) != null) {
-                    log.info("Excel 追加模式跳过已存在 sheet: {}", sheetName);
-                    continue;
+                    if (updateExistingSheet) {
+                        baseWorkbook.removeSheetAt(baseWorkbook.getSheetIndex(sheetName));
+                    } else {
+                        log.info("Excel 追加模式跳过已存在 sheet: {}", sheetName);
+                        continue;
+                    }
                 }
                 Sheet targetSheet = baseWorkbook.createSheet(sheetName);
                 copySheet(sourceSheet, targetSheet);
@@ -85,6 +121,7 @@ public class ExcelGenerationService {
             }
             baseWorkbook.write(fos);
         }
+        Files.move(tempOutput, output.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return output;
     }
 

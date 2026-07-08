@@ -289,15 +289,17 @@ public class TaskExecutionService {
                     String extension = resolveExtension("EXCEL", mergeSqls.get(0).getFileSuffix());
                     String outputPath = buildOutputPath(task, mergeSqls.get(0), extension);
                     String baseFilePath = null;
+                    boolean updateExistingSheet = false;
                     if (isAppendModeEnabled(mergeSqls.get(0))) {
                         File baseFile = resolveBaseFile(mergeSqls.get(0));
                         String appendOutputPath = resolveAppendOutputPath(mergeSqls.get(0), extension);
                         if (StringUtils.hasText(appendOutputPath)) {
                             outputPath = appendOutputPath;
                             baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+                            updateExistingSheet = isUpdateSameSheetEnabled(mergeSqls.get(0));
                         }
                     }
-                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath));
+                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet));
                 }
 
                 for (int idx : individualIndexes) {
@@ -575,7 +577,11 @@ public class TaskExecutionService {
                 results.addChartFile(sql.getSqlCode(), chartFile);
             }
             boolean isLast = i == sqlConfigs.size() - 1;
-            String stepOutput = isLast ? outputFileName : buildTempOutputPath(task.getId(), templateType, i);
+            // 追加模式下，最后一步也写入临时文件，避免模板处理器覆盖基础文件，
+            // 真正的合并由 appendSheetsToBaseFile 完成。
+            String stepOutput = (isLast && baseFile != null)
+                    ? buildTempOutputPath(task.getId(), templateType, i)
+                    : (isLast ? outputFileName : buildTempOutputPath(task.getId(), templateType, i));
             Map<String, Object> context = buildProcessorContext(sql, chartFile);
             currentFile = processor.process(currentFile, data, stepOutput, isLast, context);
             if (previousTempFile != null) {
@@ -585,7 +591,8 @@ public class TaskExecutionService {
         }
         if (baseFile != null) {
             File finalOutput = new File(outputFileName);
-            excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName);
+            boolean updateExistingSheet = isUpdateSameSheetEnabled(sqlConfigs.get(0));
+            excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName, updateExistingSheet);
             if (!currentFile.equals(finalOutput)) {
                 Files.deleteIfExists(currentFile.toPath());
             }
@@ -630,6 +637,10 @@ public class TaskExecutionService {
 
     private boolean isAppendModeEnabled(TaskSqlConfig sqlConfig) {
         return sqlConfig.getExcelAppendMode() != null && sqlConfig.getExcelAppendMode() == 1;
+    }
+
+    private boolean isUpdateSameSheetEnabled(TaskSqlConfig sqlConfig) {
+        return sqlConfig.getExcelAppendUpdateSameSheet() != null && sqlConfig.getExcelAppendUpdateSameSheet() == 1;
     }
 
     private File resolveBaseFile(TaskSqlConfig sqlConfig) {
@@ -680,12 +691,14 @@ public class TaskExecutionService {
         String extension = resolveExtension(upperFormat, sqlConfig.getFileSuffix());
         String outputPath = buildOutputPath(task, sqlConfig, extension);
         String baseFilePath = null;
+        boolean updateExistingSheet = false;
         if (isAppendModeEnabled(sqlConfig)) {
             File baseFile = resolveBaseFile(sqlConfig);
             String appendOutputPath = resolveAppendOutputPath(sqlConfig, extension);
             if (StringUtils.hasText(appendOutputPath)) {
                 outputPath = appendOutputPath;
                 baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+                updateExistingSheet = isUpdateSameSheetEnabled(sqlConfig);
             }
         }
 
@@ -704,10 +717,10 @@ public class TaskExecutionService {
                     for (Map.Entry<String, List<Map<String, Object>>> subEntry : subGroups.entrySet()) {
                         sources.add(new ExcelGenerationService.ExcelSheetSource(subEntry.getKey(), stripSheetNameColumn(subEntry.getValue())));
                     }
-                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath);
+                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet);
                 } else {
                     String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
-                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath);
+                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet);
                 }
             }
             case "TXT" -> {

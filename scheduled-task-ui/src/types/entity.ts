@@ -34,6 +34,7 @@ export interface TaskSqlConfig {
   excelLoopConfig?: string
   excelAppendMode?: number
   excelBaseFilePath?: string
+  excelAppendUpdateSameSheet?: number
   fileSuffix?: string
   fileNamePattern?: string
   customParams?: string

@@ -142,6 +142,28 @@ public class PlaceholderUtils {
             case "lastDayOfThisMonth" -> today.with(TemporalAdjusters.lastDayOfMonth());
             case "firstDayOfLastMonth" -> today.minusMonths(1).withDayOfMonth(1);
             case "lastDayOfLastMonth" -> today.minusMonths(1).with(TemporalAdjusters.lastDayOfMonth());
+            case "firstDayOfThisYear" -> today.with(TemporalAdjusters.firstDayOfYear());
+            case "lastDayOfThisYear" -> today.with(TemporalAdjusters.lastDayOfYear());
+            case "firstDayOfLastYear" -> today.minusYears(1).with(TemporalAdjusters.firstDayOfYear());
+            case "lastDayOfLastYear" -> today.minusYears(1).with(TemporalAdjusters.lastDayOfYear());
+            case "firstDayOfNextYear" -> today.plusYears(1).with(TemporalAdjusters.firstDayOfYear());
+            case "lastDayOfNextYear" -> today.plusYears(1).with(TemporalAdjusters.lastDayOfYear());
+            case "firstDayOfThisQuarter" -> today.with(today.getMonth().firstMonthOfQuarter()).withDayOfMonth(1);
+            case "lastDayOfThisQuarter" -> {
+                LocalDate firstMonth = today.with(today.getMonth().firstMonthOfQuarter());
+                yield firstMonth.plusMonths(2).with(TemporalAdjusters.lastDayOfMonth());
+            }
+            case "firstDayOfLastQuarter" -> {
+                LocalDate d = today.minusMonths(3);
+                yield d.with(d.getMonth().firstMonthOfQuarter()).withDayOfMonth(1);
+            }
+            case "lastDayOfLastQuarter" -> {
+                LocalDate d = today.minusMonths(3);
+                LocalDate firstMonth = d.with(d.getMonth().firstMonthOfQuarter());
+                yield firstMonth.plusMonths(2).with(TemporalAdjusters.lastDayOfMonth());
+            }
+            case "yesterday" -> today.minusDays(1);
+            case "tomorrow" -> today.plusDays(1);
             default -> null;
         };
     }

@@ -46,6 +46,7 @@ const form = ref<TaskSqlConfig>({
   excelLoopConfig: "",
   excelAppendMode: 0,
   excelBaseFilePath: "",
+  excelAppendUpdateSameSheet: 0,
   fileSuffix: "",
   fileNamePattern: "",
   customParams: "",
@@ -212,6 +213,7 @@ const resetForm = () => {
     excelLoopConfig: "",
     excelAppendMode: 0,
     excelBaseFilePath: "",
+    excelAppendUpdateSameSheet: 0,
     fileSuffix: "",
     fileNamePattern: "",
     customParams: "",
@@ -598,6 +600,70 @@ const handleClose = () => {
         >
       </el-form-item>
 
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="文件后缀">
+            <el-input
+              v-model="form.fileSuffix"
+              placeholder="如 csv、xlsx（可选）"
+              :disabled="isInlineOutput"
+            />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="分组">
+            <el-select
+              v-model="form.groupCode"
+              placeholder="请选择分组（可选）"
+              clearable
+            >
+              <el-option
+                v-for="item in groupOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <el-form-item label="文件名">
+        <el-input
+          v-model="form.fileNamePattern"
+          :disabled="isInlineOutput || !!selectedGroupPattern"
+          :placeholder="
+            isInlineOutput
+              ? '内联到通知，无需文件名'
+              : selectedGroupPattern
+                ? '已使用分组文件名'
+                : '如 report_{yyyyMMddHHmmss}（可选）'
+          "
+        />
+        <span class="form-tip"
+          >支持 {yyyyMMdd}、{lastMonth} 等占位符；选择分组后将自动使用分组文件名</span
+        >
+      </el-form-item>
+
+      <el-form-item label="描述">
+        <el-input
+          v-model="form.description"
+          type="textarea"
+          :rows="2"
+          placeholder="描述（可选）"
+        />
+      </el-form-item>
+
+      <el-form-item label="状态">
+        <el-switch
+          v-model="form.status"
+          :active-value="1"
+          :inactive-value="0"
+          active-text="启用"
+          inactive-text="禁用"
+        />
+      </el-form-item>
+
       <template v-if="isExcelOutput">
         <el-divider content-position="left">Excel 循环生成</el-divider>
         <el-form-item>
@@ -709,71 +775,19 @@ const handleClose = () => {
             placeholder="如 reports/2026渠道数据.xlsx，支持 {yyyy} 等占位符"
           />
         </el-form-item>
+        <el-form-item v-if="isAppendEnabled">
+          <el-switch
+            v-model="form.excelAppendUpdateSameSheet"
+            :active-value="1"
+            :inactive-value="0"
+            active-text="更新同名 Sheet"
+            inactive-text="跳过同名 Sheet"
+          />
+          <span class="form-tip" style="margin-left: 12px"
+            >开启后追加时会用新内容覆盖基础文件中已存在的同名 sheet</span
+          >
+        </el-form-item>
       </template>
-
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-form-item label="文件后缀">
-            <el-input
-              v-model="form.fileSuffix"
-              placeholder="如 csv、xlsx（可选）"
-              :disabled="isInlineOutput"
-            />
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="分组">
-            <el-select
-              v-model="form.groupCode"
-              placeholder="请选择分组（可选）"
-              clearable
-            >
-              <el-option
-                v-for="item in groupOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </el-col>
-      </el-row>
-
-      <el-form-item label="文件名">
-        <el-input
-          v-model="form.fileNamePattern"
-          :disabled="isInlineOutput || !!selectedGroupPattern"
-          :placeholder="
-            isInlineOutput
-              ? '内联到通知，无需文件名'
-              : selectedGroupPattern
-                ? '已使用分组文件名'
-                : '如 report_{yyyyMMddHHmmss}（可选）'
-          "
-        />
-        <span class="form-tip"
-          >支持 {yyyyMMdd}、{lastMonth} 等占位符；选择分组后将自动使用分组文件名</span
-        >
-      </el-form-item>
-
-      <el-form-item label="描述">
-        <el-input
-          v-model="form.description"
-          type="textarea"
-          :rows="2"
-          placeholder="描述（可选）"
-        />
-      </el-form-item>
-
-      <el-form-item label="状态">
-        <el-switch
-          v-model="form.status"
-          :active-value="1"
-          :inactive-value="0"
-          active-text="启用"
-          inactive-text="禁用"
-        />
-      </el-form-item>
 
       <template v-if="isChartSupportedOutput">
         <el-divider content-position="left">图表配置</el-divider>

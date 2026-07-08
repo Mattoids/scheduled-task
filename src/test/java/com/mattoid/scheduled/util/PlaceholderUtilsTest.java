@@ -75,4 +75,33 @@ class PlaceholderUtilsTest {
         String result = PlaceholderUtils.replacePlaceholders("{firstDayOfLastWeek:yyyy-MM-dd} to {lastDayOfLastWeek:yyyy-MM-dd}", Map.of());
         assertTrue(result.matches("\\d{4}-\\d{2}-\\d{2} to \\d{4}-\\d{2}-\\d{2}"), result);
     }
+
+    @Test
+    void shouldResolveYearBoundaries() {
+        String result = PlaceholderUtils.replacePlaceholders(
+                "${firstDayOfThisYear} ~ ${lastDayOfThisYear}|${firstDayOfLastYear} ~ ${lastDayOfLastYear}|${firstDayOfNextYear} ~ ${lastDayOfNextYear}",
+                Map.of());
+        assertTrue(result.matches(
+                "\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}\\|"
+                        + "\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}\\|"
+                        + "\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}"),
+                result);
+    }
+
+    @Test
+    void shouldResolveQuarterBoundaries() {
+        String result = PlaceholderUtils.replacePlaceholders(
+                "${firstDayOfThisQuarter} ~ ${lastDayOfThisQuarter}|${firstDayOfLastQuarter} ~ ${lastDayOfLastQuarter}",
+                Map.of());
+        assertTrue(result.matches(
+                "\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}\\|"
+                        + "\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}"),
+                result);
+    }
+
+    @Test
+    void shouldResolveYesterdayAndTomorrow() {
+        String result = PlaceholderUtils.replacePlaceholders("${yesterday} ~ ${tomorrow}", Map.of());
+        assertTrue(result.matches("\\d{4}-\\d{2}-\\d{2} ~ \\d{4}-\\d{2}-\\d{2}"), result);
+    }
 }
