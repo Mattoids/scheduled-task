@@ -304,7 +304,8 @@ public class TaskExecutionService {
 
                     if (baseFile != null) {
                         // 先按用户设定的文件名生成只包含本次新数据的文件，作为通知附件
-                        String notifyOutputPath = buildTempOutputPath(task.getId(), extension);
+                        String notifyFileName = Paths.get(outputPath).getFileName().toString();
+                        String notifyOutputPath = buildTempOutputPath(task.getId(), extension, notifyFileName);
                         File notifyFile = excelGenerationService.generateMergedExcel(sources, notifyOutputPath, null, false, -1);
                         // 再追加到基础文件，作为最终归档文件
                         File outputFile = excelGenerationService.appendSheetsToBaseFile(baseFile, notifyFile, outputPath, updateExistingSheet, insertPosition);
@@ -618,10 +619,16 @@ public class TaskExecutionService {
             }
             boolean isLast = i == sqlConfigs.size() - 1;
             // 追加模式下，最后一步也写入临时文件，避免模板处理器覆盖基础文件，
-            // 真正的合并由 appendSheetsToBaseFile 完成。
-            String stepOutput = (isLast && baseFile != null)
-                    ? buildTempOutputPath(task.getId(), templateType, i)
-                    : (isLast ? outputFileName : buildTempOutputPath(task.getId(), templateType, i));
+            // 真正的合并由 appendSheetsToBaseFile 完成。通知附件使用配置的文件名。
+            String stepOutput;
+            if (isLast && baseFile != null) {
+                String notifyFileName = Paths.get(outputFileName).getFileName().toString();
+                stepOutput = buildTempOutputPath(task.getId(), extension, notifyFileName);
+            } else if (isLast) {
+                stepOutput = outputFileName;
+            } else {
+                stepOutput = buildTempOutputPath(task.getId(), templateType, i);
+            }
             Map<String, Object> context = buildProcessorContext(sql, chartFile);
             currentFile = processor.process(currentFile, data, stepOutput, isLast, context);
             if (previousTempFile != null) {
@@ -736,7 +743,8 @@ public class TaskExecutionService {
         String baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
 
         // 先按用户设定的文件名生成只包含本次新数据的文件，作为通知附件
-        String notifyOutputPath = buildTempOutputPath(task.getId(), extension);
+        String notifyFileName = Paths.get(outputPath).getFileName().toString();
+        String notifyOutputPath = buildTempOutputPath(task.getId(), extension, notifyFileName);
         File notifyFile = generateSqlOutputToPath(task, sqlConfig, data, notifyOutputPath, null, false, -1);
 
         // 再把本次新数据追加到基础文件，作为最终归档文件
@@ -849,6 +857,17 @@ public class TaskExecutionService {
         String ext = StringUtils.hasText(extension) ? extension : "tmp";
         String name = "temp_" + System.currentTimeMillis() + "." + ext;
         return outputDir.resolve(name).toString();
+    }
+
+    private String buildTempOutputPath(Long taskId, String extension, String fileName) throws Exception {
+        Path outputDir = Paths.get(uploadPath, "reports", String.valueOf(taskId), "temp");
+        if (!Files.exists(outputDir)) {
+            Files.createDirectories(outputDir);
+        }
+        if (!StringUtils.hasText(fileName)) {
+            return buildTempOutputPath(taskId, extension);
+        }
+        return outputDir.resolve(fileName).toString();
     }
 
     private String buildOutputPath(TaskConfig task, TaskWebCrawlConfig crawlConfig, String extension) throws Exception {
