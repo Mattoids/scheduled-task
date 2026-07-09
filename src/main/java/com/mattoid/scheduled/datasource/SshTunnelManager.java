@@ -104,6 +104,10 @@ public class SshTunnelManager {
                     serverSocket.getLocalPort(), "127.0.0.1");
             tunnel.setKeyFilePath(keyPath);
             tunnels.put(tunnelId, tunnel);
+
+            // 等待监听线程进入 accept，避免请求时连接被拒绝
+            waitForForwarderStartup(200);
+
             log.info("SSH tunnel created for {}: 127.0.0.1:{} -> {}:{}",
                     tunnelId, tunnel.getLocalPort(), remoteHost, remotePort);
             return tunnel;

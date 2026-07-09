@@ -152,13 +152,14 @@ public class WebCrawlExecutor {
 
             String url = replaceRequestVariables(config.getRequestUrl(), mergedParams);
             String actualUrl = applySshTunnelToUrl(url, tunnel);
+            String originalHostHeader = tunnel != null ? buildHostHeader(url) : null;
 
             if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
                 Document document = webDriverManager.fetchPage(config, actualUrl, mergedParams);
                 return WebCrawlPreviewResult.success(200, "页面可访问", document.title(), document.html());
             }
 
-            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams, originalHostHeader);
             Connection.Response response = connection.execute();
             Document document = response.parse();
             int statusCode = response.statusCode();
@@ -198,7 +199,8 @@ public class WebCrawlExecutor {
             }
 
             String actualUrl = applySshTunnelToUrl(targetUrl, tunnel);
-            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
+            String originalHostHeader = tunnel != null ? buildHostHeader(targetUrl) : null;
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams, originalHostHeader);
             Connection.Response response = connection.execute();
             return new ResourceResponse(response.contentType(), response.bodyAsBytes());
         } finally {
@@ -215,15 +217,20 @@ public class WebCrawlExecutor {
     private Document fetchDocument(TaskWebCrawlConfig config, String url,
                                    Map<String, Object> params, SshTunnel tunnel) throws Exception {
         String actualUrl = applySshTunnelToUrl(url, tunnel);
+        String originalHostHeader = tunnel != null ? buildHostHeader(url) : null;
         if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
             return webDriverManager.fetchPage(config, actualUrl, params);
         }
-        Connection connection = buildConnection(config, actualUrl, params);
-        return connection.execute().parse();
+        Connection connection = buildConnection(config, actualUrl, params, originalHostHeader);
+        Document document = connection.execute().parse();
+        if (tunnel != null) {
+            document.setBaseUri(url);
+        }
+        return document;
     }
 
     private Connection buildConnection(TaskWebCrawlConfig config, String url,
-                                       Map<String, Object> params) throws IOException {
+                                       Map<String, Object> params, String originalHostHeader) throws IOException {
         Connection.Method method = parseMethod(config.getRequestMethod());
         Connection connection = Jsoup.connect(url)
                 .method(method)
@@ -238,6 +245,9 @@ public class WebCrawlExecutor {
         }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
+        if (StringUtils.hasText(originalHostHeader)) {
+            connection.header("Host", originalHostHeader);
+        }
         applyCookies(connection, config.getCookies(), params);
         applyAuth(connection, config);
 
@@ -260,7 +270,7 @@ public class WebCrawlExecutor {
     }
 
     private Connection buildPreviewConnection(TaskWebCrawlConfig config, String url,
-                                              Map<String, Object> params) throws IOException {
+                                              Map<String, Object> params, String originalHostHeader) throws IOException {
         Connection.Method method = parseMethod(config.getRequestMethod());
         Connection connection = Jsoup.connect(url)
                 .method(method)
@@ -275,6 +285,9 @@ public class WebCrawlExecutor {
         }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
+        if (StringUtils.hasText(originalHostHeader)) {
+            connection.header("Host", originalHostHeader);
+        }
         applyCookies(connection, config.getCookies(), params);
         applyAuth(connection, config);
 
@@ -603,6 +616,23 @@ public class WebCrawlExecutor {
         } catch (MalformedURLException e) {
             log.warn("替换 SSH 隧道 URL 失败: {}", url, e);
             return url;
+        }
+    }
+
+    private String buildHostHeader(String url) {
+        if (!StringUtils.hasText(url)) {
+            return null;
+        }
+        try {
+            URL parsed = new URL(url);
+            int port = parsed.getPort();
+            if (port == -1) {
+                return parsed.getHost();
+            }
+            return parsed.getHost() + ":" + port;
+        } catch (MalformedURLException e) {
+            log.warn("构建 Host 头失败: {}", url, e);
+            return null;
         }
     }
 
