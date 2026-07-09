@@ -8,6 +8,7 @@ export interface TaskConfig {
   status: 'ENABLE' | 'DISABLE'
   taskType?: 'SQL' | 'CRAWL'
   sortOrder?: number
+  inWecomMenu?: number
   createTime?: string
   updateTime?: string
 }

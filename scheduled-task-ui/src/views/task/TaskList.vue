@@ -150,6 +150,12 @@ onMounted(() => {
         show-overflow-tooltip
       />
       <el-table-column prop="sortOrder" label="排序" width="90" align="center" />
+      <el-table-column prop="inWecomMenu" label="微信菜单" width="100" align="center">
+        <template #default="{ row }">
+          <el-tag v-if="row.inWecomMenu === 1" type="success">已加入</el-tag>
+          <el-tag v-else type="info">未加入</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="triggerType" label="触发类型" width="100">
         <template #default="{ row }">
           <el-tag v-if="row.triggerType === 'CRON'" type="primary">CRON</el-tag>

@@ -84,6 +84,7 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
     @Transactional(rollbackFor = Exception.class)
     public boolean saveOrUpdateTask(TaskConfig task, List<String> sqlCodes,
                                     List<String> crawlCodes, List<Long> dependencyIds) throws Exception {
+        validateInWecomMenuLimit(task);
         boolean result = saveOrUpdate(task);
         Long taskId = task.getId();
         String taskCode = task.getTaskCode();
@@ -105,6 +106,21 @@ public class TaskConfigService extends ServiceImpl<TaskConfigMapper, TaskConfig>
             taskSchedulerService.removeTask(taskId);
         }
         return result;
+    }
+
+    private void validateInWecomMenuLimit(TaskConfig task) {
+        if (task == null || !Integer.valueOf(1).equals(task.getInWecomMenu())) {
+            return;
+        }
+        LambdaQueryWrapper<TaskConfig> wrapper = new LambdaQueryWrapper<TaskConfig>()
+                .eq(TaskConfig::getInWecomMenu, 1);
+        if (task.getId() != null) {
+            wrapper.ne(TaskConfig::getId, task.getId());
+        }
+        long count = count(wrapper);
+        if (count >= 5) {
+            throw new IllegalArgumentException("最多只能开启 5 个任务加入企业微信应用菜单");
+        }
     }
 
     private void saveTaskSqlRelations(String taskCode, List<String> sqlCodes) {

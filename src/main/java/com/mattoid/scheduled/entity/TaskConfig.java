@@ -34,6 +34,11 @@ public class TaskConfig extends BaseEntity {
     private Integer sortOrder;
 
     /**
+     * 是否加入企业微信应用菜单：1 是，0 否
+     */
+    private Integer inWecomMenu;
+
+    /**
      * SQL / CRAWL
      */
     private String taskType;
