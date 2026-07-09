@@ -1,19 +1,19 @@
 # 定时任务报表系统
 
-基于 Spring Boot 3 + MyBatis-Plus + Quartz + Spring Security + JWT 的定时任务报表系统。
+基于 Spring Boot 3 + MyBatis-Plus + Quartz + Spring Security + JWT 的定时任务报表系统，支持 SQL 任务、网页爬取任务、多数据源、SSH 隧道、图表生成、通知推送、RBAC 权限控制等能力。
 
 ## 核心功能
 
-- 通过 MySQL 配置定时任务，支持一次性 / CRON 周期性触发
-- 支持手动触发任务
-- 多数据源管理，数据源配置存储在数据库中
-- 数据源连接支持 SSH 隧道代理
-- 根据 SQL 查询结果生成报表
-- 支持 Excel / Word / PPT / CSV / TXT 多种模板
-- 支持按 SQL 结果生成图表（柱状图 / 折线图 / 饼图 / 面积图 / 散点图 / 堆叠柱状图 / 环形图），可插入通知内容，也可通过 `${chart}` 占位符插入 Word / PPT / Excel 模板
-- 报表生成后通过 SMTP 发送到指定收件人
-- 发件邮箱、收件人 / 收件组独立管理
-- 基于 RBAC 的权限控制
+- **任务调度**：支持 CRON 周期任务与一次性任务，基于 Quartz JDBC JobStore 持久化
+- **SQL 任务**：多数据源 SQL 查询，输出 CSV / Excel / Word / PPT / TXT / INLINE
+- **网页爬取任务**：支持静态 / 动态页面爬取、CSS/XPath/Regex 数据提取、分页、媒体下载
+- **模板处理**：Excel / Word / PPT / CSV / TXT 模板，支持 `${字段名}` 占位符与多 SQL 链式填充
+- **图表生成**：柱状图、折线图、饼图、面积图、散点图、堆叠柱状图、环形图
+- **通知系统**：邮件、企业微信应用 / 群机器人 / 智能机器人、钉钉、飞书、Slack、自定义 Webhook
+- **AI 助手**：通知内容优化、自然语言意图解析、企业微信闲聊回复
+- **存储配置**：本地、阿里云 OSS、AWS S3、WebDAV
+- **系统管理**：RBAC 用户 / 角色 / 权限、操作审计日志
+- **数据源 SSH 隧道**：数据库连接与爬取任务均支持 SSH 隧道及跳板机
 
 ## 技术栈
 
@@ -26,6 +26,7 @@
 - Apache Commons CSV
 - sshj（SSH 代理）
 - XChart（图表生成）
+- Jsoup / Selenium（网页爬取）
 
 ## 快速开始
 
@@ -33,7 +34,7 @@
 
 项目使用 Flyway 自动管理数据库迁移，首次启动时会自动执行 `src/main/resources/db/migration` 下的脚本，无需手动导入 schema.sql。
 
-如需手动初始化，可执行 `src/main/resources/db/migration` 目录下的迁移脚本。
+如需手动初始化，可按版本号顺序执行该目录下的迁移脚本。
 
 ### 2. 配置数据库连接
 
@@ -51,7 +52,7 @@ spring:
 
 ```bash
 mvn clean package
-java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
+java -jar target/scheduled-task-*.jar --spring.profiles.active=dev
 ```
 
 ### 4. 默认账号
@@ -61,160 +62,65 @@ java -jar target/scheduled-task-1.0.0-SNAPSHOT.jar
 
 登录接口：`POST /api/auth/login`
 
-## 通知系统
+---
 
-任务执行后，系统可根据配置的通知规则通过多种渠道发送通知。
+## 任务管理
 
-### 通知渠道
+### 任务调度
 
-| 渠道 | 说明 |
+任务统一由 `task_config` 管理，核心字段包括：
+
+| 字段 | 说明 |
 |------|------|
-| `EMAIL` | 通过 SMTP 发送邮件，支持 HTML 正文、内联图片和附件 |
-| `WECOM_APP` | 企业微信应用消息，支持 Markdown 富文本、文件和图片 |
-| `WECOM_BOT` | 企业微信机器人 Webhook 消息，支持 Markdown 富文本、文件、图片和 @提及 |
-| `WECOM_INTELLIGENT_BOT` | 企业微信智能机器人 Webhook 消息，支持 Markdown 富文本、文件和图片 |
-| `DINGTALK` | 钉钉机器人 Webhook 消息 |
-| `FEISHU` | 飞书机器人 Webhook 消息 |
-| `SLACK` | Slack Webhook 消息 |
-| `WEBHOOK` | 自定义 Webhook 通知 |
+| `taskName` | 任务名称 |
+| `taskCode` | 任务编码，作为业务主键关联 SQL、爬取配置、通知规则等 |
+| `triggerType` | `CRON` / `ONCE` |
+| `triggerConfig` | CRON 表达式或一次性执行时间 |
+| `status` | `ENABLE` / `DISABLE` |
+| `taskType` | `SQL` / `CRAWL` |
 
-### 通知规则
+- 支持**手动触发**和**外部 API 触发**（`POST /api/public/tasks/{taskId}/trigger`，需 `X-API-KEY`）
+- 任务状态变更后会自动重新调度或移除 Quartz 触发器
+- **并发控制**：同一任务在 1 小时内已有 `RUNNING` 日志时，新触发会被标记为 `SKIPPED`
 
-通知规则基于事件驱动，支持以下触发事件：
+### 任务类型
 
-- `TASK_SUCCESS` — 任务执行成功
-- `TASK_FAILURE` — 任务执行失败
-- `TASK_COMPLETED` — 任务执行完成（无论成功或失败）
+- **SQL 任务**：关联一条或多条 `task_sql_config`，按 `sort_order` 顺序执行
+- **网页爬取任务**：关联一条 `task_web_crawl_config`，抓取网页并提取数据
 
-规则可全局生效（`task_code` 为空），也可绑定到指定任务（按 `task_code` 关联）。
+### 任务依赖
 
-### 企业微信消息格式
+支持为任务配置上游依赖（`task_dependency`）：
 
-企业微信渠道（`WECOM_APP`、`WECOM_BOT`、`WECOM_INTELLIGENT_BOT`）发送 **Markdown 富文本** 消息。
+- 保存时自动检测并拒绝循环依赖
+- 手动触发时按拓扑顺序执行依赖链，任一依赖失败则中止
+- 任务成功后自动级联触发下游依赖任务
+- 提供依赖链查询接口 `/api/task/{id}/dependency-chain`
 
-**格式说明：**
+---
 
-- 第一行作为标题，显示为蓝色加粗文字
-- 剩余内容作为正文，支持基本 Markdown 语法
-- 标题和正文之间用空行分隔
+## SQL 任务
 
-**示例正文模板：**
+### 基础配置
 
-```
-本周任务执行报告
-> 任务: 销售日报任务
-> 状态: 执行成功
-> 耗时: 120s
+每条 SQL 独立配置：
 
-本次共处理 **${name_count}** 条记录。
-```
-
-企业微信机器人消息正文中支持 `@用户`，在通知规则的 `wecomToUser` 字段中填写需要 @ 的 userId。
-
-### 通知模板占位符
-
-邮件主题、邮件正文、企业微信文本模板均支持占位符，使用 `${变量名}` 格式。
-
-- **图表占位符**：在 SQL 中启用图表生成后，可通过 `${chart:sql编码}` 在通知内容任意位置插入对应图表。
-- **日期变量**：支持 `${变量名:格式}`，例如 `${lastMonth:yyyy-MM}`、`${firstDayOfLastMonth:yyyy/MM/dd}`，完整变量列表见「变量与占位符规则 → 内置变量」。
-- **内联 SQL 结果占位符**：任务关联的 SQL 查询结果会作为变量注入模板。
-  - 单行单列：直接使用该列名，值为字符串/数字
-  - 多行或多列：使用列名作为变量，值为数组
-
-例如 SQL 查询结果为两行两列 `name` 和 `value`：
-
-```json
-[{"name": "Alice", "value": 100}, {"name": "Bob", "value": 200}]
-```
-
-模板中可直接使用：
-
-```
-本周报表：${name} 共 ${value} 条记录
-总记录数：${name_count}
-```
-
-会渲染为：
-
-```
-本周报表：[Alice, Bob] 共 [100, 200] 条记录
-总记录数：2
-```
-
-### AI 优化通知内容
-
-在通知规则中启用 `aiOptimizeNotify`，系统会调用 AI 配置中指定的模型对通知内容（主题 / 正文）进行优化，使表达更自然、更精炼。
-
-所有通知渠道均支持 AI 优化：EMAIL、WECOM_APP、WECOM_BOT、WECOM_INTELLIGENT_BOT。
-
-### 企业微信文件发送策略
-
-对于 WeCom 渠道，文件发送有两种模式：
-
-- **直接发送文件**：未配置存储配置时，文件作为附件直接发送
-- **上传后发送链接**：在通知规则中指定存储配置，系统先将文件上传到存储系统，再发送下载链接。适用于文件较大或需要长期留存的场景
-
-### 企业微信指令
-
-企业微信应用 / 智能机器人（CALLBACK 模式）支持通过消息指令操作系统：
-
-| 指令 | 示例 | 说明 |
-|------|------|------|
-| `帮助` | `帮助` | 显示可用指令 |
-| `任务列表` | `任务列表` | 查看任务列表 |
-| `运行 {ID}` | `运行 1` | 按 ID 运行任务 |
-| `运行 {任务名称}` | `运行 销售日报` | 按名称匹配任务并运行 |
-| `运行 {任务名称} {时间范围}` | `运行 销售日报 昨天` | 按指定时间范围运行任务 |
-| `查询 {关键词}` | `查询 销售数据` | 直接查询 SQL 数据 |
-
-**时间范围**：支持 `昨天`、`今天`、`上周`、`本周`、`上个月`、`本月`、`上季度`、`本季度`、`今年`、`最近 N 天` 等。
-
-在任务关联的 SQL 中，可通过 `${startTime}` 和 `${endTime}` 引用解析后的时间范围（格式 `yyyy-MM-dd HH:mm:ss`），从而按指定区间生成报表或图表。
-
-## 存储配置
-
-系统支持多种文件存储后端，用于报表文件与通知附件的上传与分发：
-
-| 存储类型 | 说明 |
-|---------|------|
-| `LOCAL` | 本地文件系统 |
-| `OSS` | 阿里云 OSS |
-| `S3` | AWS S3 及兼容存储 |
-| `WEBDAV` | WebDAV 服务器 |
-
-配置存储后，通知规则可选择使用该存储将文件上传并返回下载链接。
-
-## AI 配置
-
-系统支持多种 AI 厂商接入，用于通知内容优化：
-
-| 厂商 | 说明 |
-|------|------|
-| `OPENAI` | OpenAI API |
-| `ANTHROPIC` | Anthropic Claude API |
-| `AZURE_OPENAI` | Azure OpenAI Service |
-| `OLLAMA` | 本地 Ollama 部署 |
-| `CUSTOM` | 自定义兼容 OpenAI 格式的 API |
-
-## SQL 模块
-
-一个任务可以关联一条或多条 SQL。任务通过 `task_code` 与 SQL 的 `sql_code` 进行编码级关联，不再依赖数据库自增 ID。每条 SQL 独立配置数据源、输出格式、文件名规则与模板。
-
-### SQL 分组
-
-SQL 配置支持 `group_name` 分组：
-
-- 在 SQL 管理中填写分组名称，如 `门店报表`、`财务日报`
-- SQL 管理列表支持按分组筛选
-- 任务配置中选择 SQL 时，下拉框会按分组展示，便于在 SQL 较多时快速定位
-- 未填写分组的 SQL 会归入"未分组"
+| 配置项 | 说明 |
+|--------|------|
+| `datasourceId` | 数据源 ID |
+| `sqlContent` | SQL 语句，支持 `${参数名}` 占位符 |
+| `customParams` | 自定义参数 JSON |
+| `outputFormat` | `CSV` / `EXCEL` / `WORD` / `PPT` / `TXT` / `INLINE` |
+| `fileNamePattern` | 输出文件名，支持时间占位符 |
+| `templateCode` | 关联的报表模板编码 |
+| `groupCode` | SQL 分组编码 |
 
 ### SQL 变量与参数
 
-SQL 语句中支持使用 `${参数名}` 占位符，系统会在执行前按以下顺序替换：
+SQL 中 `${参数名}` 按以下顺序替换：
 
-1. **自定义参数**：在「SQL 管理」的 `custom_params` 中配置的 JSON 对象，key 即为参数名。
-2. **内置日期/时间变量**：当自定义参数中不存在对应 key 时，会尝试解析为内置变量。
+1. `customParams` 自定义参数
+2. 内置日期/时间变量
 
 自定义参数示例：
 
@@ -226,408 +132,424 @@ SQL 语句中支持使用 `${参数名}` 占位符，系统会在执行前按以
 }
 ```
 
-对应 SQL：
+支持格式后缀：`${startTime:yyyy-MM-dd}`。
 
-```sql
-SELECT * FROM orders
-WHERE create_time BETWEEN '${startTime}' AND '${endTime}'
-  AND city = '${city}';
-```
-
-#### 自定义参数格式
-
-支持 `${参数名:格式}` 对参数值进行格式化：
-
-```sql
--- startTime 为 2026-07-01 10:30:00 时，输出 2026-07-01
-SELECT * FROM orders WHERE date >= '${startTime:yyyy-MM-dd}';
-```
-
-#### SQL 内置变量
-
-除自定义参数外，SQL 中可直接使用以下内置变量：
-
-| 变量 | 说明 | 默认格式 |
-|------|------|---------|
-| `${month}` / `${currentMonth}` | 当前月份 | `M` |
-| `${lastMonth}` | 上月月份 | `M` |
-| `${nextMonth}` | 下月月份 | `M` |
-| `${lastM}` / `${nextM}` | 上月/下月数字 | `M` |
-| `${year}` / `${currentYear}` | 当前年份 | `yyyy` |
-| `${lastYear}` | 去年 | `yyyy` |
-| `${nextYear}` | 明年 | `yyyy` |
-| `${now}` / `${date}` | 当前时间 | `yyyy-MM-dd` |
-| `${today}` | 当前日期 | `yyyy-MM-dd` |
-| `${firstDayOfThisWeek}` | 本周第一天（周一） | `yyyy-MM-dd` |
-| `${lastDayOfThisWeek}` | 本周最后一天（周日） | `yyyy-MM-dd` |
-| `${firstDayOfLastWeek}` | 上周第一天（周一） | `yyyy-MM-dd` |
-| `${lastDayOfLastWeek}` | 上周最后一天（周日） | `yyyy-MM-dd` |
-| `${firstDayOfThisMonth}` | 本月第一天 | `yyyy-MM-dd` |
-| `${lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` |
-| `${lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfThisYear}` | 今年第一天 | `yyyy-MM-dd` |
-| `${lastDayOfThisYear}` | 今年最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfLastYear}` | 去年第一天 | `yyyy-MM-dd` |
-| `${lastDayOfLastYear}` | 去年最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfNextYear}` | 明年第一天 | `yyyy-MM-dd` |
-| `${lastDayOfNextYear}` | 明年最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfThisQuarter}` | 本季度第一天 | `yyyy-MM-dd` |
-| `${lastDayOfThisQuarter}` | 本季度最后一天 | `yyyy-MM-dd` |
-| `${firstDayOfLastQuarter}` | 上季度第一天 | `yyyy-MM-dd` |
-| `${lastDayOfLastQuarter}` | 上季度最后一天 | `yyyy-MM-dd` |
-| `${yesterday}` | 昨天 | `yyyy-MM-dd` |
-| `${tomorrow}` | 明天 | `yyyy-MM-dd` |
-
-内置变量同样支持格式后缀：
-
-```sql
-SELECT *
-FROM orders
-WHERE date >= '${firstDayOfLastMonth:yyyy/MM/dd}'
-  AND date <= '${lastDayOfLastMonth:yyyy/MM/dd}';
-```
-
-### 单 SQL 输出
-
-未绑定模板时，SQL 结果按 `outputFormat` 输出：
+### 输出格式
 
 | 格式 | 说明 |
 |------|------|
-| CSV | 默认，使用 SQL 列别名作为表头 |
-| EXCEL | 生成 `.xlsx`，使用 SQL 列别名作为表头；支持按 `_sheet_name` 列分 sheet，也支持通过 `excel_merge_group` + `excel_sheet_name` 实现多 SQL 合并输出 |
-| TXT | 按模板中 `${字段名}` 逐行渲染 |
-| WORD / PPT | 无模板时无法生成有效文件，自动回退为 CSV |
+| `CSV` | 默认格式，使用 SQL 列别名作为表头 |
+| `EXCEL` | 生成 `.xlsx`，支持 `_sheet_name` 列分 sheet、合并组、追加模式、循环生成 |
+| `TXT` | 按模板中 `${字段名}` 逐行渲染 |
+| `WORD` / `PPT` | 无模板时自动回退为 CSV |
+| `INLINE` | 不生成文件，直接将 SQL 结果嵌入通知内容 |
 
-**Excel 输出模式**：
+### Excel 高级特性
 
-1. **默认单 sheet**：未配置合并组时，每个 SQL 独立生成一个 Excel 文件；若 SQL 结果包含 `_sheet_name` 列，则按该列值分 sheet，sheet 名即为列值，输出时 `_sheet_name` 列不会写入单元格。
-2. **多 SQL 写入同一 sheet**：在 SQL 管理中为多个 SQL 设置相同的 `excel_merge_group`，且 `excel_sheet_name` 相同；这些 SQL 的结果会追加到同一个 sheet 中，列头自动取并集。
-3. **多 SQL 写入多 sheet**：多个 SQL 设置相同的 `excel_merge_group`，但 `excel_sheet_name` 不同；系统会将它们输出到同一个 Excel 文件的不同 sheet。
-4. **单 SQL 写入多 sheet**：在 SQL 结果中包含 `_sheet_name` 列，系统按列值拆分为多个 sheet；该模式可与 `excel_merge_group` 结合使用。
+#### 1. 单 SQL 分 sheet
 
-> `excel_merge_group`：Excel 合并组名，相同组名的 SQL 会合并到同一个 Excel 文件。  
-> `excel_sheet_name`：Excel 中的 sheet 名称，支持 `{yyyy}`、`{yyyyMM}` 等时间占位符；同一合并组内相同 sheet 名的 SQL 会追加到同一页，不同 sheet 名会创建新页；留空时默认使用 SQL 名称。
+SQL 结果中包含 `_sheet_name` 列时，按该列值拆分为多个 sheet，该列不写入单元格。
 
-### SQL 图表生成
+#### 2. 多 SQL 合并输出
 
-系统支持为每条 SQL 独立生成 PNG 图表，并插入到邮件或企业微信通知的任意位置。图表配置位于「SQL 管理」中，与 SQL 一一对应，因此一个任务下的多条 SQL 可以分别生成不同图表。
+通过 `excelMergeGroup` 和 `excelSheetName` 控制：
 
-#### 配置项
+- 相同 `excelMergeGroup` 的 SQL 输出到同一个 Excel 文件
+- 相同 `excelSheetName` 的 SQL 追加到同一个 sheet
+- 不同 `excelSheetName` 创建不同 sheet
 
-| 配置项 | 说明 |
-|--------|------|
-| `chart_enabled` | 是否启用图表生成：`1` 启用，`0` 禁用 |
-| `chart_type` | 图表类型，支持 `BAR`（柱状图）、`LINE`（折线图）、`PIE`（饼图）、`AREA`（面积图）、`SCATTER`（散点图）、`STACKED_BAR`（堆叠柱状图）、`DOUGHNUT`（环形图） |
-| `chart_title` | 图表标题，留空时自动使用 SQL 名称 |
-| `chart_auto_merge` | 分类过多时是否自动合并相邻数据：`1` 开启（默认），`0` 关闭 |
-| `chart_label_rotation` | X 轴标签旋转角度：`AUTO`（自动，默认）、`0`、`45`、`90`；选择 `90` 时标签竖向显示 |
-| `chart_background_color` | 图表背景色，支持 `#RRGGBB`、`#RRGGBBAA`、`rgb(...)`、`rgba(...)`、`transparent`；留空/透明表示使用透明背景 |
+#### 3. Excel 循环生成
 
-> 图表配置在 `output_format` 为 `INLINE`（内联到通知）、`WORD`、`PPT`、`EXCEL` 时展示和生效。选择 `CSV` / `TXT` 时，前端会自动关闭「生成图表」开关。开启 `chart_enabled` 后，任务执行时会根据输出方式自动生成图表：内联输出直接嵌入通知内容；绑定 Word / PPT / Excel 模板时，可通过 `${chart:sql编码}` 占位符将图表插入模板指定位置。
+开启 `excelLoopEnabled` 并配置 `excelLoopConfig`，可按 `MONTH` / `DAY` / `WEEK` / `YEAR` / `HOUR` / `MINUTE` 循环执行 SQL，每次循环结果作为独立 sheet 输出。
 
-#### 数据要求
+#### 4. Excel 追加模式
 
-图表基于 SQL 查询结果自动生成，系统按以下规则识别数据：
+开启 `excelAppendMode` 并配置 `excelBaseFilePath`：
 
-- **分类轴（X 轴 / 扇区标签）**：优先选择结果中第一个**非数值**列（如日期、名称、类别）。
-- **数值序列**：选择其余所有**数值**列作为 Y 轴数据；多个数值列会生成多个序列。
-- **退化场景**：如果结果只有一列且为数值列，系统会自动用行号（1、2、3…）作为分类轴生成图表。
+- 向已有 Excel 文件追加新 sheet
+- `excelAppendUpdateSameSheet`：同名 sheet 更新（1）或跳过（0）
+- `excelAppendPosition`：新 sheet 插入位置，从 0 开始；留空或负数表示追加到末尾
 
-因此建议为图表 SQL 返回如下结构：
+#### 5. Excel 模板特性
 
-```sql
--- 柱状图 / 折线图 / 面积图 / 堆叠柱状图 / 散点图
-SELECT category AS '类别', value1 AS '销售额', value2 AS '利润'
-FROM sales;
-
--- 饼图 / 环形图
-SELECT region AS '地区', amount AS '销售额'
-FROM sales;
-```
-
-> 列名会作为图例名称显示，建议为列设置清晰的中文或英文别名。
-
-#### 在 Word / PPT / Excel 模板中引用图表
-
-除通知内容外，图表同样可以通过占位符插入到 Word、PPT、Excel 模板中：
-
-```
-${chart:sql编码}
-```
-
-占位符规则：
-
-- 不写 `sql编码` 的 `${chart}` 会匹配当前 SQL 生成的图表。
-- 写了 `sql编码` 的 `${chart:sql编码}` 只匹配对应 `sql_code` 生成的图表。
-- Word / PPT 中，占位符所在的段落或表格单元格会被替换为图表图片。
-- Excel 中，占位符所在的单元格会被替换为图表图片；建议将占位符放在表头或标题行之外的独立单元格，避免被数据填充覆盖。
-
-图表在模板中的尺寸由模板占位符所在区域决定：Word / PPT 中尽量占满占位符文本框或单元格，Excel 中默认从占位符单元格向右下延伸约 8 列 × 12 行。如需调整大小，可在模板中预留更大的空白区域。
-
-#### 在通知中引用图表
-
-在邮件正文或企业微信文本模板中，使用占位符：
-
-```
-${chart:sql编码}
-```
-
-其中 `sql编码` 对应「SQL 管理」中该 SQL 的 `sql_code`。
-
-**完整示例：**
-
-1. 创建 SQL，编码为 `daily_sales`：
-
-```sql
-SELECT date AS '日期', amount AS '销售额'
-FROM daily_sales
-WHERE date BETWEEN '${startTime}' AND '${endTime}';
-```
-
-2. 在 SQL 管理中开启「生成图表」，选择「柱状图」，标题留空。
-
-3. 在通知规则中写入正文：
-
-```
-本月销售趋势如下：
-${chart:daily_sales}
-
-详细数据请查看附件。
-```
-
-#### 不同通知渠道的显示效果
-
-| 渠道 | 显示方式 |
-|------|----------|
-| **EMAIL** | 占位符替换为 `<img src="cid:chart_sql编码" />`，图表以内联图片形式显示在邮件正文中 |
-| **WECOM_APP / WECOM_BOT / WECOM_INTELLIGENT_BOT** | 占位符替换为 `[图表: sql编码]` 文本标记，随后自动补发对应的图片消息 |
-
-> 一个任务中多个 SQL 可以同时生成图表，只需使用不同的 `sql编码` 作为占位符，例如 `${chart:daily_sales}`、`${chart:category_sales}`。
-
-#### 各图表类型说明
-
-| 类型 | 适用场景 | 数据要求 |
-|------|----------|----------|
-| `BAR` | 对比不同类别的数值 | 1 个分类列 + 1 个或多个数值列 |
-| `LINE` | 展示趋势变化 | 1 个分类列（通常为日期）+ 1 个或多个数值列 |
-| `AREA` | 强调数量累积或趋势 | 同折线图 |
-| `SCATTER` | 观察数据分布 | 1 个分类列 + 1 个或多个数值列 |
-| `STACKED_BAR` | 展示整体与部分关系 | 1 个分类列 + **多个**数值列 |
-| `PIE` | 展示占比 | 1 个分类列 + **1 个**数值列 |
-| `DOUGHNUT` | 展示占比（环形） | 同饼图 |
-
-#### 常见问题
-
-1. **占位符没有被替换，显示 `[图表未生成: xxx]`**  
-   表示该 SQL 没有成功生成图表。请检查：
-   - SQL 是否开启了「生成图表」。
-   - SQL 查询结果是否为空。
-   - 结果中是否存在可用的数值列；饼图/环形图需要至少 1 个分类列和 1 个数值列。
-
-2. **邮件中收到图片但企业微信没有**  
-   企业微信渠道会先发文本消息，再单独发送图片消息。请确认企业微信配置的图片上传权限正常。
-
-3. **模板链中的 SQL 没有生成图表**  
-   模板链中的 SQL 同样支持图表生成。请检查：
-   - SQL 是否开启了「生成图表」。
-   - 模板中是否包含正确的 `${chart:sql编码}` 占位符。
-   - 占位符的 `sql编码` 是否与 SQL 的 `sql_code` 完全一致（不区分大小写）。
+- 支持**显示表头 + 占位符行**或**纯字段名表头**
+- 同一 sheet 内多个不相邻的 `${}` 列组会被识别为独立数据区域
+- 支持**自动汇总行**：包含 `SUM(单单元格)` 的公式行会自动下移到数据末尾，并扩展为 `SUM(首行:末行)`
+- 新增行复制样例数据行样式
+- 支持 `${chart}` / `${chart:sql编码}` 插入图表图片
 
 ### 多 SQL 链式处理（模板链）
 
-当多条 SQL 绑定到同一个模板时，系统会按顺序执行：
+多条 SQL 绑定到同一个模板时，按顺序依次填充：
 
-1. 第 1 条 SQL 的结果填充模板，生成临时文件
-2. 第 2 条 SQL 的结果继续填充上一步的临时文件
+1. 第 1 条 SQL 填充模板，生成临时文件
+2. 第 2 条 SQL 继续填充上一步的临时文件
 3. ...
 4. 最后一条 SQL 生成最终报表文件
 
 该机制常用于 Word / PPT / Excel 中先替换基础信息，再展开明细表格或汇总区域。
 
+---
+
+## 网页爬取任务
+
+### 请求配置
+
+| 配置项 | 说明 |
+|--------|------|
+| `requestUrl` | 请求 URL，支持占位符 |
+| `requestMethod` | GET / POST / PUT / DELETE 等 |
+| `requestHeaders` | 请求头 JSON |
+| `requestParams` | URL 参数 JSON |
+| `requestBody` | 请求体 |
+| `requestContentType` | 内容类型 |
+| `cookies` | Cookie 字符串 |
+| `authType` | `NONE` / `BASIC` / `TOKEN` / `FORM` / `OAUTH2` |
+| `authConfig` | 认证配置 JSON |
+
+### 数据提取规则
+
+通过 `selectors` 配置：
+
+| 配置项 | 说明 |
+|--------|------|
+| `fieldName` | 字段名 |
+| `selectorType` | `CSS` / `XPATH` / `REGEX` |
+| `selectorValue` | 选择器表达式 |
+| `attribute` | 取值属性：`text` / `html` / `src` / `href` / `attr:xxx` |
+| `dataType` | `STRING` / `NUMBER` / `DATE` / `LINK` / `HTML` |
+| `isRowSelector` | 是否为行级选择器，决定数据行粒度 |
+| `defaultValue` | 默认值 |
+
+### 渲染方式
+
+- **STATIC**：使用 Jsoup 直接请求静态页面
+- **DYNAMIC**：基于 Selenium ChromeDriver 渲染动态页面，可配置窗口大小、等待选择器、浏览器路径、启动参数等
+
+### 分页爬取
+
+- `URL_TEMPLATE`：按模板生成下一页 URL
+- `SELECTOR`：通过 CSS 选择器提取下一页链接
+- 支持最大页数限制，`<=0` 表示不限制
+
+### 媒体下载
+
+开启 `mediaEnabled` 后可抓取图片 / 视频 / 音频等资源：
+
+- 支持文件类型、尺寸、大小、MIME 类型过滤
+- 输出模式：`FILES` / `ZIP` / `STORE_ONLY` / `ATTACH_ZIP`
+- 可打包为 ZIP 并上传到存储配置
+
+### 网络代理与 SSH 隧道
+
+- **HTTP 代理**：`proxyEnabled` + host/port/username/password，支持 Jsoup 和 ChromeDriver
+- **SSH 隧道**：支持密码或私钥登录，支持跳板机模式，自动将请求 URL 替换为 `127.0.0.1:localPort`
+
+### 预览接口
+
+- `POST /api/task-crawl/preview`：返回页面标题和 HTML
+- `POST /api/task-crawl/preview-rewrite`：重写页面资源链接以便 iframe 预览
+- `GET /api/task-crawl/preview-resource`：代理预览子资源（CSS/JS/图片）
+
+---
+
 ## 模板说明
 
-模板中使用 `${字段名}` 作为占位符，系统会用 SQL 查询结果进行替换或展开。
-
-> 字段名区分大小写，需与 SQL 列名/列别名完全一致。
+模板中使用 `${字段名}` 作为占位符，系统会用 SQL / 爬取结果进行替换或展开。字段名区分大小写，需与列名/列别名完全一致。
 
 ### 通用占位符
 
 | 占位符 | 说明 |
 |--------|------|
-| `${字段名}` | SQL 查询结果中的字段值 |
-| `${序号}` / `${seq}` | 自动生成从 1 开始的序号（表格展开时） |
+| `${字段名}` | SQL / 爬取结果中的字段值 |
+| `${序号}` / `${seq}` | 表格展开时自动生成从 1 开始的序号 |
+| `${chart}` | 插入当前 SQL 生成的图表 |
+| `${chart:sql编码}` | 插入指定 `sql_code` 生成的图表 |
 
 ### Excel 模板
 
-- 第一行可使用纯文本作为**显示表头**（如 `城市`、`门店`），其下方的 `${字段名}` 行作为数据起始行；此时 `${字段名}` 所在行会被第一条数据替换，第二行开始写入第二条数据。
-- 如果没有显示表头，则 `${字段名}` 行作为字段名表头，数据从下一行开始填充。
-- 同一 sheet 中，多个不相邻的 `${}` 列组会被识别为独立数据区域；多 SQL 链式处理时，每个 SQL 只展开自己匹配的区域列，不会把其他区域的内容整体向下推。
-- 支持**自动汇总行**：在某个数据区域下方的行中，如果在该区域列范围内包含 `SUM` 公式，系统会将其视为汇总行。当数据行超过一行时，汇总行会自动下移到所有数据之后，并把 `SUM(单单元格)` 扩展为 `SUM(首行:末行)`。
-- 展开新增的行会复制样例数据行的单元格样式（如边框）。
-- 支持 `${chart}` / `${chart:sql编码}` 占位符插入图表图片；建议将占位符放在独立单元格，避免被数据填充覆盖。
+- 支持显示表头 + 占位符行，或纯字段名表头
+- 同一 sheet 内多个不相邻数据区域独立扩展
+- 支持自动汇总行
+- 新增行复制样例行样式
+- 支持图表占位符
 
-示例（带显示表头）：
-
-| 城市 | 门店 | 打卡次数 |
-|------|------|----------|
-| `${city_name}` | `${store_name}` | `${checkin_num}` |
-
-或（无显示表头）：
-
-```
-city_name | store_name | checkin_num
-```
-
-#### 汇总行示例
-
-在数据区域下方预留一行汇总，写入 `SUM` 公式：
+汇总行示例：
 
 | 城市 | 门店 | 打卡次数 |
 |------|------|----------|
 | `${city_name}` | `${store_name}` | `${checkin_num}` |
 | 汇总 | `=SUM(C2)` | `=SUM(C2)` |
 
-当 SQL 返回 3 条数据时，汇总行会自动下移到第 5 行，公式被更新为 `=SUM(C2:C4)`。
+当 SQL 返回 3 条数据时，汇总行会自动下移到第 5 行，公式更新为 `=SUM(C2:C4)`。
 
 ### Word 模板
 
 - 段落中可直接使用 `${字段名}` 替换单行数据
-- 表格中第一行使用 `${字段名}` 作为表头，系统会自动识别并展开数据行
+- 表格中第一行使用 `${字段名}` 作为表头，自动展开数据行
 - 支持只有表头没有样例行的表格
-- 多 SQL 链式处理时，未匹配占位符会保留给下一条 SQL 处理
-- 支持 `${chart}` / `${chart:sql编码}` 占位符插入图表图片；占位符所在段落或表格单元格会被替换为图片
-
-示例段落：
-
-```
-您好，本月共产生 ${total} 条打卡记录。
-```
-
-示例表格（第一行为表头）：
-
-| 城市 | 门店 | 打卡次数 |
-|------|------|----------|
-| `${city_name}` | `${store_name}` | `${checkin_num}` |
+- 支持图表占位符
 
 ### PPT 模板
 
 - 文本框中可直接使用 `${字段名}` 替换
 - 表格展开逻辑与 Word 类似
-- 多行数据（>1 行）时才会展开表格；单行数据按普通占位符替换
-- 支持 `${chart}` / `${chart:sql编码}` 占位符插入图表图片；占位符所在文本框或表格单元格会被替换为图片
+- 多行数据时才展开表格；单行数据按普通占位符替换
+- 支持图表占位符
 
-### CSV 模板
+### CSV / TXT
 
-- 第一行为表头，使用字段名（可带 `${}`）
-- 输出时保持表头，按字段顺序填充数据
+- CSV：第一行为表头，使用字段名
+- TXT：整份文件作为一行模板，每条数据渲染为一行
 
-### TXT 模板
+---
 
-- 整份文件作为一行模板，使用 `${字段名}` 占位
-- 每条 SQL 结果渲染为一行输出
+## 图表生成
 
-示例模板：
+基于 XChart 生成 PNG 图表，支持的类型：
 
-```
-城市:${city_name}, 门店:${store_name}, 次数:${checkin_num}
-```
+| 类型 | 说明 |
+|------|------|
+| `BAR` | 柱状图 |
+| `LINE` | 折线图 |
+| `AREA` | 面积图 |
+| `SCATTER` | 散点图 |
+| `STACKED_BAR` | 堆叠柱状图 |
+| `PIE` | 饼图 |
+| `DOUGHNUT` | 环形图 |
+
+数据识别规则：
+
+- 分类轴优先选择第一个非数值列
+- 其余数值列作为 Y 轴数据序列
+- 单列数值时自动用行号作为分类轴
+
+配置项：
+
+| 配置项 | 说明 |
+|--------|------|
+| `chartEnabled` | 是否启用 |
+| `chartType` | 图表类型 |
+| `chartTitle` | 标题，留空使用 SQL 名称 |
+| `chartAutoMerge` | 分类过多时自动合并相邻数据 |
+| `chartLabelRotation` | X 轴标签旋转：`AUTO` / `0` / `45` / `90` |
+| `chartBackgroundColor` | 背景色，支持透明 |
+
+图表使用方式：
+
+- 邮件正文内联图片：`cid:chart_编码`
+- 企业微信：先发送文本，再补发图片消息
+- Word / PPT / Excel 模板：`${chart:sql编码}`
+- 通知内容：`${chart:sql编码}`
+
+---
+
+## 通知系统
+
+### 通知渠道
+
+| 渠道 | 说明 |
+|------|------|
+| `EMAIL` | SMTP 邮件，支持 HTML 正文、内联图片、附件 |
+| `WECOM_APP` | 企业微信应用消息，支持 Markdown、文件、图片 |
+| `WECOM_BOT` | 企业微信群机器人 Webhook |
+| `WECOM_INTELLIGENT_BOT` | 企业微信智能机器人，支持 `LONGCHAIN` / `CALLBACK` 模式 |
+| `DINGTALK` | 钉钉机器人 Webhook |
+| `FEISHU` | 飞书机器人 Webhook |
+| `SLACK` | Slack Incoming Webhook |
+| `WEBHOOK` | 自定义 HTTP Webhook |
+
+### 通知规则
+
+- 触发事件：`TASK_SUCCESS` / `TASK_FAILURE` / `TASK_COMPLETED`
+- 可全局生效或绑定指定 `task_code`
+- 支持邮件收件人 / 收件组、企业微信 `@用户`
+- 支持 AI 优化通知内容
+- 支持指定存储配置，将文件转为下载链接发送
+- 发送失败时最多重试 2 次
+- 通知日志 `notification_log` 记录发送状态、接收人、失败原因
+
+### 通知模板占位符
+
+邮件主题、正文、企业微信文本模板均支持：
+
+- `${变量名}` 自定义参数和内置变量
+- `${chart:sql编码}` 插入图表
+- 内联 SQL 结果：单行单列直接使用列名；多行或多列使用列名作为数组变量
+
+### 企业微信指令
+
+CALLBACK 模式下支持消息指令：
+
+| 指令 | 说明 |
+|------|------|
+| `帮助` | 显示可用指令 |
+| `任务列表 [页码]` | 查看任务列表 |
+| `查看任务 {ID}` | 查看任务详情 |
+| `任务日志 {ID} [页码]` | 查看任务日志 |
+| `最近任务` | 查看最近执行记录 |
+| `运行 {ID}` / `运行 {任务名} [时间范围]` | 触发任务 |
+| `查询 {关键词} [图表类型]` | 直接查询 SQL 数据 |
+| `创建任务 任务名|编码|CRON|sql编码` | 创建简单任务 |
+
+非指令消息会走 AI 意图解析或闲聊回复。
+
+---
+
+## 存储配置
+
+支持多种文件存储后端：
+
+| 类型 | 说明 |
+|------|------|
+| `LOCAL` | 本地文件系统 |
+| `OSS` | 阿里云 OSS |
+| `S3` | AWS S3 及兼容存储 |
+| `WEBDAV` | WebDAV 服务器 |
+
+用途：
+
+- 企业微信 / 钉钉 / 飞书大文件转链接发送
+- 爬取任务媒体文件上传
+- 报表文件长期存储
+
+本地文件通过 `/storage/**` 提供访问，并做目录穿越防护。
+
+---
+
+## AI 配置与助手
+
+### AI 配置
+
+支持的厂商：
+
+| 厂商 | 说明 |
+|------|------|
+| `OPENAI` | OpenAI API |
+| `ANTHROPIC` | Anthropic Claude API |
+| `AZURE_OPENAI` | Azure OpenAI Service |
+| `OLLAMA` | 本地 Ollama 部署 |
+| `CUSTOM` | 自定义兼容 OpenAI 格式的 API |
+
+字段：API Key、Base URL、模型、temperature、max_tokens、timeout、系统提示词、默认配置标记。
+
+### AI 助手
+
+- **通知内容优化**：优化邮件/企业微信标题和正文，保留占位符
+- **意图解析**：将自然语言解析为 `VIEW_TASKS` / `TRIGGER_TASK` / `VIEW_LOGS` / `CREATE_TASK` / `QUERY_DATA`
+- **查询参数提取**：从自然语言中提取业务过滤参数
+- **闲聊回复**：企业微信非指令消息友好回复
+
+---
+
+## 系统管理
+
+### RBAC 权限模型
+
+- 用户 `sys_user`、角色 `sys_role`、权限 `sys_permission`
+- 用户-角色、角色-权限多对多关联
+- 启动时自动初始化默认角色 `ADMIN` / `OPERATOR` / `VIEWER` 和默认管理员 `admin / admin123`
+- 后续启动会自动为 `ADMIN` 角色补齐新增权限
+
+主要权限点：
+
+| 权限 | 说明 |
+|------|------|
+| `task:view/create/edit/delete/trigger` | 任务管理 |
+| `taskCrawl:view/create/edit/delete` | 爬取配置 |
+| `taskSqlGroup:view/create/edit/delete` | SQL 分组 |
+| `datasource:view/create/edit/delete` | 数据源 |
+| `email:view/create/edit/delete` | 收件人/收件组 |
+| `template:view/create/edit/delete` | 报表模板 |
+| `notificationRule:view/create/edit/delete` | 通知规则 |
+| `notificationConfig:view/create/edit/delete` | 通知配置 |
+| `storageConfig:view/create/edit/delete` | 存储配置 |
+| `system:user` / `system:role` | 用户 / 角色权限管理 |
+| `log:view` / `auditLog:view` | 任务日志 / 审计日志 |
+
+### 操作审计日志
+
+通过 AOP 切面 `@OperationAudit` 自动记录增删改、执行等操作：
+
+- 记录操作人、操作类型、资源类型、资源 ID/名称、请求 URI/方法、请求参数、IP 地址、状态、错误信息
+- 对 `password`、`secret`、`token`、`privatekey`、`passphrase`、`aeskey` 等敏感 key 自动脱敏
+- 提供审计日志分页查询接口 `/api/audit-log/page`
+
+---
 
 ## 变量与占位符规则
 
 以下配置项支持使用时间变量：
 
-- **任务级文件名格式**（`task_config.file_name_pattern`）：当多个 SQL 共享同一个模板形成链式处理时，最终输出文件名优先使用任务级配置
-- **SQL 级文件名格式**（`task_sql_config.file_name_pattern`）：单 SQL 输出时使用；若任务级未配置，链式处理时也会回退到第一条 SQL 的配置
-- 通知规则中的 **邮件主题**（`subject`）
-- 通知规则中的 **邮件正文**（`body`）
-- 通知规则中的 **企业微信文本模板**（`content`）
+- 任务级 / SQL 级文件名格式
+- 通知规则中的邮件主题 / 正文、企业微信文本模板
+- SQL 语句、请求 URL、请求体、自定义参数
+- 爬取文件名 / ZIP 文件名
 
 ### 内置变量
 
-变量支持两种写法：
+支持两种写法：`{变量名}` 和 `${变量名}`，均支持格式后缀。
 
-- `{变量名}` —— 历史兼容写法，主要用于文件名和通知模板
-- `${变量名}` —— 与 SQL 占位符统一，主要用于 SQL 语句和通知模板
-
-两种写法均支持追加格式：`{变量名:格式}` 或 `${变量名:格式}`，例如 `${startTime:yyyy-MM}`、`{lastMonth:yyyy-MM}`。
-
-| 变量 | 说明 | 默认格式 | 示例（当前 2026-07-04） |
-|------|------|---------|------------------------|
+| 变量 | 说明 | 默认格式 | 示例（2026-07-04） |
+|------|------|---------|-------------------|
 | `{month}` / `{currentMonth}` | 当前月份 | `M` | `7` |
 | `{lastMonth}` | 上月月份 | `MM` | `06` |
 | `{nextMonth}` | 下月月份 | `yyyyMM` | `202608` |
-| `{lastM}` / `{nextM}` | 上月/下月数字（SQL 中常用） | `M` | `6` / `8` |
+| `{lastM}` / `{nextM}` | 上月/下月数字 | `M` | `6` / `8` |
 | `{year}` / `{currentYear}` | 当前年份 | `yyyy` | `2026` |
-| `{lastYear}` | 去年 | `yyyy` | `2025` |
-| `{nextYear}` | 明年 | `yyyy` | `2027` |
-| `{now}` / `{date}` | 当前时间 | `yyyy-MM-dd` | `2026-07-04` |
-| `{today}` | 当前日期 | `yyyy-MM-dd` | `2026-07-04` |
+| `{lastYear}` / `{nextYear}` | 去年 / 明年 | `yyyy` | `2025` / `2027` |
+| `{now}` / `{date}` / `{today}` | 当前日期 | `yyyy-MM-dd` | `2026-07-04` |
+| `{yesterday}` / `{tomorrow}` | 昨天 / 明天 | `yyyy-MM-dd` | `2026-07-03` / `2026-07-05` |
 | `{firstDayOfThisWeek}` | 本周第一天（周一） | `yyyy-MM-dd` | `2026-06-30` |
 | `{lastDayOfThisWeek}` | 本周最后一天（周日） | `yyyy-MM-dd` | `2026-07-06` |
-| `{firstDayOfLastWeek}` | 上周第一天（周一） | `yyyy-MM-dd` | `2026-06-23` |
-| `{lastDayOfLastWeek}` | 上周最后一天（周日） | `yyyy-MM-dd` | `2026-06-29` |
+| `{firstDayOfLastWeek}` | 上周第一天 | `yyyy-MM-dd` | `2026-06-23` |
+| `{lastDayOfLastWeek}` | 上周最后一天 | `yyyy-MM-dd` | `2026-06-29` |
 | `{firstDayOfThisMonth}` | 本月第一天 | `yyyy-MM-dd` | `2026-07-01` |
 | `{lastDayOfThisMonth}` | 本月最后一天 | `yyyy-MM-dd` | `2026-07-31` |
 | `{firstDayOfLastMonth}` | 上月第一天 | `yyyy-MM-dd` | `2026-06-01` |
 | `{lastDayOfLastMonth}` | 上月最后一天 | `yyyy-MM-dd` | `2026-06-30` |
+| `{firstDayOfThisQuarter}` | 本季度第一天 | `yyyy-MM-dd` | `2026-07-01` |
+| `{lastDayOfThisQuarter}` | 本季度最后一天 | `yyyy-MM-dd` | `2026-09-30` |
+| `{firstDayOfLastQuarter}` | 上季度第一天 | `yyyy-MM-dd` | `2026-04-01` |
+| `{lastDayOfLastQuarter}` | 上季度最后一天 | `yyyy-MM-dd` | `2026-06-30` |
 | `{firstDayOfThisYear}` | 今年第一天 | `yyyy-MM-dd` | `2026-01-01` |
 | `{lastDayOfThisYear}` | 今年最后一天 | `yyyy-MM-dd` | `2026-12-31` |
 | `{firstDayOfLastYear}` | 去年第一天 | `yyyy-MM-dd` | `2025-01-01` |
 | `{lastDayOfLastYear}` | 去年最后一天 | `yyyy-MM-dd` | `2025-12-31` |
 | `{firstDayOfNextYear}` | 明年第一天 | `yyyy-MM-dd` | `2027-01-01` |
 | `{lastDayOfNextYear}` | 明年最后一天 | `yyyy-MM-dd` | `2027-12-31` |
-| `{firstDayOfThisQuarter}` | 本季度第一天 | `yyyy-MM-dd` | `2026-07-01` |
-| `{lastDayOfThisQuarter}` | 本季度最后一天 | `yyyy-MM-dd` | `2026-09-30` |
-| `{firstDayOfLastQuarter}` | 上季度第一天 | `yyyy-MM-dd` | `2026-04-01` |
-| `{lastDayOfLastQuarter}` | 上季度最后一天 | `yyyy-MM-dd` | `2026-06-30` |
-| `{yesterday}` | 昨天 | `yyyy-MM-dd` | `2026-07-03` |
-| `{tomorrow}` | 明天 | `yyyy-MM-dd` | `2026-07-05` |
 | `{yyyyMMddHHmmss}` | 当前时间 | - | `20260704123045` |
-| `{yyyyMMdd}` | 当前日期 | - | `20260704` |
-| `{yyyy-MM-dd}` | 当前日期 | - | `2026-07-04` |
+| `{yyyyMMdd}` / `{yyyy-MM-dd}` | 当前日期 | - | `20260704` / `2026-07-04` |
 | `{HHmmss}` | 当前时间 | - | `123045` |
 | `{yyyy}` / `{MM}` / `{dd}` 等 | Java `DateTimeFormatter` 支持的任意格式 | - | - |
 
-> 不认识的 `{...}` 或 `${...}` 内容会原样保留。SQL 语句中的 `${lastMonth}` 默认使用 `M` 格式，如需两位月份请使用 `${lastMonth:MM}`。
-
-### 文件名变量示例
-
-单 SQL 输出：
+### 文件名示例
 
 ```
 report_{yyyyMMddHHmmss}.csv
-```
-
-模板链输出（任务级文件名）：
-
-```
 {lastMonth}月门店打卡报表_{yyyyMMdd}.xlsx
 ```
 
-实际输出：
+---
 
-```
-06月门店打卡报表_20260704.xlsx
-```
+## 数据源与 SSH 隧道
 
-### 邮件主题/正文变量示例
+### 多数据源
 
-邮件主题：
+支持数据库类型：MySQL、PostgreSQL、Oracle、SQLServer。
 
-```
-{lastMonth}月门店打卡报表
-```
+字段包括：名称、类型、主机、端口、库名、用户名、密码、驱动类、JDBC 参数。
 
-邮件正文：
+支持测试连接，动态创建/刷新 HikariCP 连接池。
 
-```
-您好，附件为 {lastMonth} 月门店打卡报表，统计周期 {lastMonth:yyyy-MM-01} ~ {lastMonth:yyyy-MM-dd}，请查收。
-```
+### SSH 隧道
 
-## 数据源 SSH 代理
+- 数据源可开启 `sshEnabled`，通过 SSH 隧道访问目标数据库
+- 支持密码或私钥 + 可选密码短语认证
+- 建立本地端口转发，数据库连接指向 `127.0.0.1:sshLocalPort`
+- 密码、私钥等敏感字段加密存储
 
-在数据源配置中开启 `sshEnabled` 并填写 SSH 跳板机信息即可。系统会在本地建立 SSH 隧道，再通过 127.0.0.1:localPort 连接目标数据库。
+---
 
 ## 主要接口
 
@@ -637,17 +559,22 @@ report_{yyyyMMddHHmmss}.csv
 | 当前用户 | `GET /api/auth/me` |
 | 修改密码 | `POST /api/auth/change-password` |
 | 仪表盘统计 | `GET /api/dashboard/stats` |
+| 执行趋势 | `GET /api/dashboard/execution-trend` |
 | 任务分页 | `GET /api/task/page` |
 | 创建任务 | `POST /api/task` |
 | 修改任务 | `PUT /api/task/{id}` |
 | 更新任务状态 | `PUT /api/task/{id}/status` |
 | 手动触发任务 | `POST /api/task/{id}/trigger` |
+| 依赖链 | `GET /api/task/{id}/dependency-chain` |
+| 外部触发任务 | `POST /api/public/tasks/{taskId}/trigger` |
 | 任务日志（按任务） | `GET /api/task/{taskId}/logs` |
 | 任务日志分页 | `GET /api/task-log/page` |
 | SQL 配置分页 | `GET /api/task-sql/page` |
-| SQL 配置列表（下拉） | `GET /api/task-sql/list` |
+| SQL 配置列表 | `GET /api/task-sql/list` |
 | SQL 分组分页 | `GET /api/task-sql-group/page` |
 | SQL 分组列表 | `GET /api/task-sql-group/list` |
+| 爬取配置分页 | `GET /api/task-crawl/page` |
+| 爬取预览 | `POST /api/task-crawl/preview` |
 | 数据源分页 | `GET /api/datasource/page` |
 | 测试数据源 | `POST /api/datasource/{id}/test` |
 | 收件人分页 | `GET /api/email-recipient/page` |
@@ -663,30 +590,23 @@ report_{yyyyMMddHHmmss}.csv
 | AI 配置分页 | `GET /api/ai-config/page` |
 | AI 配置列表 | `GET /api/ai-config/list` |
 | 测试 AI 配置 | `POST /api/ai-config/test` |
+| AI 意图解析 | `POST /api/assistant/parse-intent` |
+| AI 优化通知 | `POST /api/assistant/optimize-notification` |
 | 存储配置分页 | `GET /api/storage-config/page` |
 | 存储配置列表 | `GET /api/storage-config/list` |
 | 测试存储配置 | `POST /api/storage-config/{id}/test` |
 | 存储文件访问 | `GET /storage/**` |
-| 企业微信回调（GET/POST） | `/api/wecom/callback/{configId}` |
-| AI 意图解析 | `POST /api/assistant/parse-intent` |
-| AI 优化通知 | `POST /api/assistant/optimize-notification` |
+| 审计日志分页 | `GET /api/audit-log/page` |
+| 企业微信回调 | `GET/POST /api/wecom/callback/{configId}` |
 | 用户分页 | `GET /api/system/user/page` |
 | 角色列表 | `GET /api/system/role/list` |
 | 权限列表 | `GET /api/system/permission/list` |
 
-## 仪表盘
-
-首页仪表盘提供系统资源与执行状态的一览：
-
-- **资源概览卡片**：任务、数据源、邮箱配置、报表模板数量，点击卡片可直接跳转对应管理页
-- **执行统计卡片**：今日执行次数、累计成功 / 失败次数
-- **任务启用情况**：实时展示启用 / 停用任务占比
-- **今日执行成功率**：成功 / 失败 / 执行中分布
-- **最近执行日志**：展示最近 10 条任务执行记录，含任务名称、触发方式、状态、耗时、结果
-- **快捷操作**：一键新建任务、进入 SQL 管理、进入数据源管理
+---
 
 ## 注意事项
 
-- 项目使用简单 AES 加密存储密码，生产环境建议更换密钥或使用 KMS。
+- 项目使用 AES 加密存储密码、私钥、Cookie、Token 等敏感字段，生产环境建议更换密钥或使用 KMS。
 - 定时任务使用 Quartz JDBC JobStore，任务状态持久化到数据库。
 - 邮件正文支持 HTML，可直接在 `body` 中编写 `<p>`、`<table>` 等标签。
+- 外部触发接口 `/api/public/tasks/{taskId}/trigger` 需配置 `report.api.key` 并通过 `X-API-KEY` 请求头校验。
