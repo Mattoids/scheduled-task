@@ -41,6 +41,7 @@ public class WeComBotClient {
         if (!StringUtils.hasText(content)) {
             return;
         }
+        webhookKey = normalizeWebhookKey(webhookKey);
         Map<String, Object> body = new HashMap<>();
         body.put("msgtype", "text");
         Map<String, Object> text = new HashMap<>();
@@ -61,6 +62,7 @@ public class WeComBotClient {
         if (!StringUtils.hasText(content)) {
             return;
         }
+        webhookKey = normalizeWebhookKey(webhookKey);
         Map<String, Object> body = new HashMap<>();
         body.put("msgtype", "markdown");
         Map<String, Object> markdown = new HashMap<>();
@@ -77,6 +79,7 @@ public class WeComBotClient {
         if (file == null || !file.exists()) {
             throw new IllegalArgumentException("文件不存在: " + (file == null ? "null" : file.getAbsolutePath()));
         }
+        webhookKey = normalizeWebhookKey(webhookKey);
         String mediaId = uploadMedia(webhookKey, file);
         Map<String, Object> body = new HashMap<>();
         body.put("msgtype", "file");
@@ -91,6 +94,7 @@ public class WeComBotClient {
         if (imageFile == null || !imageFile.exists()) {
             throw new IllegalArgumentException("图片文件不存在: " + (imageFile == null ? "null" : imageFile.getAbsolutePath()));
         }
+        webhookKey = normalizeWebhookKey(webhookKey);
         byte[] bytes = Files.readAllBytes(imageFile.toPath());
         String base64 = Base64.getEncoder().encodeToString(bytes);
         String md5 = md5Hex(bytes);
@@ -116,7 +120,7 @@ public class WeComBotClient {
     }
 
     private String uploadMedia(String webhookKey, File file) throws Exception {
-        String url = String.format(UPLOAD_URL, webhookKey);
+        String url = String.format(UPLOAD_URL, normalizeWebhookKey(webhookKey));
         String maskedUrl = maskUrl(url);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -139,7 +143,7 @@ public class WeComBotClient {
     }
 
     private void post(String webhookKey, Map<String, Object> body) throws Exception {
-        String url = String.format(SEND_URL, webhookKey);
+        String url = String.format(SEND_URL, normalizeWebhookKey(webhookKey));
         String maskedUrl = maskUrl(url);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -161,5 +165,28 @@ public class WeComBotClient {
             return null;
         }
         return url.replaceAll("key=[^&]+", "key=***");
+    }
+
+    /**
+     * 兼容用户直接粘贴完整 Webhook URL 的情况，从中提取 key。
+     */
+    private String normalizeWebhookKey(String webhookKey) {
+        if (!StringUtils.hasText(webhookKey)) {
+            return webhookKey;
+        }
+        String trimmed = webhookKey.trim();
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+        int keyStart = trimmed.indexOf("key=");
+        if (keyStart < 0) {
+            return trimmed;
+        }
+        int valueStart = keyStart + 4;
+        int valueEnd = trimmed.indexOf('&', valueStart);
+        if (valueEnd < 0) {
+            valueEnd = trimmed.length();
+        }
+        return trimmed.substring(valueStart, valueEnd);
     }
 }

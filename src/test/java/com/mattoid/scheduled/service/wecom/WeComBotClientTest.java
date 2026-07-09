@@ -73,6 +73,42 @@ class WeComBotClientTest {
         verify(restTemplate, times(2)).postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void sendText_shouldExtractKeyFromFullWebhookUrl() throws Exception {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        ResponseEntity<String> response = ResponseEntity.ok("{\"errcode\":0,\"errmsg\":\"ok\"}");
+        when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(response);
+
+        client.restTemplate = restTemplate;
+        client.objectMapper = new ObjectMapper();
+
+        String fullUrl = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key";
+        client.sendText(fullUrl, "hello");
+
+        verify(restTemplate).postForEntity(eq("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key"),
+                any(HttpEntity.class), eq(String.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void sendText_shouldExtractKeyFromUrlWithExtraParams() throws Exception {
+        RestTemplate restTemplate = mock(RestTemplate.class);
+        ResponseEntity<String> response = ResponseEntity.ok("{\"errcode\":0,\"errmsg\":\"ok\"}");
+        when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(response);
+
+        client.restTemplate = restTemplate;
+        client.objectMapper = new ObjectMapper();
+
+        String fullUrl = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key&foo=bar";
+        client.sendText(fullUrl, "hello");
+
+        verify(restTemplate).postForEntity(eq("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key"),
+                any(HttpEntity.class), eq(String.class));
+    }
+
     @Test
     void sendText_shouldDoNothingWhenContentBlank() throws Exception {
         RestTemplate restTemplate = mock(RestTemplate.class);
