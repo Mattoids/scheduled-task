@@ -123,6 +123,7 @@ public class TaskExecutionService {
         }
 
         List<File> reportFiles = new ArrayList<>();
+        List<File> notifyFiles = new ArrayList<>();
         List<InlineResult> inlineResults = new ArrayList<>();
         Map<String, File> chartFiles = new LinkedHashMap<>();
         try {
@@ -134,6 +135,7 @@ public class TaskExecutionService {
                 }
                 CrawlExecutionResults results = executeCrawlConfigs(task, crawlConfigs, params);
                 reportFiles = results.getFiles();
+                notifyFiles = results.getNotifyFiles();
                 inlineResults = results.getInlineResults();
                 chartFiles = results.getChartFiles();
             } else {
@@ -144,6 +146,7 @@ public class TaskExecutionService {
 
                 SqlExecutionResults results = executeSqlConfigs(task, sqlConfigs, params);
                 reportFiles = results.getFiles();
+                notifyFiles = results.getNotifyFiles();
                 inlineResults = results.getInlineResults();
                 chartFiles = results.getChartFiles();
             }
@@ -172,16 +175,17 @@ public class TaskExecutionService {
         } finally {
             logEntity.setEndTime(LocalDateTime.now());
             taskLogMapper.updateById(logEntity);
-            publishTaskExecutionEvents(task, logEntity, reportFiles, inlineResults, chartFiles);
+            publishTaskExecutionEvents(task, logEntity, reportFiles, notifyFiles, inlineResults, chartFiles);
         }
     }
 
     private void publishTaskExecutionEvents(TaskConfig task, TaskLog logEntity, List<File> reportFiles,
-                                            List<InlineResult> inlineResults, Map<String, File> chartFiles) {
+                                            List<File> notifyFiles, List<InlineResult> inlineResults,
+                                            Map<String, File> chartFiles) {
         String status = logEntity.getStatus();
         if ("SUCCESS".equals(status)) {
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_SUCCESS));
-            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_COMPLETED));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, notifyFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_SUCCESS));
+            eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, notifyFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_COMPLETED));
         } else if ("FAILED".equals(status)) {
             eventPublisher.publishEvent(new TaskExecutionEvent(this, task, logEntity, reportFiles, inlineResults, chartFiles, TaskExecutionEvent.EventType.TASK_FAILURE));
         }
@@ -236,7 +240,8 @@ public class TaskExecutionService {
                 if (template == null) {
                     throw new IllegalArgumentException("模板编码不存在: " + templateCode);
                 }
-                results.addFile(processTemplateChain(task, template, group, params, results));
+                GeneratedFile generatedFile = processTemplateChain(task, template, group, params, results);
+                results.addFile(generatedFile.outputFile(), generatedFile.notifyFile());
             } else {
                 // 按 Excel 合并组拆分：同组合并输出，非同组保持独立
                 Map<String, List<Integer>> excelMergeGroups = new LinkedHashMap<>();
@@ -288,14 +293,25 @@ public class TaskExecutionService {
                     }
                     String extension = resolveExtension("EXCEL", mergeSqls.get(0).getFileSuffix());
                     String outputPath = buildOutputPath(task, mergeSqls.get(0), extension);
-                    String baseFilePath = null;
+                    File baseFile = null;
                     boolean updateExistingSheet = false;
+                    int insertPosition = -1;
                     if (isAppendModeEnabled(mergeSqls.get(0))) {
-                        File baseFile = resolveBaseFile(mergeSqls.get(0));
-                        baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+                        baseFile = resolveBaseFile(mergeSqls.get(0));
                         updateExistingSheet = isUpdateSameSheetEnabled(mergeSqls.get(0));
+                        insertPosition = getAppendPosition(mergeSqls.get(0));
                     }
-                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, getAppendPosition(mergeSqls.get(0))));
+
+                    if (baseFile != null) {
+                        // 先按用户设定的文件名生成只包含本次新数据的文件，作为通知附件
+                        String notifyOutputPath = buildTempOutputPath(task.getId(), extension);
+                        File notifyFile = excelGenerationService.generateMergedExcel(sources, notifyOutputPath, null, false, -1);
+                        // 再追加到基础文件，作为最终归档文件
+                        File outputFile = excelGenerationService.appendSheetsToBaseFile(baseFile, notifyFile, outputPath, updateExistingSheet, insertPosition);
+                        results.addFile(outputFile, notifyFile);
+                    } else {
+                        results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, null, false, -1));
+                    }
                 }
 
                 for (int idx : individualIndexes) {
@@ -304,7 +320,8 @@ public class TaskExecutionService {
                     if ("INLINE".equalsIgnoreCase(sql.getOutputFormat())) {
                         results.addInline(new InlineSqlResult(sql.getSqlName(), sql.getSqlCode(), data));
                     } else {
-                        results.addFile(generateSqlOutputFile(task, sql, data));
+                        GeneratedFile generatedFile = generateSqlOutputFile(task, sql, data);
+                        results.addFile(generatedFile.outputFile(), generatedFile.notifyFile());
                     }
                     File chartFile = generateChartFile(task, sql, data);
                     if (chartFile != null) {
@@ -348,13 +365,26 @@ public class TaskExecutionService {
         return combined;
     }
 
+    private record GeneratedFile(File outputFile, File notifyFile) {
+    }
+
     private static class SqlExecutionResults {
         private final List<File> files = new ArrayList<>();
+        private final List<File> notifyFiles = new ArrayList<>();
         private final List<InlineResult> inlineResults = new ArrayList<>();
         private final Map<String, File> chartFiles = new LinkedHashMap<>();
 
         public void addFile(File file) {
-            files.add(file);
+            addFile(file, file);
+        }
+
+        public void addFile(File outputFile, File notifyFile) {
+            if (outputFile != null) {
+                files.add(outputFile);
+            }
+            if (notifyFile != null) {
+                notifyFiles.add(notifyFile);
+            }
         }
 
         public void addInline(InlineResult inlineResult) {
@@ -369,6 +399,10 @@ public class TaskExecutionService {
 
         public List<File> getFiles() {
             return files;
+        }
+
+        public List<File> getNotifyFiles() {
+            return notifyFiles;
         }
 
         public List<InlineResult> getInlineResults() {
@@ -422,11 +456,21 @@ public class TaskExecutionService {
 
     private static class CrawlExecutionResults {
         private final List<File> files = new ArrayList<>();
+        private final List<File> notifyFiles = new ArrayList<>();
         private final List<InlineResult> inlineResults = new ArrayList<>();
         private final Map<String, File> chartFiles = new LinkedHashMap<>();
 
         public void addFile(File file) {
-            files.add(file);
+            addFile(file, file);
+        }
+
+        public void addFile(File outputFile, File notifyFile) {
+            if (outputFile != null) {
+                files.add(outputFile);
+            }
+            if (notifyFile != null) {
+                notifyFiles.add(notifyFile);
+            }
         }
 
         public void addInline(InlineResult inlineResult) {
@@ -441,6 +485,10 @@ public class TaskExecutionService {
 
         public List<File> getFiles() {
             return files;
+        }
+
+        public List<File> getNotifyFiles() {
+            return notifyFiles;
         }
 
         public List<InlineResult> getInlineResults() {
@@ -547,8 +595,8 @@ public class TaskExecutionService {
         return context;
     }
 
-    private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs,
-                                      Map<String, Object> params, SqlExecutionResults results) throws Exception {
+    private GeneratedFile processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskSqlConfig> sqlConfigs,
+                                               Map<String, Object> params, SqlExecutionResults results) throws Exception {
         String templateType = template.getTemplateType();
         TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
         File templateFile = resolveTemplateFile(template.getFilePath());
@@ -581,15 +629,14 @@ public class TaskExecutionService {
             }
             previousTempFile = isLast ? null : currentFile;
         }
+        File outputFile = new File(outputFileName);
         if (baseFile != null) {
-            File finalOutput = new File(outputFileName);
             boolean updateExistingSheet = isUpdateSameSheetEnabled(sqlConfigs.get(0));
             excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName, updateExistingSheet, getAppendPosition(sqlConfigs.get(0)));
-            if (!currentFile.equals(finalOutput)) {
-                Files.deleteIfExists(currentFile.toPath());
-            }
+            // 追加模式下，通知使用本次生成的临时文件，不删除
+            return new GeneratedFile(outputFile, currentFile);
         }
-        return new File(outputFileName);
+        return new GeneratedFile(outputFile, outputFile);
     }
 
     private Map<String, Object> buildProcessorContext(TaskSqlConfig sql, File chartFile) {
@@ -674,18 +721,39 @@ public class TaskExecutionService {
         return chartFile;
     }
 
-    private File generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {
+    private GeneratedFile generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {
         String outputFormat = StringUtils.hasText(sqlConfig.getOutputFormat()) ? sqlConfig.getOutputFormat() : "CSV";
         String upperFormat = outputFormat.toUpperCase();
         String extension = resolveExtension(upperFormat, sqlConfig.getFileSuffix());
         String outputPath = buildOutputPath(task, sqlConfig, extension);
-        String baseFilePath = null;
-        boolean updateExistingSheet = false;
-        if (isAppendModeEnabled(sqlConfig)) {
-            File baseFile = resolveBaseFile(sqlConfig);
-            baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
-            updateExistingSheet = isUpdateSameSheetEnabled(sqlConfig);
+
+        if (!isAppendModeEnabled(sqlConfig)) {
+            File outputFile = generateSqlOutputToPath(task, sqlConfig, data, outputPath, null, false, -1);
+            return new GeneratedFile(outputFile, outputFile);
         }
+
+        File baseFile = resolveBaseFile(sqlConfig);
+        String baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+
+        // 先按用户设定的文件名生成只包含本次新数据的文件，作为通知附件
+        String notifyOutputPath = buildTempOutputPath(task.getId(), extension);
+        File notifyFile = generateSqlOutputToPath(task, sqlConfig, data, notifyOutputPath, null, false, -1);
+
+        // 再把本次新数据追加到基础文件，作为最终归档文件
+        if (baseFile != null) {
+            boolean updateExistingSheet = isUpdateSameSheetEnabled(sqlConfig);
+            int insertPosition = getAppendPosition(sqlConfig);
+            excelGenerationService.appendSheetsToBaseFile(baseFile, notifyFile, outputPath, updateExistingSheet, insertPosition);
+        }
+
+        return new GeneratedFile(new File(outputPath), notifyFile);
+    }
+
+    private File generateSqlOutputToPath(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data,
+                                         String outputPath, String baseFilePath, boolean updateExistingSheet,
+                                         int insertPosition) throws Exception {
+        String outputFormat = StringUtils.hasText(sqlConfig.getOutputFormat()) ? sqlConfig.getOutputFormat() : "CSV";
+        String upperFormat = outputFormat.toUpperCase();
 
         return switch (upperFormat) {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")
@@ -702,10 +770,10 @@ public class TaskExecutionService {
                     for (Map.Entry<String, List<Map<String, Object>>> subEntry : subGroups.entrySet()) {
                         sources.add(new ExcelGenerationService.ExcelSheetSource(subEntry.getKey(), stripSheetNameColumn(subEntry.getValue())));
                     }
-                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, getAppendPosition(sqlConfig));
+                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, insertPosition);
                 } else {
                     String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
-                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet, getAppendPosition(sqlConfig));
+                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet, insertPosition);
                 }
             }
             case "TXT" -> {
@@ -770,6 +838,16 @@ public class TaskExecutionService {
         }
         String ext = resolveExtension(templateType, null);
         String name = "temp_" + stepIndex + "_" + System.currentTimeMillis() + "." + ext;
+        return outputDir.resolve(name).toString();
+    }
+
+    private String buildTempOutputPath(Long taskId, String extension) throws Exception {
+        Path outputDir = Paths.get(uploadPath, "reports", String.valueOf(taskId), "temp");
+        if (!Files.exists(outputDir)) {
+            Files.createDirectories(outputDir);
+        }
+        String ext = StringUtils.hasText(extension) ? extension : "tmp";
+        String name = "temp_" + System.currentTimeMillis() + "." + ext;
         return outputDir.resolve(name).toString();
     }
 

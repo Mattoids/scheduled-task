@@ -210,7 +210,7 @@ public class NotificationEventListener {
         Map<String, File> inlineImages = new LinkedHashMap<>();
         body = replaceChartPlaceholdersForEmail(body, event.getChartFiles(), inlineImages);
 
-        emailSenderService.sendEmail(config, toList, subject, body, event.getReportFiles(), inlineImages);
+        emailSenderService.sendEmail(config, toList, subject, body, event.getNotifyFiles(), inlineImages);
     }
 
     private AiAssistantService.NotificationContent optimizeNotify(NotificationRule rule, TaskExecutionEvent event, String subject, String body) {
@@ -219,7 +219,7 @@ public class NotificationEventListener {
     }
 
     private String buildAiNotificationContext(TaskConfig task, TaskExecutionEvent event) {
-        List<File> reportFiles = event.getReportFiles();
+        List<File> reportFiles = event.getNotifyFiles();
         List<? extends InlineResult> inlineResults = event.getInlineResults();
         StringBuilder sb = new StringBuilder();
         sb.append("任务名称: ").append(task.getTaskName()).append("\n");
@@ -301,7 +301,7 @@ public class NotificationEventListener {
             weComAppManager.sendImage(rule.getConfigId(), toUser, imageFile);
         }
 
-        List<File> reportFiles = event.getReportFiles();
+        List<File> reportFiles = event.getNotifyFiles();
         if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
@@ -360,7 +360,7 @@ public class NotificationEventListener {
                 weComAppManager.sendImage(rule.getConfigId(), toUser, imageFile);
             }
 
-            List<File> reportFiles = event.getReportFiles();
+            List<File> reportFiles = event.getNotifyFiles();
             if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
                 List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
                 if (!urls.isEmpty()) {
@@ -414,7 +414,7 @@ public class NotificationEventListener {
             weComBotClient.sendImage(config.getWebhookKey(), imageFile);
         }
 
-        List<File> reportFiles = event.getReportFiles();
+        List<File> reportFiles = event.getNotifyFiles();
         if (rule.getStorageConfigId() != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {
@@ -564,7 +564,7 @@ public class NotificationEventListener {
     }
 
     private void sendReportFileLinks(TaskExecutionEvent event, NotificationRule rule, java.util.function.Consumer<List<String>> sender) {
-        List<File> reportFiles = event.getReportFiles();
+        List<File> reportFiles = event.getNotifyFiles();
         if (rule.getStorageConfigId() != null && reportFiles != null && !reportFiles.isEmpty()) {
             List<String> urls = uploadReportFilesToStorage(rule.getStorageConfigId(), reportFiles);
             if (!urls.isEmpty()) {

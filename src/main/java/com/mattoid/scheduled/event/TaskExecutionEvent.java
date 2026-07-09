@@ -16,6 +16,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
     private final TaskConfig task;
     private final TaskLog taskLog;
     private final List<File> reportFiles;
+    private final List<File> notifyFiles;
     private final List<? extends InlineResult> inlineResults;
     private final Map<String, File> chartFiles;
     private final EventType eventType;
@@ -25,7 +26,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
                               TaskLog taskLog,
                               List<File> reportFiles,
                               EventType eventType) {
-        this(source, task, taskLog, reportFiles, Collections.emptyList(), Collections.emptyMap(), eventType);
+        this(source, task, taskLog, reportFiles, reportFiles, Collections.emptyList(), Collections.emptyMap(), eventType);
     }
 
     public TaskExecutionEvent(Object source,
@@ -34,7 +35,7 @@ public class TaskExecutionEvent extends ApplicationEvent {
                               List<File> reportFiles,
                               List<? extends InlineResult> inlineResults,
                               EventType eventType) {
-        this(source, task, taskLog, reportFiles, inlineResults, Collections.emptyMap(), eventType);
+        this(source, task, taskLog, reportFiles, reportFiles, inlineResults, Collections.emptyMap(), eventType);
     }
 
     public TaskExecutionEvent(Object source,
@@ -44,10 +45,22 @@ public class TaskExecutionEvent extends ApplicationEvent {
                               List<? extends InlineResult> inlineResults,
                               Map<String, File> chartFiles,
                               EventType eventType) {
+        this(source, task, taskLog, reportFiles, reportFiles, inlineResults, chartFiles, eventType);
+    }
+
+    public TaskExecutionEvent(Object source,
+                              TaskConfig task,
+                              TaskLog taskLog,
+                              List<File> reportFiles,
+                              List<File> notifyFiles,
+                              List<? extends InlineResult> inlineResults,
+                              Map<String, File> chartFiles,
+                              EventType eventType) {
         super(source);
         this.task = task;
         this.taskLog = taskLog;
         this.reportFiles = reportFiles;
+        this.notifyFiles = notifyFiles;
         this.inlineResults = inlineResults;
         this.chartFiles = chartFiles;
         this.eventType = eventType;
