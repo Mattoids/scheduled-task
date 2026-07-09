@@ -5,9 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mattoid.scheduled.entity.NotificationConfig;
 import com.mattoid.scheduled.entity.TaskConfig;
-import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.entity.WeComAppConfig;
-import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.NotificationConfigService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
@@ -20,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -29,42 +28,48 @@ public class WeComMenuRegistrar implements CommandLineRunner {
 
     private final NotificationConfigService notificationConfigService;
     private final TaskConfigService taskConfigService;
-    private final TaskLogMapper taskLogMapper;
     private final WeComAppManager weComAppManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WeComMenuRegistrar(NotificationConfigService notificationConfigService,
                               TaskConfigService taskConfigService,
-                              TaskLogMapper taskLogMapper,
                               WeComAppManager weComAppManager) {
         this.notificationConfigService = notificationConfigService;
         this.taskConfigService = taskConfigService;
-        this.taskLogMapper = taskLogMapper;
         this.weComAppManager = weComAppManager;
     }
 
     @Override
     public void run(String... args) {
-        notificationConfigService.lambdaQuery()
+        syncMenus();
+    }
+
+    public List<MenuSyncResult> syncMenus() {
+        List<NotificationConfig> configs = notificationConfigService.lambdaQuery()
                 .eq(NotificationConfig::getConfigType, "WECOM_APP")
                 .eq(NotificationConfig::getStatus, 1)
-                .list()
-                .forEach(notificationConfig -> {
-                    try {
-                        WeComAppConfig config = parseConfigJson(notificationConfig.getConfigJson(), WeComAppConfig.class);
-                        String menuJson = StringUtils.hasText(config.getMenuJson()) ? config.getMenuJson() : null;
-                        if (!StringUtils.hasText(menuJson) || !isValidMenuJson(menuJson)) {
-                            if (StringUtils.hasText(menuJson)) {
-                                log.warn("企业微信应用菜单 JSON 格式无效，使用默认动态菜单: configId={}, menuJson={}",
-                                        notificationConfig.getId(), menuJson);
-                            }
-                            menuJson = buildDefaultMenu();
-                        }
-                        weComAppManager.createMenu(notificationConfig.getId(), menuJson);
-                    } catch (Exception e) {
-                        log.error("企业微信应用菜单注册失败: configId={}", notificationConfig.getId(), e);
+                .list();
+
+        List<MenuSyncResult> results = new ArrayList<>();
+        for (NotificationConfig notificationConfig : configs) {
+            try {
+                WeComAppConfig config = parseConfigJson(notificationConfig.getConfigJson(), WeComAppConfig.class);
+                String menuJson = StringUtils.hasText(config.getMenuJson()) ? config.getMenuJson() : null;
+                if (!StringUtils.hasText(menuJson) || !isValidMenuJson(menuJson)) {
+                    if (StringUtils.hasText(menuJson)) {
+                        log.warn("企业微信应用菜单 JSON 格式无效，使用默认动态菜单: configId={}, menuJson={}",
+                                notificationConfig.getId(), menuJson);
                     }
-                });
+                    menuJson = buildDefaultMenu();
+                }
+                weComAppManager.createMenu(notificationConfig.getId(), menuJson);
+                results.add(new MenuSyncResult(notificationConfig.getId(), true, null));
+            } catch (Exception e) {
+                log.error("企业微信应用菜单同步失败: configId={}", notificationConfig.getId(), e);
+                results.add(new MenuSyncResult(notificationConfig.getId(), false, e.getMessage()));
+            }
+        }
+        return results;
     }
 
     private String buildDefaultMenu() throws JsonProcessingException {
@@ -128,5 +133,8 @@ public class WeComMenuRegistrar implements CommandLineRunner {
 
     private <T> T parseConfigJson(String configJson, Class<T> clazz) throws JsonProcessingException {
         return objectMapper.readValue(configJson, clazz);
+    }
+
+    public record MenuSyncResult(Long configId, boolean success, String errorMessage) {
     }
 }

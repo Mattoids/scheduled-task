@@ -420,7 +420,7 @@ onMounted(() => {
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="企业微信菜单">
+          <el-form-item label="应用菜单">
             <el-switch
               v-model="form.inWecomMenu"
               :active-value="1"

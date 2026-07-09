@@ -7,6 +7,7 @@ import {
   deleteTask,
   updateTaskStatus,
   triggerTask,
+  syncWeComMenu,
 } from "@/api/task";
 import TaskForm from "./TaskForm.vue";
 import TaskLogDrawer from "./TaskLogDrawer.vue";
@@ -81,6 +82,21 @@ const handleTrigger = async (row: TaskConfig) => {
   ElMessage.success("任务已开始执行");
 };
 
+const handleSyncWeComMenu = async () => {
+  try {
+    const res = await syncWeComMenu();
+    const successCount = res.filter((item) => item.success).length;
+    const failCount = res.length - successCount;
+    if (failCount === 0) {
+      ElMessage.success(`菜单同步成功，共 ${successCount} 个应用`);
+    } else {
+      ElMessage.warning(`菜单同步完成，成功 ${successCount} 个，失败 ${failCount} 个`);
+    }
+  } catch (e) {
+    ElMessage.error("菜单同步失败");
+  }
+};
+
 const handleLogs = (row: TaskConfig) => {
   logTaskId.value = row.id;
   logDrawerVisible.value = true;
@@ -134,6 +150,12 @@ onMounted(() => {
         @click="handleCreate"
         >新增任务</el-button
       >
+      <el-button
+        type="success"
+        v-permission="'task:edit'"
+        @click="handleSyncWeComMenu"
+        >同步菜单</el-button
+      >
     </div>
 
     <el-table v-loading="loading" :data="records" border stripe>
@@ -150,7 +172,7 @@ onMounted(() => {
         show-overflow-tooltip
       />
       <el-table-column prop="sortOrder" label="排序" width="90" align="center" />
-      <el-table-column prop="inWecomMenu" label="微信菜单" width="100" align="center">
+      <el-table-column prop="inWecomMenu" label="应用菜单" width="100" align="center">
         <template #default="{ row }">
           <el-tag v-if="row.inWecomMenu === 1" type="success">已加入</el-tag>
           <el-tag v-else type="info">未加入</el-tag>

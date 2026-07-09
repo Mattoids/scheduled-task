@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.Result;
+import com.mattoid.scheduled.config.WeComMenuRegistrar;
 import com.mattoid.scheduled.dto.ChangeStatusRequest;
 import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.dto.TaskConfigRequest;
@@ -26,13 +27,16 @@ public class TaskConfigController {
     private final TaskConfigService taskConfigService;
     private final TaskLogMapper taskLogMapper;
     private final TaskDependencyService taskDependencyService;
+    private final WeComMenuRegistrar weComMenuRegistrar;
 
     public TaskConfigController(TaskConfigService taskConfigService,
                                 TaskLogMapper taskLogMapper,
-                                TaskDependencyService taskDependencyService) {
+                                TaskDependencyService taskDependencyService,
+                                WeComMenuRegistrar weComMenuRegistrar) {
         this.taskConfigService = taskConfigService;
         this.taskLogMapper = taskLogMapper;
         this.taskDependencyService = taskDependencyService;
+        this.weComMenuRegistrar = weComMenuRegistrar;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -111,6 +115,13 @@ public class TaskConfigController {
     public Result<String> trigger(@PathVariable Long id) {
         taskConfigService.triggerTask(id);
         return Result.ok("任务已提交执行");
+    }
+
+    @OperationAudit(operationType = "EXECUTE", resourceType = "TASK")
+    @PreAuthorize("hasAuthority('task:edit')")
+    @PostMapping("/sync-wecom-menu")
+    public Result<List<WeComMenuRegistrar.MenuSyncResult>> syncWeComMenu() {
+        return Result.ok(weComMenuRegistrar.syncMenus());
     }
 
     @PreAuthorize("hasAuthority('task:view')")

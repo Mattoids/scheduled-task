@@ -31,6 +31,10 @@ export const triggerTask = (id: number) => {
   return request.post<void>(`/task/${id}/trigger`)
 }
 
+export const syncWeComMenu = () => {
+  return request.post<Array<{ configId: number; success: boolean; errorMessage?: string }>>('/task/sync-wecom-menu')
+}
+
 export const listTaskLogs = (taskId: number, params: PageQuery) => {
   return request.get<PageResult<TaskLog>>(`/task/${taskId}/logs`, { params })
 }
