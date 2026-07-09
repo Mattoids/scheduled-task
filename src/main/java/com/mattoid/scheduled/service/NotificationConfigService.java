@@ -214,6 +214,12 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     private TestConnectionResult testEmail(NotificationConfig config) throws JsonProcessingException, MessagingException {
         EmailConfig emailConfig = parseConfigJson(config.getConfigJson(), EmailConfig.class);
+        JavaMailSenderImpl sender = buildJavaMailSender(emailConfig);
+        sender.testConnection();
+        return TestConnectionResult.ok();
+    }
+
+    JavaMailSenderImpl buildJavaMailSender(EmailConfig emailConfig) {
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
         sender.setHost(emailConfig.getSmtpHost());
         sender.setPort(emailConfig.getSmtpPort());
@@ -227,18 +233,19 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         Properties props = sender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", String.valueOf(auth));
-        props.put("mail.smtp.starttls.enable", String.valueOf(starttls));
+        props.put("mail.smtp.starttls.enable", String.valueOf(starttls && !ssl));
         props.put("mail.smtp.connectiontimeout", "10000");
         props.put("mail.smtp.timeout", "10000");
         if (ssl) {
             props.put("mail.smtp.ssl.enable", "true");
+            props.put("mail.smtp.ssl.required", "true");
             props.put("mail.smtp.ssl.checkserveridentity", "false");
             props.put("mail.smtp.ssl.trust", "*");
             props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+            props.put("mail.smtp.socketFactory.fallback", "false");
             props.put("mail.smtp.socketFactory.port", String.valueOf(emailConfig.getSmtpPort()));
         }
-        sender.testConnection();
-        return TestConnectionResult.ok();
+        return sender;
     }
 
     private TestConnectionResult testWeComApp(NotificationConfig config) throws Exception {
