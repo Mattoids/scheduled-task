@@ -67,21 +67,17 @@ public class SshTunnelManager {
             throw new IllegalArgumentException("SSH 隧道目标主机未配置");
         }
 
-        int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
-                ? config.getLocalPort() : findAvailablePort();
-
         ClientChain chain = buildClientChain(config, tunnelId);
         SSHClient serviceClient = chain.serviceClient();
         Path serviceKeyPath = chain.serviceKeyPath();
         List<SshTunnel.HopResource> intermediateResources = chain.intermediateResources();
 
         try {
-            ServerSocket serverSocket = new ServerSocket();
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress("127.0.0.1", localPort));
+            ServerSocket serverSocket = createBoundServerSocket(config.getLocalPort());
+            int localPort = serverSocket.getLocalPort();
 
             Parameters params = new Parameters(
-                    "127.0.0.1", serverSocket.getLocalPort(), remoteHost, remotePort
+                    "127.0.0.1", localPort, remoteHost, remotePort
             );
             LocalPortForwarder forwarder = new LocalPortForwarder(
                     serviceClient.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
@@ -140,11 +136,8 @@ public class SshTunnelManager {
 
             for (int i = 1; i < connectionHops.size(); i++) {
                 SshHopConfig nextHop = connectionHops.get(i);
-                int intermediatePort = findAvailablePort();
-
-                ServerSocket serverSocket = new ServerSocket();
-                serverSocket.setReuseAddress(true);
-                serverSocket.bind(new InetSocketAddress("127.0.0.1", intermediatePort));
+                ServerSocket serverSocket = createBoundServerSocket(null);
+                int intermediatePort = serverSocket.getLocalPort();
 
                 int nextHopPort = nextHop.getPort() == null ? 22 : nextHop.getPort();
                 log.info("SSH 多跳链路：经本地 127.0.0.1:{} 转发到第 {} 跳 {}:{}",
@@ -172,10 +165,8 @@ public class SshTunnelManager {
                 currentClient = nextClient;
             }
 
-            int serviceIntermediatePort = findAvailablePort();
-            ServerSocket serviceServerSocket = new ServerSocket();
-            serviceServerSocket.setReuseAddress(true);
-            serviceServerSocket.bind(new InetSocketAddress("127.0.0.1", serviceIntermediatePort));
+            ServerSocket serviceServerSocket = createBoundServerSocket(null);
+            int serviceIntermediatePort = serviceServerSocket.getLocalPort();
 
             int serviceSshPort = config.getPort() == null ? 22 : config.getPort();
             log.info("SSH 多跳链路：经本地 127.0.0.1:{} 转发到目标服务器 {}:{}",
@@ -452,10 +443,22 @@ public class SshTunnelManager {
         return provider;
     }
 
-    private int findAvailablePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
+    private ServerSocket createBoundServerSocket(Integer preferredPort) throws IOException {
+        ServerSocket serverSocket = new ServerSocket();
+        serverSocket.setReuseAddress(true);
+        if (preferredPort != null && preferredPort > 0) {
+            try {
+                serverSocket.bind(new InetSocketAddress("127.0.0.1", preferredPort));
+                return serverSocket;
+            } catch (IOException e) {
+                log.warn("SSH 隧道本地端口 {} 已被占用，尝试自动分配端口", preferredPort);
+                closeServerSocket(serverSocket);
+                serverSocket = new ServerSocket();
+                serverSocket.setReuseAddress(true);
+            }
         }
+        serverSocket.bind(new InetSocketAddress("127.0.0.1", 0));
+        return serverSocket;
     }
 
     private int resolveRemotePort(Integer remotePort) {
