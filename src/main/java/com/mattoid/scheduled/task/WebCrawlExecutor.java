@@ -167,6 +167,7 @@ public class WebCrawlExecutor {
             Document document = response.parse();
             int statusCode = response.statusCode();
             String title = document.title();
+            log.info("网页爬取预览结果: statusCode={}, title={}, url={}", statusCode, title, actualUrl);
             boolean ok = statusCode >= 200 && statusCode < 400;
             if (!ok) {
                 return WebCrawlPreviewResult.success(statusCode,
