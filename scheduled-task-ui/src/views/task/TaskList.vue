@@ -149,6 +149,7 @@ onMounted(() => {
         min-width="140"
         show-overflow-tooltip
       />
+      <el-table-column prop="sortOrder" label="排序" width="90" align="center" />
       <el-table-column prop="triggerType" label="触发类型" width="100">
         <template #default="{ row }">
           <el-tag v-if="row.triggerType === 'CRON'" type="primary">CRON</el-tag>

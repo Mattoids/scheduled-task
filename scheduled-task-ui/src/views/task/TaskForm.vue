@@ -37,6 +37,7 @@ const form = ref<TaskConfig>({
   triggerConfig: "",
   status: "ENABLE",
   taskType: "SQL",
+  sortOrder: 0,
 });
 
 const sqlOptions = ref<TaskSqlConfig[]>([]);
@@ -185,6 +186,7 @@ const resetForm = () => {
     triggerConfig: "",
     status: "ENABLE",
     taskType: "SQL",
+    sortOrder: 0,
   };
   selectedSqlCodes.value = [];
   selectedCrawlCodes.value = [];
@@ -399,6 +401,20 @@ onMounted(() => {
               <el-radio label="ENABLE">启用</el-radio>
               <el-radio label="DISABLE">禁用</el-radio>
             </el-radio-group>
+          </el-form-item>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="排序">
+            <el-input-number
+              v-model="form.sortOrder"
+              :min="0"
+              :precision="0"
+              placeholder="值越大越靠前"
+              style="width: 100%"
+            />
           </el-form-item>
         </el-col>
       </el-row>

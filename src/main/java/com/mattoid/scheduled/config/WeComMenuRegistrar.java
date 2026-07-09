@@ -71,6 +71,7 @@ public class WeComMenuRegistrar implements CommandLineRunner {
         List<TaskConfig> tasks = taskConfigService.list(
                 new LambdaQueryWrapper<TaskConfig>()
                         .eq(TaskConfig::getStatus, "ENABLE")
+                        .orderByDesc(TaskConfig::getSortOrder)
                         .orderByDesc(TaskConfig::getCreateTime)
                         .last("LIMIT " + TOP_TASKS_COUNT)
         );

@@ -7,6 +7,7 @@ export interface TaskConfig {
   triggerConfig: string
   status: 'ENABLE' | 'DISABLE'
   taskType?: 'SQL' | 'CRAWL'
+  sortOrder?: number
   createTime?: string
   updateTime?: string
 }

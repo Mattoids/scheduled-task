@@ -29,6 +29,11 @@ public class TaskConfig extends BaseEntity {
     private String status;
 
     /**
+     * 排序权重，值越大越靠前
+     */
+    private Integer sortOrder;
+
+    /**
      * SQL / CRAWL
      */
     private String taskType;
