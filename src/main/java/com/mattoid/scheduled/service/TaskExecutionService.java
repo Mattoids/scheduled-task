@@ -292,12 +292,8 @@ public class TaskExecutionService {
                     boolean updateExistingSheet = false;
                     if (isAppendModeEnabled(mergeSqls.get(0))) {
                         File baseFile = resolveBaseFile(mergeSqls.get(0));
-                        String appendOutputPath = resolveAppendOutputPath(mergeSqls.get(0), extension);
-                        if (StringUtils.hasText(appendOutputPath)) {
-                            outputPath = appendOutputPath;
-                            baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
-                            updateExistingSheet = isUpdateSameSheetEnabled(mergeSqls.get(0));
-                        }
+                        baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+                        updateExistingSheet = isUpdateSameSheetEnabled(mergeSqls.get(0));
                     }
                     results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, getAppendPosition(mergeSqls.get(0))));
                 }
@@ -561,10 +557,6 @@ public class TaskExecutionService {
         File baseFile = null;
         if (isAppendModeEnabled(sqlConfigs.get(0))) {
             baseFile = resolveBaseFile(sqlConfigs.get(0));
-            String appendOutputPath = resolveAppendOutputPath(sqlConfigs.get(0), extension);
-            if (StringUtils.hasText(appendOutputPath)) {
-                outputFileName = appendOutputPath;
-            }
         }
 
         File currentFile = templateFile;
@@ -661,14 +653,6 @@ public class TaskExecutionService {
         return Paths.get(uploadPath, resolved).toFile();
     }
 
-    private String resolveAppendOutputPath(TaskSqlConfig sqlConfig, String extension) {
-        File baseFile = resolveBaseFile(sqlConfig);
-        if (baseFile == null) {
-            return null;
-        }
-        return ensureExtension(baseFile.getAbsolutePath(), extension);
-    }
-
     private File generateChartFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) {
         if (sqlConfig.getChartEnabled() == null || sqlConfig.getChartEnabled() != 1) {
             return null;
@@ -699,12 +683,8 @@ public class TaskExecutionService {
         boolean updateExistingSheet = false;
         if (isAppendModeEnabled(sqlConfig)) {
             File baseFile = resolveBaseFile(sqlConfig);
-            String appendOutputPath = resolveAppendOutputPath(sqlConfig, extension);
-            if (StringUtils.hasText(appendOutputPath)) {
-                outputPath = appendOutputPath;
-                baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
-                updateExistingSheet = isUpdateSameSheetEnabled(sqlConfig);
-            }
+            baseFilePath = baseFile != null ? baseFile.getAbsolutePath() : null;
+            updateExistingSheet = isUpdateSameSheetEnabled(sqlConfig);
         }
 
         return switch (upperFormat) {
