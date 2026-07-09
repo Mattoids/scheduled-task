@@ -43,6 +43,7 @@ public class TaskConfigController {
         LambdaQueryWrapper<TaskConfig> wrapper = new LambdaQueryWrapper<TaskConfig>()
                 .like(StringUtils.hasText(taskName), TaskConfig::getTaskName, taskName)
                 .like(StringUtils.hasText(taskCode), TaskConfig::getTaskCode, taskCode)
+                .orderByDesc(TaskConfig::getSortOrder)
                 .orderByDesc(TaskConfig::getCreateTime);
         Page<TaskConfig> page = taskConfigService.page(new Page<>(query.getCurrent(), query.getSize()), wrapper);
         PageResult<TaskConfig> result = new PageResult<>();
