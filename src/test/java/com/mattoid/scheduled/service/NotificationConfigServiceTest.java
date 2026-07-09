@@ -31,7 +31,7 @@ class NotificationConfigServiceTest {
     }
 
     @Test
-    void buildJavaMailSender_withSslEnabled_configuresSslProperties() {
+    void buildJavaMailSender_port465_usesSslRegardlessOfToggles() {
         NotificationConfigService service = createService();
         EmailConfig config = new EmailConfig();
         config.setSmtpHost("smtp.exmail.qq.com");
@@ -40,7 +40,7 @@ class NotificationConfigServiceTest {
         config.setPassword("pass");
         config.setAuth(1);
         config.setStarttls(1);
-        config.setSsl(1);
+        config.setSsl(0);
 
         JavaMailSenderImpl sender = service.buildJavaMailSender(config);
         Properties props = sender.getJavaMailProperties();
@@ -59,16 +59,16 @@ class NotificationConfigServiceTest {
     }
 
     @Test
-    void buildJavaMailSender_withStarttlsOnly_configuresStarttls() {
+    void buildJavaMailSender_port587_usesStarttlsRegardlessOfToggles() {
         NotificationConfigService service = createService();
         EmailConfig config = new EmailConfig();
-        config.setSmtpHost("smtp.example.com");
+        config.setSmtpHost("smtp.exmail.qq.com");
         config.setSmtpPort(587);
         config.setUsername("user@example.com");
         config.setPassword("pass");
         config.setAuth(1);
-        config.setStarttls(1);
-        config.setSsl(0);
+        config.setStarttls(0);
+        config.setSsl(1);
 
         JavaMailSenderImpl sender = service.buildJavaMailSender(config);
         Properties props = sender.getJavaMailProperties();
@@ -76,5 +76,24 @@ class NotificationConfigServiceTest {
         assertEquals("true", props.getProperty("mail.smtp.starttls.enable"));
         assertNull(props.getProperty("mail.smtp.ssl.enable"));
         assertNull(props.getProperty("mail.smtp.socketFactory.class"));
+    }
+
+    @Test
+    void buildJavaMailSender_customPort_respectsToggles() {
+        NotificationConfigService service = createService();
+        EmailConfig config = new EmailConfig();
+        config.setSmtpHost("smtp.example.com");
+        config.setSmtpPort(2525);
+        config.setUsername("user@example.com");
+        config.setPassword("pass");
+        config.setAuth(1);
+        config.setStarttls(1);
+        config.setSsl(1);
+
+        JavaMailSenderImpl sender = service.buildJavaMailSender(config);
+        Properties props = sender.getJavaMailProperties();
+
+        assertEquals("true", props.getProperty("mail.smtp.starttls.enable"));
+        assertEquals("true", props.getProperty("mail.smtp.ssl.enable"));
     }
 }

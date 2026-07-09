@@ -227,23 +227,34 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         sender.setPassword(CryptoUtil.decryptIfNeeded(emailConfig.getPassword()));
 
         boolean auth = emailConfig.getAuth() != null && emailConfig.getAuth() == 1;
-        boolean starttls = emailConfig.getStarttls() != null && emailConfig.getStarttls() == 1;
-        boolean ssl = emailConfig.getSsl() != null && emailConfig.getSsl() == 1;
+        int port = emailConfig.getSmtpPort() != null ? emailConfig.getSmtpPort() : 25;
+
+        // 根据标准端口自动选择协议，避免 SSL/STARTTLS 同时开启导致连接异常
+        boolean useSsl = false;
+        boolean useStarttls = false;
+        if (port == 465) {
+            useSsl = true;
+        } else if (port == 587) {
+            useStarttls = true;
+        } else {
+            useSsl = emailConfig.getSsl() != null && emailConfig.getSsl() == 1;
+            useStarttls = emailConfig.getStarttls() != null && emailConfig.getStarttls() == 1;
+        }
 
         Properties props = sender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", String.valueOf(auth));
-        props.put("mail.smtp.starttls.enable", String.valueOf(starttls && !ssl));
+        props.put("mail.smtp.starttls.enable", String.valueOf(useStarttls));
         props.put("mail.smtp.connectiontimeout", "10000");
         props.put("mail.smtp.timeout", "10000");
-        if (ssl) {
+        if (useSsl) {
             props.put("mail.smtp.ssl.enable", "true");
             props.put("mail.smtp.ssl.required", "true");
             props.put("mail.smtp.ssl.checkserveridentity", "false");
             props.put("mail.smtp.ssl.trust", "*");
             props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
             props.put("mail.smtp.socketFactory.fallback", "false");
-            props.put("mail.smtp.socketFactory.port", String.valueOf(emailConfig.getSmtpPort()));
+            props.put("mail.smtp.socketFactory.port", String.valueOf(port));
         }
         return sender;
     }
