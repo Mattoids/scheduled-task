@@ -501,15 +501,14 @@ public class TaskExecutionService {
                     Files.copy(tempFiles.get(0).toPath(), outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                     log.info("网页爬取 Excel 输出: outputPath={}, mode=copy", outputPath);
                 } else {
-                    boolean baseExistsBefore = outputFile.exists();
-                    File baseFile = baseExistsBefore ? outputFile : null;
-                    File currentOutput = outputFile;
+                    // 每次任务执行都基于本次临时文件重新合并，不使用历史文件作为基础，
+                    // 避免同名 sheet 被跳过导致新数据无法写入。
+                    File baseFile = null;
                     for (File tempFile : tempFiles) {
-                        currentOutput = excelGenerationService.appendSheetsToBaseFile(baseFile, tempFile, outputPath, false, -1);
-                        baseFile = currentOutput;
+                        baseFile = excelGenerationService.appendSheetsToBaseFile(baseFile, tempFile, outputPath, false, -1);
                     }
-                    log.info("网页爬取 Excel 追加输出: outputPath={}, tempCount={}, baseExistsBefore={}",
-                            outputPath, tempFiles.size(), baseExistsBefore);
+                    log.info("网页爬取 Excel 追加输出: outputPath={}, tempCount={}",
+                            outputPath, tempFiles.size());
                 }
                 results.addFile(outputFile);
             } finally {
