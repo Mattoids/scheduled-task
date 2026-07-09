@@ -211,6 +211,7 @@ public class TaskWebCrawlConfigController {
             config.setTemplateId(template.getId());
         } else {
             config.setTemplateId(null);
+            config.setTemplateCode(null);
         }
     }
 

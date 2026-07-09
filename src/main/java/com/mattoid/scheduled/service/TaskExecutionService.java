@@ -27,6 +27,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -420,31 +421,59 @@ public class TaskExecutionService {
 
     private CrawlExecutionResults executeCrawlConfigs(TaskConfig task, List<TaskWebCrawlConfig> crawlConfigs,
                                                       Map<String, Object> params) throws Exception {
-        Map<String, List<TaskWebCrawlConfig>> groups = new LinkedHashMap<>();
+        // 预分组：按模板编码分组
+        Map<String, List<TaskWebCrawlConfig>> templateGroups = new LinkedHashMap<>();
         for (TaskWebCrawlConfig crawl : crawlConfigs) {
-            String key = StringUtils.hasText(crawl.getTemplateCode()) ? crawl.getTemplateCode() : "crawl_" + crawl.getId();
-            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(crawl);
+            if (StringUtils.hasText(crawl.getTemplateCode())) {
+                templateGroups.computeIfAbsent(crawl.getTemplateCode(), k -> new ArrayList<>()).add(crawl);
+            }
         }
 
-        CrawlExecutionResults results = new CrawlExecutionResults();
-        for (Map.Entry<String, List<TaskWebCrawlConfig>> entry : groups.entrySet()) {
-            List<TaskWebCrawlConfig> group = entry.getValue();
-            if (StringUtils.hasText(group.get(0).getTemplateCode())) {
-                String templateCode = group.get(0).getTemplateCode();
+        // 按原始顺序构建输出单元，模板单元聚合，单配置单元保持独立
+        List<CrawlOutputEntry> entries = new ArrayList<>();
+        Set<String> processedTemplateCodes = new HashSet<>();
+        for (TaskWebCrawlConfig crawl : crawlConfigs) {
+            if (StringUtils.hasText(crawl.getTemplateCode())) {
+                String templateCode = crawl.getTemplateCode();
+                if (!processedTemplateCodes.add(templateCode)) {
+                    continue;
+                }
                 ReportTemplate template = reportTemplateService.getByCode(templateCode);
                 if (template == null) {
                     throw new IllegalArgumentException("模板编码不存在: " + templateCode);
                 }
-                results.addFile(processTemplateChain(task, template, group, params, results));
+                List<TaskWebCrawlConfig> group = templateGroups.get(templateCode);
+                String extension = resolveExtension(template.getTemplateType(), group.get(0).getFileSuffix());
+                String outputPath = buildOutputPath(task, group.get(0), extension);
+                boolean excelMerge = "xlsx".equalsIgnoreCase(extension);
+                entries.add(CrawlOutputEntry.template(template, group, outputPath, excelMerge));
             } else {
-                for (TaskWebCrawlConfig crawl : group) {
+                String outputFormat = StringUtils.hasText(crawl.getOutputFormat()) ? crawl.getOutputFormat() : "CSV";
+                String extension = resolveExtension(outputFormat, crawl.getFileSuffix());
+                String outputPath = buildOutputPath(task, crawl, extension);
+                boolean excelMerge = "EXCEL".equalsIgnoreCase(outputFormat);
+                entries.add(CrawlOutputEntry.single(crawl, outputPath, excelMerge));
+            }
+        }
+
+        CrawlExecutionResults results = new CrawlExecutionResults();
+        Map<String, List<File>> excelMergeTempFiles = new LinkedHashMap<>();
+
+        for (CrawlOutputEntry entry : entries) {
+            if (entry.isExcelMerge()) {
+                File tempFile;
+                if (entry.isTemplate()) {
+                    tempFile = new File(buildTempOutputPath(task.getId(), "xlsx"));
+                    processTemplateChain(task, entry.getTemplate(), entry.getConfigs(), params, results, tempFile.getAbsolutePath());
+                } else {
+                    TaskWebCrawlConfig crawl = entry.getConfig();
                     WebCrawlResult crawlResult = webCrawlExecutor.execute(crawl, params);
                     List<Map<String, Object>> data = crawlResult.data();
-                    if ("INLINE".equalsIgnoreCase(crawl.getOutputFormat())) {
-                        results.addInline(new InlineCrawlResult(crawl.getCrawlName(), crawl.getCrawlCode(), data));
-                    } else {
-                        results.addFile(generateCrawlOutputFile(task, crawl, data));
-                    }
+                    String sheetName = StringUtils.hasText(crawl.getExcelSheetName())
+                            ? crawl.getExcelSheetName() : crawl.getCrawlName();
+                    log.info("网页爬取 Excel 临时输出: crawlCode={}, sheetName={}, dataRows={}",
+                            crawl.getCrawlCode(), sheetName, data != null ? data.size() : 0);
+                    tempFile = excelGenerationService.generateSingleExcel(data, buildTempOutputPath(task.getId(), "xlsx"), sheetName);
                     File chartFile = generateChartFile(task, crawl, data);
                     if (chartFile != null) {
                         results.addChartFile(crawl.getCrawlCode(), chartFile);
@@ -453,9 +482,64 @@ public class TaskExecutionService {
                         crawlResult.mediaFiles().forEach(results::addFile);
                     }
                 }
+                entry.setTempFile(tempFile);
+                excelMergeTempFiles.computeIfAbsent(entry.getOutputPath(), k -> new ArrayList<>()).add(tempFile);
+            } else if (entry.isTemplate()) {
+                results.addFile(processTemplateChain(task, entry.getTemplate(), entry.getConfigs(), params, results));
+            } else {
+                processSingleCrawlConfig(task, entry.getConfig(), params, results);
             }
         }
+
+        // 按最终输出路径合并 Excel：同一路径下多个临时文件使用追加模式合并，单个则直接复制
+        for (Map.Entry<String, List<File>> mergeEntry : excelMergeTempFiles.entrySet()) {
+            String outputPath = mergeEntry.getKey();
+            List<File> tempFiles = mergeEntry.getValue();
+            File outputFile = new File(outputPath);
+            try {
+                if (tempFiles.size() == 1) {
+                    Files.copy(tempFiles.get(0).toPath(), outputFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    log.info("网页爬取 Excel 输出: outputPath={}, mode=copy", outputPath);
+                } else {
+                    boolean baseExistsBefore = outputFile.exists();
+                    File baseFile = baseExistsBefore ? outputFile : null;
+                    File currentOutput = outputFile;
+                    for (File tempFile : tempFiles) {
+                        currentOutput = excelGenerationService.appendSheetsToBaseFile(baseFile, tempFile, outputPath, false, -1);
+                        baseFile = currentOutput;
+                    }
+                    log.info("网页爬取 Excel 追加输出: outputPath={}, tempCount={}, baseExistsBefore={}",
+                            outputPath, tempFiles.size(), baseExistsBefore);
+                }
+                results.addFile(outputFile);
+            } finally {
+                for (File tempFile : tempFiles) {
+                    Files.deleteIfExists(tempFile.toPath());
+                }
+            }
+        }
+
         return results;
+    }
+
+    private void processSingleCrawlConfig(TaskConfig task, TaskWebCrawlConfig crawl,
+                                          Map<String, Object> params, CrawlExecutionResults results) throws Exception {
+        WebCrawlResult crawlResult = webCrawlExecutor.execute(crawl, params);
+        List<Map<String, Object>> data = crawlResult.data();
+        log.info("网页爬取单独输出: crawlCode={}, outputFormat={}, dataRows={}",
+                crawl.getCrawlCode(), crawl.getOutputFormat(), data != null ? data.size() : 0);
+        if ("INLINE".equalsIgnoreCase(crawl.getOutputFormat())) {
+            results.addInline(new InlineCrawlResult(crawl.getCrawlName(), crawl.getCrawlCode(), data));
+        } else {
+            results.addFile(generateCrawlOutputFile(task, crawl, data));
+        }
+        File chartFile = generateChartFile(task, crawl, data);
+        if (chartFile != null) {
+            results.addChartFile(crawl.getCrawlCode(), chartFile);
+        }
+        if (crawlResult.mediaFiles() != null && !crawlResult.mediaFiles().isEmpty()) {
+            crawlResult.mediaFiles().forEach(results::addFile);
+        }
     }
 
     private static class CrawlExecutionResults {
@@ -504,13 +588,81 @@ public class TaskExecutionService {
         }
     }
 
+    private static class CrawlOutputEntry {
+        private final boolean template;
+        private final ReportTemplate templateObj;
+        private final List<TaskWebCrawlConfig> configs;
+        private final TaskWebCrawlConfig config;
+        private final String outputPath;
+        private final boolean excelMerge;
+        private File tempFile;
+
+        private CrawlOutputEntry(boolean template, ReportTemplate templateObj, List<TaskWebCrawlConfig> configs,
+                                 TaskWebCrawlConfig config, String outputPath, boolean excelMerge) {
+            this.template = template;
+            this.templateObj = templateObj;
+            this.configs = configs;
+            this.config = config;
+            this.outputPath = outputPath;
+            this.excelMerge = excelMerge;
+        }
+
+        static CrawlOutputEntry template(ReportTemplate template, List<TaskWebCrawlConfig> configs,
+                                         String outputPath, boolean excelMerge) {
+            return new CrawlOutputEntry(true, template, configs, null, outputPath, excelMerge);
+        }
+
+        static CrawlOutputEntry single(TaskWebCrawlConfig config, String outputPath, boolean excelMerge) {
+            return new CrawlOutputEntry(false, null, null, config, outputPath, excelMerge);
+        }
+
+        boolean isTemplate() {
+            return template;
+        }
+
+        ReportTemplate getTemplate() {
+            return templateObj;
+        }
+
+        List<TaskWebCrawlConfig> getConfigs() {
+            return configs;
+        }
+
+        TaskWebCrawlConfig getConfig() {
+            return config;
+        }
+
+        String getOutputPath() {
+            return outputPath;
+        }
+
+        boolean isExcelMerge() {
+            return excelMerge;
+        }
+
+        File getTempFile() {
+            return tempFile;
+        }
+
+        void setTempFile(File tempFile) {
+            this.tempFile = tempFile;
+        }
+    }
+
     private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskWebCrawlConfig> crawlConfigs,
                                       Map<String, Object> params, CrawlExecutionResults results) throws Exception {
         String templateType = template.getTemplateType();
-        TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
-        File templateFile = resolveTemplateFile(template.getFilePath());
         String extension = resolveExtension(templateType, crawlConfigs.get(0).getFileSuffix());
         String outputFileName = buildOutputPath(task, crawlConfigs.get(0), extension);
+        return processTemplateChain(task, template, crawlConfigs, params, results, outputFileName);
+    }
+
+    private File processTemplateChain(TaskConfig task, ReportTemplate template, List<TaskWebCrawlConfig> crawlConfigs,
+                                      Map<String, Object> params, CrawlExecutionResults results,
+                                      String outputFileName) throws Exception {
+        String templateType = template.getTemplateType();
+        TemplateProcessor processor = templateProcessorFactory.getProcessor(templateType);
+        File templateFile = resolveTemplateFile(template.getFilePath());
 
         File currentFile = templateFile;
         File previousTempFile = null;

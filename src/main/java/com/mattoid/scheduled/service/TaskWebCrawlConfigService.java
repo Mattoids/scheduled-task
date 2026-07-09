@@ -60,6 +60,11 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
     @Override
     public boolean updateById(TaskWebCrawlConfig config) {
         encryptSensitiveFields(config);
+        lambdaUpdate()
+                .set(TaskWebCrawlConfig::getTemplateId, config.getTemplateId())
+                .set(TaskWebCrawlConfig::getTemplateCode, config.getTemplateCode())
+                .eq(TaskWebCrawlConfig::getId, config.getId())
+                .update();
         boolean result = super.updateById(config);
         if (result && config.getId() != null) {
             persistSshHops(config);
