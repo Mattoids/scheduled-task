@@ -56,6 +56,7 @@ public class TaskExecutionService {
     private final ChartGenerationService chartGenerationService;
     private final ExcelGenerationService excelGenerationService;
     private final ExcelLoopHelper excelLoopHelper;
+    private final ObjectMapper objectMapper;
 
     public TaskExecutionService(TaskConfigMapper taskConfigMapper,
                                 TaskLogMapper taskLogMapper,
@@ -70,7 +71,8 @@ public class TaskExecutionService {
                                 TaskDependencyService taskDependencyService,
                                 ChartGenerationService chartGenerationService,
                                 ExcelGenerationService excelGenerationService,
-                                ExcelLoopHelper excelLoopHelper) {
+                                ExcelLoopHelper excelLoopHelper,
+                                ObjectMapper objectMapper) {
         this.taskConfigMapper = taskConfigMapper;
         this.taskLogMapper = taskLogMapper;
         this.sqlExecutor = sqlExecutor;
@@ -85,6 +87,7 @@ public class TaskExecutionService {
         this.chartGenerationService = chartGenerationService;
         this.excelGenerationService = excelGenerationService;
         this.excelLoopHelper = excelLoopHelper;
+        this.objectMapper = objectMapper;
     }
 
     public void executeTask(Long taskId, String triggerMode) {
@@ -540,6 +543,19 @@ public class TaskExecutionService {
         String upperFormat = outputFormat.toUpperCase();
         String extension = resolveExtension(upperFormat, crawlConfig.getFileSuffix());
         String outputPath = buildOutputPath(task, crawlConfig, extension);
+
+        log.info("生成爬取输出文件: crawlCode={}, format={}, path={}, 数据行数={}",
+                crawlConfig.getCrawlCode(), upperFormat, outputPath, data != null ? data.size() : 0);
+        if (log.isDebugEnabled() && data != null && !data.isEmpty()) {
+            int previewSize = Math.min(3, data.size());
+            try {
+                log.debug("爬取输出数据预览: {}",
+                        objectMapper.writerWithDefaultPrettyPrinter()
+                                .writeValueAsString(data.subList(0, previewSize)));
+            } catch (Exception e) {
+                log.debug("爬取输出数据预览: {}", data.subList(0, previewSize));
+            }
+        }
 
         return switch (upperFormat) {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")

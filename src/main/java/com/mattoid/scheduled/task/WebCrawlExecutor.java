@@ -152,28 +152,28 @@ public class WebCrawlExecutor {
 
             String url = replaceRequestVariables(config.getRequestUrl(), mergedParams);
             String actualUrl = applySshTunnelToUrl(url, tunnel);
-            String originalHostHeader = tunnel != null ? buildHostHeader(url) : null;
             if (tunnel != null) {
-                log.debug("SSH 隧道预览请求: originalUrl={}, actualUrl={}, hostHeader={}", url, actualUrl, originalHostHeader);
+                log.debug("SSH 隧道预览请求: originalUrl={}, actualUrl={}", url, actualUrl);
             }
 
             if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
                 Document document = webDriverManager.fetchPage(config, actualUrl, mergedParams);
-                return WebCrawlPreviewResult.success(200, "页面可访问", document.title(), document.html());
+                return WebCrawlPreviewResult.success(200, "页面可访问", document.title(), buildPreviewContent(config, document));
             }
 
-            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams, originalHostHeader);
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
             Connection.Response response = connection.execute();
             Document document = response.parse();
             int statusCode = response.statusCode();
             String title = document.title();
             log.info("网页爬取预览结果: statusCode={}, title={}, url={}", statusCode, title, actualUrl);
             boolean ok = statusCode >= 200 && statusCode < 400;
+            String previewContent = buildPreviewContent(config, document);
             if (!ok) {
                 return WebCrawlPreviewResult.success(statusCode,
-                        "请求返回非成功状态码: " + statusCode, title, document.html());
+                        "请求返回非成功状态码: " + statusCode, title, previewContent);
             }
-            return WebCrawlPreviewResult.success(statusCode, "页面可访问", title, document.html());
+            return WebCrawlPreviewResult.success(statusCode, "页面可访问", title, previewContent);
         } catch (Exception e) {
             log.warn("网页爬取预览失败: {}", e.getMessage(), e);
             return WebCrawlPreviewResult.failure("预览失败: " + e.getMessage());
@@ -203,8 +203,7 @@ public class WebCrawlExecutor {
             }
 
             String actualUrl = applySshTunnelToUrl(targetUrl, tunnel);
-            String originalHostHeader = tunnel != null ? buildHostHeader(targetUrl) : null;
-            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams, originalHostHeader);
+            Connection connection = buildPreviewConnection(config, actualUrl, mergedParams);
             Connection.Response response = connection.execute();
             return new ResourceResponse(response.contentType(), response.bodyAsBytes());
         } finally {
@@ -218,14 +217,38 @@ public class WebCrawlExecutor {
     public record ResourceResponse(String contentType, byte[] body) {
     }
 
+    private String buildPreviewContent(TaskWebCrawlConfig config, Document document) {
+        List<TaskWebCrawlSelector> selectors = config.getSelectors();
+        if (CollectionUtils.isEmpty(selectors) || selectors.stream().noneMatch(this::isEffectiveSelector)) {
+            log.debug("预览无有效选择器配置，返回完整页面 HTML");
+            return document.html();
+        }
+        List<Map<String, Object>> data = extractData(config, document, document.baseUri());
+        try {
+            String json = objectMapper.writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(data);
+            log.debug("预览已应用选择器，提取数据行数={}", data.size());
+            return "<pre>" + json + "</pre>";
+        } catch (Exception e) {
+            log.warn("预览选择器结果序列化失败: {}", e.getMessage());
+            return "<pre>" + data + "</pre>";
+        }
+    }
+
+    private boolean isEffectiveSelector(TaskWebCrawlSelector selector) {
+        return selector != null
+                && (StringUtils.hasText(selector.getSelectorType())
+                || StringUtils.hasText(selector.getSelectorValue())
+                || StringUtils.hasText(selector.getFieldName()));
+    }
+
     private Document fetchDocument(TaskWebCrawlConfig config, String url,
                                    Map<String, Object> params, SshTunnel tunnel) throws Exception {
         String actualUrl = applySshTunnelToUrl(url, tunnel);
-        String originalHostHeader = tunnel != null ? buildHostHeader(url) : null;
         if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
             return webDriverManager.fetchPage(config, actualUrl, params);
         }
-        Connection connection = buildConnection(config, actualUrl, params, originalHostHeader);
+        Connection connection = buildConnection(config, actualUrl, params);
         Document document = connection.execute().parse();
         if (tunnel != null) {
             document.setBaseUri(url);
@@ -234,7 +257,7 @@ public class WebCrawlExecutor {
     }
 
     private Connection buildConnection(TaskWebCrawlConfig config, String url,
-                                       Map<String, Object> params, String originalHostHeader) throws IOException {
+                                       Map<String, Object> params) throws IOException {
         Connection.Method method = parseMethod(config.getRequestMethod());
         Connection connection = Jsoup.connect(url)
                 .method(method)
@@ -249,9 +272,6 @@ public class WebCrawlExecutor {
         }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
-        if (StringUtils.hasText(originalHostHeader)) {
-            connection.header("Host", originalHostHeader);
-        }
         applyCookies(connection, config.getCookies(), params);
         applyAuth(connection, config);
 
@@ -274,7 +294,7 @@ public class WebCrawlExecutor {
     }
 
     private Connection buildPreviewConnection(TaskWebCrawlConfig config, String url,
-                                              Map<String, Object> params, String originalHostHeader) throws IOException {
+                                              Map<String, Object> params) throws IOException {
         Connection.Method method = parseMethod(config.getRequestMethod());
         Connection connection = Jsoup.connect(url)
                 .method(method)
@@ -289,9 +309,6 @@ public class WebCrawlExecutor {
         }
 
         applyHeaders(connection, config.getRequestHeaders(), params);
-        if (StringUtils.hasText(originalHostHeader)) {
-            connection.header("Host", originalHostHeader);
-        }
         applyCookies(connection, config.getCookies(), params);
         applyAuth(connection, config);
 
@@ -432,6 +449,12 @@ public class WebCrawlExecutor {
         if (CollectionUtils.isEmpty(selectors)) {
             return Collections.emptyList();
         }
+        selectors = selectors.stream()
+                .filter(this::isEffectiveSelector)
+                .collect(Collectors.toList());
+        if (selectors.isEmpty()) {
+            return Collections.emptyList();
+        }
 
         // 找到第一个选择器匹配的元素集合，作为行基础
         TaskWebCrawlSelector rowSelector = findRowSelector(selectors);
@@ -441,6 +464,10 @@ public class WebCrawlExecutor {
         } else {
             rows = new Elements(document);
         }
+        log.debug("选择器提取: crawlCode={}, rowSelector={}, 匹配行数={}",
+                config.getCrawlCode(),
+                rowSelector != null ? rowSelector.getSelectorValue() : "无",
+                rows.size());
 
         List<Map<String, Object>> data = new ArrayList<>();
         for (int i = 0; i < rows.size(); i++) {
@@ -466,6 +493,11 @@ public class WebCrawlExecutor {
             }
             if (!row.isEmpty()) {
                 data.add(row);
+            }
+        }
+        if (log.isDebugEnabled()) {
+            for (int i = 0; i < data.size(); i++) {
+                log.debug("选择器提取 第{}行: {}", i, data.get(i));
             }
         }
         return data;
@@ -623,23 +655,6 @@ public class WebCrawlExecutor {
         }
     }
 
-    private String buildHostHeader(String url) {
-        if (!StringUtils.hasText(url)) {
-            return null;
-        }
-        try {
-            URL parsed = new URL(url);
-            int port = parsed.getPort();
-            if (port == -1) {
-                return parsed.getHost();
-            }
-            return parsed.getHost() + ":" + port;
-        } catch (MalformedURLException e) {
-            log.warn("构建 Host 头失败: {}", url, e);
-            return null;
-        }
-    }
-
     private String resolveAbsoluteUrl(String baseUrl, String relativeUrl) {
         if (!StringUtils.hasText(relativeUrl)) {
             return null;
@@ -710,7 +725,7 @@ public class WebCrawlExecutor {
         }
     }
 
-    private SshConfig buildSshConfig(TaskWebCrawlConfig config) {
+    public SshConfig buildSshConfig(TaskWebCrawlConfig config) {
         SshConfig sshConfig = new SshConfig();
 
         // SSH 服务器（目标服务所在机器）

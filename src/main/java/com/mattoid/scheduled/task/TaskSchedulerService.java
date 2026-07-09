@@ -5,8 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.quartz.*;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.Date;
 
 @Slf4j
@@ -87,7 +89,11 @@ public class TaskSchedulerService {
                     .withSchedule(CronScheduleBuilder.cronSchedule(cron))
                     .build();
         } else if ("ONCE".equalsIgnoreCase(task.getTriggerType())) {
-            LocalDateTime executeTime = LocalDateTime.parse(task.getTriggerConfig());
+            LocalDateTime executeTime = parseOnceExecuteTime(task.getTriggerConfig());
+            if (executeTime == null) {
+                log.warn("任务 {} 的一次性执行时间格式无效: {}", task.getId(), task.getTriggerConfig());
+                return null;
+            }
             Date startTime = Date.from(executeTime.atZone(ZoneId.systemDefault()).toInstant());
             if (startTime.before(new Date())) {
                 log.warn("一次性任务 {} 的执行时间 {} 已过期", task.getId(), executeTime);
@@ -99,6 +105,22 @@ public class TaskSchedulerService {
                     .build();
         }
         return null;
+    }
+
+    private LocalDateTime parseOnceExecuteTime(String config) {
+        if (config == null || config.trim().isEmpty()) {
+            return null;
+        }
+        String trimmed = config.trim();
+        try {
+            return LocalDateTime.parse(trimmed);
+        } catch (DateTimeParseException e) {
+            try {
+                return LocalDate.parse(trimmed).atStartOfDay();
+            } catch (DateTimeParseException ex) {
+                return null;
+            }
+        }
     }
 
     /**

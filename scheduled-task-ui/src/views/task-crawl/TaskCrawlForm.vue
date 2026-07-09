@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewRewriteTaskCrawl } from '@/api/taskCrawl'
 import { useUserStore } from '@/stores/user'
@@ -22,6 +22,8 @@ const saving = ref(false)
 const previewing = ref(false)
 const previewVisible = ref(false)
 const previewContent = ref('')
+const previewUrl = ref('')
+const previewInfo = ref({ statusCode: undefined as number | undefined, title: undefined as string | undefined, length: 0 })
 const previewTitle = ref('')
 
 const defaultSelector = (): TaskWebCrawlSelector => ({
@@ -183,8 +185,15 @@ const handlePreview = async () => {
     if (userStore.token) {
       document.cookie = `accessToken=${userStore.token}; path=/; max-age=600`
     }
-    previewTitle.value = '网页预览'
+    revokePreviewUrl()
     previewContent.value = html || ''
+    previewUrl.value = URL.createObjectURL(new Blob([html || ''], { type: 'text/html' }))
+    previewInfo.value = {
+      statusCode: undefined,
+      title: undefined,
+      length: (html || '').length,
+    }
+    previewTitle.value = '网页预览'
     previewVisible.value = true
   } catch (e: any) {
     ElMessage.error(`预览失败：${e?.message || '未知错误'}`)
@@ -192,6 +201,23 @@ const handlePreview = async () => {
     previewing.value = false
   }
 }
+
+const revokePreviewUrl = () => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = ''
+  }
+}
+
+watch(previewVisible, (visible) => {
+  if (!visible) {
+    revokePreviewUrl()
+  }
+})
+
+onBeforeUnmount(() => {
+  revokePreviewUrl()
+})
 
 const handleClose = () => {
   emit('update:visible', false)
@@ -738,8 +764,11 @@ watch(
     top="5vh"
     destroy-on-close
   >
+    <div v-if="previewInfo.length" class="preview-info">
+      内容长度：{{ previewInfo.length }} 字符
+    </div>
     <iframe
-      :srcdoc="previewContent"
+      :src="previewUrl"
       style="width: 100%; height: 70vh; border: 1px solid #dcdfe6; border-radius: 4px"
     />
   </el-dialog>
@@ -748,5 +777,10 @@ watch(
 <style scoped>
 .selector-row {
   margin-bottom: 12px;
+}
+.preview-info {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #606266;
 }
 </style>

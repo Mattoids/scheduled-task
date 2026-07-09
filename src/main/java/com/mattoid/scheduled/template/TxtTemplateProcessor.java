@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.template;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Component
 public class TxtTemplateProcessor implements TemplateProcessor {
 
@@ -40,6 +42,9 @@ public class TxtTemplateProcessor implements TemplateProcessor {
         }
 
         File output = new File(outputFileName);
+        log.debug("TXT 文件预写入内容预览: path={}, contentPreview={}",
+                outputFileName,
+                abbreviate(dataRows.toString(), 800));
         Files.writeString(output.toPath(), dataRows.toString(), StandardCharsets.UTF_8);
         return output;
     }
@@ -60,5 +65,12 @@ public class TxtTemplateProcessor implements TemplateProcessor {
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    private String abbreviate(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...(" + (text.length() - maxLength) + " more chars)";
     }
 }

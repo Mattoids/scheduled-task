@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { usePagination } from '@/composables/usePagination'
-import { pageTaskCrawl, deleteTaskCrawl } from '@/api/taskCrawl'
+import { pageTaskCrawl, deleteTaskCrawl, openCrawlSshTunnel, closeCrawlSshTunnel, getCrawlSshTunnelStatus, type CrawlSshTunnelInfo } from '@/api/taskCrawl'
 import { listTemplate } from '@/api/template'
 import TaskCrawlForm from './TaskCrawlForm.vue'
 import type { TaskWebCrawlConfig } from '@/types/entity'
@@ -22,6 +22,36 @@ const loading = ref(false)
 const formVisible = ref(false)
 const formId = ref<number | undefined>(undefined)
 const templateOptions = ref<{ label: string; value: string }[]>([])
+const tunnelMap = reactive<Record<number, CrawlSshTunnelInfo>>({})
+
+const loadTunnelStatus = async (id: number) => {
+  try {
+    tunnelMap[id] = await getCrawlSshTunnelStatus(id)
+  } catch {
+    tunnelMap[id] = { connected: false }
+  }
+}
+
+const handleToggleSshTunnel = async (row: TaskWebCrawlConfig) => {
+  const id = row.id!
+  const current = tunnelMap[id]
+  if (current?.connected) {
+    await closeCrawlSshTunnel(id)
+    ElMessage.success('SSH 隧道已关闭')
+    await loadTunnelStatus(id)
+  } else {
+    const res = await openCrawlSshTunnel(id)
+    tunnelMap[id] = res
+    ElMessage.success(res.message || `SSH 隧道已开启: 127.0.0.1:${res.localPort}`)
+  }
+}
+
+const openLocalUrl = (row: TaskWebCrawlConfig) => {
+  const url = tunnelMap[row.id!]?.localUrl
+  if (url) {
+    window.open(url, '_blank')
+  }
+}
 
 const loadOptions = async () => {
   const tpl = await listTemplate({ size: 1000 }).catch(() => ({ records: [] }))
@@ -38,6 +68,11 @@ const loadPage = async () => {
   try {
     const res = await pageTaskCrawl(buildQuery(queryForm))
     setPageResult(res)
+    res.records?.forEach((row: TaskWebCrawlConfig) => {
+      if (row.sshEnabled === 1 && row.id != null) {
+        loadTunnelStatus(row.id)
+      }
+    })
   } finally {
     loading.value = false
   }
@@ -130,7 +165,29 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="170" />
-      <el-table-column label="操作" width="160" fixed="right">
+      <el-table-column label="SSH 隧道" width="160" v-permission="'taskCrawl:view'">
+        <template #default="{ row }">
+          <el-button
+            v-if="row.sshEnabled === 1"
+            link
+            :type="tunnelMap[row.id!]?.connected ? 'danger' : 'success'"
+            @click="handleToggleSshTunnel(row)"
+          >
+            {{ tunnelMap[row.id!]?.connected ? '关闭 SSH 隧道' : '开启 SSH 隧道' }}
+          </el-button>
+          <el-link
+            v-if="tunnelMap[row.id!]?.connected && tunnelMap[row.id!]?.localUrl"
+            type="primary"
+            :underline="false"
+            @click="openLocalUrl(row)"
+          >
+            本地地址
+          </el-link>
+          <span v-else-if="row.sshEnabled !== 1" class="text-muted">未启用</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" v-permission="'taskCrawl:edit'" @click="handleEdit(row)">编辑</el-button>
           <el-button link type="danger" v-permission="'taskCrawl:delete'" @click="handleDelete(row)">删除</el-button>

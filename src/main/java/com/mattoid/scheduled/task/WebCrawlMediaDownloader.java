@@ -74,10 +74,9 @@ public class WebCrawlMediaDownloader {
         List<File> downloaded = new ArrayList<>();
         try {
             for (String mediaUrl : urls) {
-                String originalHostHeader = buildHostHeader(mediaUrl);
                 String actualUrl = applySshTunnelToUrl(mediaUrl, tunnel);
                 try {
-                    File file = downloadFile(actualUrl, proxy, originalHostHeader);
+                    File file = downloadFile(actualUrl, proxy);
                     if (!filter.accept(file, mediaUrl)) {
                         Files.deleteIfExists(file.toPath());
                         continue;
@@ -118,7 +117,7 @@ public class WebCrawlMediaDownloader {
         }
     }
 
-    private File downloadFile(String url, Proxy proxy, String originalHostHeader) throws Exception {
+    private File downloadFile(String url, Proxy proxy) throws Exception {
         URL parsed = new URL(url);
         String fileName = Paths.get(parsed.getPath()).getFileName().toString();
         if (!StringUtils.hasText(fileName)) {
@@ -128,9 +127,6 @@ public class WebCrawlMediaDownloader {
         URLConnection connection = proxy != null ? parsed.openConnection(proxy) : parsed.openConnection();
         connection.setConnectTimeout(30_000);
         connection.setReadTimeout(60_000);
-        if (StringUtils.hasText(originalHostHeader)) {
-            connection.setRequestProperty("Host", originalHostHeader);
-        }
         try (InputStream in = connection.getInputStream()) {
             Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
@@ -196,23 +192,6 @@ public class WebCrawlMediaDownloader {
         } catch (Exception e) {
             log.warn("解析媒体筛选配置失败: {}", e.getMessage());
             return new MediaFilter();
-        }
-    }
-
-    private String buildHostHeader(String url) {
-        if (!StringUtils.hasText(url)) {
-            return null;
-        }
-        try {
-            URL parsed = new URL(url);
-            int port = parsed.getPort();
-            if (port == -1) {
-                return parsed.getHost();
-            }
-            return parsed.getHost() + ":" + port;
-        } catch (MalformedURLException e) {
-            log.warn("构建 Host 头失败: {}", url, e);
-            return null;
         }
     }
 

@@ -16,6 +16,7 @@ import com.mattoid.scheduled.service.TaskWebCrawlSelectorService;
 import com.mattoid.scheduled.task.WebCrawlExecutor;
 import com.mattoid.scheduled.task.WebCrawlPreviewProxyService;
 import com.mattoid.scheduled.task.WebCrawlPreviewResult;
+import com.mattoid.scheduled.task.WebCrawlSshTunnelService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,16 +40,20 @@ public class TaskWebCrawlConfigController {
     private final WebCrawlExecutor webCrawlExecutor;
     private final WebCrawlPreviewProxyService previewProxyService;
 
+    private final WebCrawlSshTunnelService webCrawlSshTunnelService;
+
     public TaskWebCrawlConfigController(TaskWebCrawlConfigService taskWebCrawlConfigService,
                                         TaskWebCrawlSelectorService taskWebCrawlSelectorService,
                                         ReportTemplateService reportTemplateService,
                                         WebCrawlExecutor webCrawlExecutor,
-                                        WebCrawlPreviewProxyService previewProxyService) {
+                                        WebCrawlPreviewProxyService previewProxyService,
+                                        WebCrawlSshTunnelService webCrawlSshTunnelService) {
         this.taskWebCrawlConfigService = taskWebCrawlConfigService;
         this.taskWebCrawlSelectorService = taskWebCrawlSelectorService;
         this.reportTemplateService = reportTemplateService;
         this.webCrawlExecutor = webCrawlExecutor;
         this.previewProxyService = previewProxyService;
+        this.webCrawlSshTunnelService = webCrawlSshTunnelService;
     }
 
     @PreAuthorize("hasAuthority('taskCrawl:view')")
@@ -111,6 +116,30 @@ public class TaskWebCrawlConfigController {
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .body(result.body());
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @PostMapping("/{id}/ssh-tunnel/open")
+    public Result<WebCrawlSshTunnelService.CrawlSshTunnelInfo> openSshTunnel(@PathVariable Long id) {
+        try {
+            return Result.ok(webCrawlSshTunnelService.openTunnel(id));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        } catch (Exception e) {
+            return Result.error("开启 SSH 隧道失败: " + e.getMessage());
+        }
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @PostMapping("/{id}/ssh-tunnel/close")
+    public Result<Boolean> closeSshTunnel(@PathVariable Long id) {
+        return Result.ok(webCrawlSshTunnelService.closeTunnel(id));
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @GetMapping("/{id}/ssh-tunnel/status")
+    public Result<WebCrawlSshTunnelService.CrawlSshTunnelInfo> getSshTunnelStatus(@PathVariable Long id) {
+        return Result.ok(webCrawlSshTunnelService.getStatus(id));
     }
 
     private String escapeHtml(String text) {

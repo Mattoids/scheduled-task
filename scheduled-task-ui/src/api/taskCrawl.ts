@@ -38,6 +38,25 @@ export const previewTaskCrawl = (data: TaskWebCrawlConfig) => {
   return request.post<WebCrawlPreviewResult>('/task-crawl/preview', data)
 }
 
+export interface CrawlSshTunnelInfo {
+  connected: boolean
+  localPort?: number
+  localUrl?: string
+  message?: string
+}
+
+export const openCrawlSshTunnel = (id: number) => {
+  return request.post<CrawlSshTunnelInfo>(`/task-crawl/${id}/ssh-tunnel/open`)
+}
+
+export const closeCrawlSshTunnel = (id: number) => {
+  return request.post<boolean>(`/task-crawl/${id}/ssh-tunnel/close`)
+}
+
+export const getCrawlSshTunnelStatus = (id: number) => {
+  return request.get<CrawlSshTunnelInfo>(`/task-crawl/${id}/ssh-tunnel/status`)
+}
+
 export const previewRewriteTaskCrawl = (data: TaskWebCrawlConfig) => {
   return request.post<string>('/task-crawl/preview-rewrite', data, {
     responseType: 'text',
