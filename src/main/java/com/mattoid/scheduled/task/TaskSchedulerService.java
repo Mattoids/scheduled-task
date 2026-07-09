@@ -77,9 +77,14 @@ public class TaskSchedulerService {
 
     private Trigger buildTrigger(TaskConfig task) {
         if ("CRON".equalsIgnoreCase(task.getTriggerType())) {
+            String cron = normalizeCronExpression(task.getTriggerConfig());
+            if (cron == null) {
+                log.warn("任务 {} 的 Cron 表达式无效: {}", task.getId(), task.getTriggerConfig());
+                return null;
+            }
             return TriggerBuilder.newTrigger()
                     .withIdentity(buildTriggerKey(task.getId()))
-                    .withSchedule(CronScheduleBuilder.cronSchedule(task.getTriggerConfig()))
+                    .withSchedule(CronScheduleBuilder.cronSchedule(cron))
                     .build();
         } else if ("ONCE".equalsIgnoreCase(task.getTriggerType())) {
             LocalDateTime executeTime = LocalDateTime.parse(task.getTriggerConfig());
@@ -94,6 +99,42 @@ public class TaskSchedulerService {
                     .build();
         }
         return null;
+    }
+
+    /**
+     * 将常见 Cron 表达式规范化为 Quartz 可识别的格式。
+     * Quartz 不允许同时指定 day-of-month 和 day-of-week，需将其中一个替换为 '?'。
+     */
+    static String normalizeCronExpression(String expression) {
+        if (expression == null) {
+            return null;
+        }
+        String trimmed = expression.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length == 5) {
+            // Linux 风格 5 位：分 时 日 月 周 -> 补秒位
+            String[] expanded = new String[6];
+            expanded[0] = "0";
+            System.arraycopy(parts, 0, expanded, 1, 5);
+            parts = expanded;
+        } else if (parts.length != 6 && parts.length != 7) {
+            return null;
+        }
+
+        if (!"?".equals(parts[3]) && !"?".equals(parts[5])) {
+            // 两者都被指定时，保留具体值的一方，另一方设为 '?'
+            if ("*".equals(parts[5])) {
+                parts[5] = "?";
+            } else {
+                parts[3] = "?";
+            }
+        }
+
+        return String.join(" ", parts);
     }
 
     private JobKey buildJobKey(Long taskId) {
