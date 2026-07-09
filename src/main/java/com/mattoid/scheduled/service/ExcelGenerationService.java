@@ -3,6 +3,7 @@ package com.mattoid.scheduled.service;
 import com.mattoid.scheduled.util.PlaceholderUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.common.usermodel.HyperlinkType;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
@@ -326,8 +327,25 @@ public class ExcelGenerationService {
         } else if (value instanceof Boolean b) {
             cell.setCellValue(b);
         } else {
-            cell.setCellValue(value.toString());
+            String text = value.toString();
+            if (isUrl(text)) {
+                cell.setCellValue(text);
+                Hyperlink link = cell.getSheet().getWorkbook().getCreationHelper()
+                        .createHyperlink(HyperlinkType.URL);
+                link.setAddress(text.trim());
+                cell.setHyperlink(link);
+            } else {
+                cell.setCellValue(text);
+            }
         }
+    }
+
+    private boolean isUrl(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String trimmed = text.trim();
+        return trimmed.startsWith("http://") || trimmed.startsWith("https://");
     }
 
     public record ExcelSheetSource(String sheetName, List<Map<String, Object>> data) {

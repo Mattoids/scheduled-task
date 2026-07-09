@@ -295,6 +295,37 @@ class ExcelGenerationServiceTest {
         }
     }
 
+    @Test
+    void shouldConvertUrlColumnToHyperlink() throws Exception {
+        File output = File.createTempFile("excel_hyperlink_", ".xlsx");
+        output.deleteOnExit();
+
+        List<Map<String, Object>> data = List.of(
+                row("name", "Example", "url", "https://example.com/path"),
+                row("name", "Plain", "url", "not a link"),
+                row("name", "Http", "url", "http://example.org")
+        );
+
+        File result = service.generateSingleExcel(data, output.getAbsolutePath(), "Links");
+        assertNotNull(result);
+
+        try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {
+            Sheet sheet = workbook.getSheetAt(0);
+            Cell linkCell = sheet.getRow(1).getCell(1);
+            assertEquals("https://example.com/path", linkCell.getStringCellValue());
+            assertNotNull(linkCell.getHyperlink());
+            assertEquals("https://example.com/path", linkCell.getHyperlink().getAddress());
+
+            Cell plainCell = sheet.getRow(2).getCell(1);
+            assertEquals("not a link", plainCell.getStringCellValue());
+            assertNull(plainCell.getHyperlink());
+
+            Cell httpCell = sheet.getRow(3).getCell(1);
+            assertNotNull(httpCell.getHyperlink());
+            assertEquals("http://example.org", httpCell.getHyperlink().getAddress());
+        }
+    }
+
     private Map<String, Object> row(Object... keyValues) {
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < keyValues.length; i += 2) {
