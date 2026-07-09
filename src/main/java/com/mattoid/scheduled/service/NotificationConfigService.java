@@ -245,8 +245,15 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", String.valueOf(auth));
         props.put("mail.smtp.starttls.enable", String.valueOf(useStarttls));
-        props.put("mail.smtp.connectiontimeout", "10000");
-        props.put("mail.smtp.timeout", "10000");
+        if (useStarttls) {
+            props.put("mail.smtp.starttls.required", "true");
+        }
+        props.put("mail.smtp.connectiontimeout", "30000");
+        props.put("mail.smtp.timeout", "30000");
+        if (useSsl || useStarttls) {
+            // 腾讯企业邮箱等部分服务器对 TLS 版本敏感，强制使用 TLSv1.2
+            props.put("mail.smtp.ssl.protocols", "TLSv1.2");
+        }
         if (useSsl) {
             props.put("mail.smtp.ssl.enable", "true");
             props.put("mail.smtp.ssl.required", "true");

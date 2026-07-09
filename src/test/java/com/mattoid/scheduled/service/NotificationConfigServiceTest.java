@@ -49,6 +49,9 @@ class NotificationConfigServiceTest {
         assertEquals(465, sender.getPort());
         assertEquals("true", props.getProperty("mail.smtp.auth"));
         assertEquals("false", props.getProperty("mail.smtp.starttls.enable"));
+        assertEquals("30000", props.getProperty("mail.smtp.connectiontimeout"));
+        assertEquals("30000", props.getProperty("mail.smtp.timeout"));
+        assertEquals("TLSv1.2", props.getProperty("mail.smtp.ssl.protocols"));
         assertEquals("true", props.getProperty("mail.smtp.ssl.enable"));
         assertEquals("true", props.getProperty("mail.smtp.ssl.required"));
         assertEquals("false", props.getProperty("mail.smtp.ssl.checkserveridentity"));
@@ -74,6 +77,8 @@ class NotificationConfigServiceTest {
         Properties props = sender.getJavaMailProperties();
 
         assertEquals("true", props.getProperty("mail.smtp.starttls.enable"));
+        assertEquals("true", props.getProperty("mail.smtp.starttls.required"));
+        assertEquals("TLSv1.2", props.getProperty("mail.smtp.ssl.protocols"));
         assertNull(props.getProperty("mail.smtp.ssl.enable"));
         assertNull(props.getProperty("mail.smtp.socketFactory.class"));
     }
