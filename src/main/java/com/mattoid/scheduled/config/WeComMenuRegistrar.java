@@ -70,6 +70,7 @@ public class WeComMenuRegistrar implements CommandLineRunner {
     private String buildDefaultMenu() throws JsonProcessingException {
         List<TaskConfig> tasks = taskConfigService.list(
                 new LambdaQueryWrapper<TaskConfig>()
+                        .eq(TaskConfig::getStatus, "ENABLE")
                         .orderByDesc(TaskConfig::getCreateTime)
                         .last("LIMIT " + TOP_TASKS_COUNT)
         );
