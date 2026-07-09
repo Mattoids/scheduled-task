@@ -191,6 +191,9 @@ public class SshTunnelManager {
                 forwarderThread.setDaemon(true);
                 forwarderThread.start();
 
+                // 等待目标机本地监听线程进入 accept，避免请求时连接被拒绝
+                waitForForwarderStartup(200);
+
                 SshTunnel tunnel = new SshTunnel(tunnelId, targetClient, forwarder, forwarderThread,
                         serverSocket.getLocalPort(), "127.0.0.1");
                 tunnel.setKeyFilePath(targetKeyPath);

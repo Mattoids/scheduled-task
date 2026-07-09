@@ -153,6 +153,9 @@ public class WebCrawlExecutor {
             String url = replaceRequestVariables(config.getRequestUrl(), mergedParams);
             String actualUrl = applySshTunnelToUrl(url, tunnel);
             String originalHostHeader = tunnel != null ? buildHostHeader(url) : null;
+            if (tunnel != null) {
+                log.debug("SSH 隧道预览请求: originalUrl={}, actualUrl={}, hostHeader={}", url, actualUrl, originalHostHeader);
+            }
 
             if ("DYNAMIC".equalsIgnoreCase(config.getRenderType())) {
                 Document document = webDriverManager.fetchPage(config, actualUrl, mergedParams);
