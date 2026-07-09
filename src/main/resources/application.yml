@@ -27,6 +27,7 @@ mybatis-plus:
     db-config:
       id-type: auto
       column-format: "`%s`"
+  type-handlers-package: com.mattoid.scheduled.mybatis.handler
 
 scheduled:
   task:

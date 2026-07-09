@@ -1,7 +1,13 @@
 package com.mattoid.scheduled.service;
 
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mattoid.scheduled.datasource.SshHopConfig;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskWebCrawlConfig;
 import com.mattoid.scheduled.entity.TaskWebCrawlRelation;
@@ -27,6 +33,8 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
 
     private static final String ENC_PREFIX = "ENC(";
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private final TaskWebCrawlRelationService taskWebCrawlRelationService;
     private final TaskWebCrawlSelectorService taskWebCrawlSelectorService;
     private final TaskConfigMapper taskConfigMapper;
@@ -42,21 +50,57 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
     @Override
     public boolean save(TaskWebCrawlConfig config) {
         encryptSensitiveFields(config);
-        return super.save(config);
+        boolean result = super.save(config);
+        if (result && config.getId() != null) {
+            persistSshHops(config);
+        }
+        return result;
     }
 
     @Override
     public boolean updateById(TaskWebCrawlConfig config) {
         encryptSensitiveFields(config);
-        return super.updateById(config);
+        boolean result = super.updateById(config);
+        if (result && config.getId() != null) {
+            persistSshHops(config);
+        }
+        return result;
     }
 
     public TaskWebCrawlConfig getDecryptedById(Long id) {
         TaskWebCrawlConfig config = getById(id);
         if (config != null) {
             decryptSensitiveFields(config);
+            if (config.getSshHops() == null) {
+                config.setSshHops(parseSshHopsFromRawJson(id));
+            }
         }
         return config;
+    }
+
+    private List<SshHopConfig> parseSshHopsFromRawJson(Long id) {
+        try {
+            List<Object> rows = baseMapper.selectObjs(new QueryWrapper<TaskWebCrawlConfig>()
+                    .select("ssh_hops")
+                    .eq("id", id));
+            if (CollectionUtils.isEmpty(rows)) {
+                return Collections.emptyList();
+            }
+            Object raw = rows.get(0);
+            if (raw == null) {
+                return Collections.emptyList();
+            }
+            String json = raw.toString();
+            if (!StringUtils.hasText(json) || "null".equals(json)) {
+                return Collections.emptyList();
+            }
+            List<SshHopConfig> hops = OBJECT_MAPPER.readValue(json, new TypeReference<List<SshHopConfig>>() {
+            });
+            return hops == null ? Collections.emptyList() : hops;
+        } catch (Exception e) {
+            log.warn("从数据库原始 JSON 解析 ssh_hops 失败, id={}", id, e);
+            return Collections.emptyList();
+        }
     }
 
     public TaskWebCrawlConfig getByCode(String crawlCode) {
@@ -70,6 +114,9 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         TaskWebCrawlConfig config = getByCode(crawlCode);
         if (config != null) {
             decryptSensitiveFields(config);
+            if (config.getSshHops() == null) {
+                config.setSshHops(Collections.emptyList());
+            }
         }
         return config;
     }
@@ -171,15 +218,7 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         if (StringUtils.hasText(config.getProxyPassword()) && !config.getProxyPassword().startsWith(ENC_PREFIX)) {
             config.setProxyPassword(CryptoUtil.encrypt(config.getProxyPassword()));
         }
-        if (StringUtils.hasText(config.getSshJumpHostPassword()) && !config.getSshJumpHostPassword().startsWith(ENC_PREFIX)) {
-            config.setSshJumpHostPassword(CryptoUtil.encrypt(config.getSshJumpHostPassword()));
-        }
-        if (StringUtils.hasText(config.getSshJumpHostPrivateKey()) && !config.getSshJumpHostPrivateKey().startsWith(ENC_PREFIX)) {
-            config.setSshJumpHostPrivateKey(CryptoUtil.encrypt(config.getSshJumpHostPrivateKey()));
-        }
-        if (StringUtils.hasText(config.getSshJumpHostPassphrase()) && !config.getSshJumpHostPassphrase().startsWith(ENC_PREFIX)) {
-            config.setSshJumpHostPassphrase(CryptoUtil.encrypt(config.getSshJumpHostPassphrase()));
-        }
+        encryptSshHops(config.getSshHops());
     }
 
     private void decryptSensitiveFields(TaskWebCrawlConfig config) {
@@ -201,14 +240,55 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
         if (StringUtils.hasText(config.getProxyPassword())) {
             config.setProxyPassword(CryptoUtil.decryptIfNeeded(config.getProxyPassword()));
         }
-        if (StringUtils.hasText(config.getSshJumpHostPassword())) {
-            config.setSshJumpHostPassword(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassword()));
+        decryptSshHops(config.getSshHops());
+    }
+
+    private void encryptSshHops(List<SshHopConfig> hops) {
+        if (CollectionUtils.isEmpty(hops)) {
+            return;
         }
-        if (StringUtils.hasText(config.getSshJumpHostPrivateKey())) {
-            config.setSshJumpHostPrivateKey(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPrivateKey()));
+        for (SshHopConfig hop : hops) {
+            if (StringUtils.hasText(hop.getPassword()) && !hop.getPassword().startsWith(ENC_PREFIX)) {
+                hop.setPassword(CryptoUtil.encrypt(hop.getPassword()));
+            }
+            if (StringUtils.hasText(hop.getPrivateKey()) && !hop.getPrivateKey().startsWith(ENC_PREFIX)) {
+                hop.setPrivateKey(CryptoUtil.encrypt(hop.getPrivateKey()));
+            }
+            if (StringUtils.hasText(hop.getPassphrase()) && !hop.getPassphrase().startsWith(ENC_PREFIX)) {
+                hop.setPassphrase(CryptoUtil.encrypt(hop.getPassphrase()));
+            }
         }
-        if (StringUtils.hasText(config.getSshJumpHostPassphrase())) {
-            config.setSshJumpHostPassphrase(CryptoUtil.decryptIfNeeded(config.getSshJumpHostPassphrase()));
+    }
+
+    private void persistSshHops(TaskWebCrawlConfig config) {
+        List<SshHopConfig> hops = config.getSshHops();
+        String json;
+        try {
+            json = OBJECT_MAPPER.writeValueAsString(hops == null ? Collections.emptyList() : hops);
+        } catch (JsonProcessingException e) {
+            log.error("序列化 SSH 多跳配置失败: {}", hops, e);
+            throw new RuntimeException("序列化 SSH 多跳配置失败", e);
+        }
+        UpdateWrapper<TaskWebCrawlConfig> wrapper = new UpdateWrapper<>();
+        wrapper.eq("id", config.getId());
+        wrapper.set("ssh_hops", json);
+        update(wrapper);
+    }
+
+    private void decryptSshHops(List<SshHopConfig> hops) {
+        if (CollectionUtils.isEmpty(hops)) {
+            return;
+        }
+        for (SshHopConfig hop : hops) {
+            if (StringUtils.hasText(hop.getPassword())) {
+                hop.setPassword(CryptoUtil.decryptIfNeeded(hop.getPassword()));
+            }
+            if (StringUtils.hasText(hop.getPrivateKey())) {
+                hop.setPrivateKey(CryptoUtil.decryptIfNeeded(hop.getPrivateKey()));
+            }
+            if (StringUtils.hasText(hop.getPassphrase())) {
+                hop.setPassphrase(CryptoUtil.decryptIfNeeded(hop.getPassphrase()));
+            }
         }
     }
 }

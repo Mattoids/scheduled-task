@@ -561,8 +561,8 @@ public class TaskExecutionService {
             case "CSV" -> templateProcessorFactory.getProcessor("CSV")
                     .process(createTempCsvTemplate(data), data, outputPath);
             case "EXCEL" -> {
-                String sheetName = StringUtils.hasText(crawlConfig.getFileNamePattern())
-                        ? crawlConfig.getFileNamePattern() : crawlConfig.getCrawlName();
+                String sheetName = StringUtils.hasText(crawlConfig.getExcelSheetName())
+                        ? crawlConfig.getExcelSheetName() : crawlConfig.getCrawlName();
                 yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName);
             }
             case "TXT" -> {
@@ -604,6 +604,7 @@ public class TaskExecutionService {
         context.put("crawlId", crawl.getId());
         context.put("crawlCode", crawl.getCrawlCode());
         context.put("crawlName", crawl.getCrawlName());
+        context.put("excelSheetName", crawl.getExcelSheetName());
         context.put("chartEnabled", crawl.getChartEnabled());
         context.put("chartType", crawl.getChartType());
         context.put("chartTitle", crawl.getChartTitle());

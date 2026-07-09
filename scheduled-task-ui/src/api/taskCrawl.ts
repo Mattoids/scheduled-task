@@ -57,6 +57,18 @@ export const getCrawlSshTunnelStatus = (id: number) => {
   return request.get<CrawlSshTunnelInfo>(`/task-crawl/${id}/ssh-tunnel/status`)
 }
 
+export interface WebCrawlPreviewJsonResult {
+  success: boolean
+  statusCode?: number
+  message?: string
+  title?: string
+  data?: any
+}
+
+export const previewJsonTaskCrawl = (data: TaskWebCrawlConfig) => {
+  return request.post<WebCrawlPreviewJsonResult>('/task-crawl/preview-json', data)
+}
+
 export const previewRewriteTaskCrawl = (data: TaskWebCrawlConfig) => {
   return request.post<string>('/task-crawl/preview-rewrite', data, {
     responseType: 'text',

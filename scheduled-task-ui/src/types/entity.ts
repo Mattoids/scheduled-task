@@ -116,13 +116,7 @@ export interface TaskWebCrawlConfig {
   sshRemotePort?: number
   sshLocalPort?: number
   sshJumpHostEnabled?: number
-  sshJumpHostHost?: string
-  sshJumpHostPort?: number
-  sshJumpHostUsername?: string
-  sshJumpHostPassword?: string
-  sshJumpHostPrivateKey?: string
-  sshJumpHostPassphrase?: string
-  sshJumpHostAuthType?: 'PASSWORD' | 'KEY'
+  sshHops?: SshHopConfig[]
   proxyEnabled?: number
   proxyHost?: string
   proxyPort?: number
@@ -135,6 +129,7 @@ export interface TaskWebCrawlConfig {
   templateCode?: string
   fileSuffix?: string
   fileNamePattern?: string
+  excelSheetName?: string
   description?: string
   customParams?: string
   status?: number
@@ -156,10 +151,21 @@ export interface TaskWebCrawlConfig {
   chartAutoMerge?: number
   chartLabelRotation?: string
   chartBackgroundColor?: string
+  previewSelectorEnabled?: number
   selectors?: TaskWebCrawlSelector[]
   sortOrder?: number
   createTime?: string
   updateTime?: string
+}
+
+export interface SshHopConfig {
+  host: string
+  port?: number
+  username: string
+  password?: string
+  privateKey?: string
+  passphrase?: string
+  authType?: 'PASSWORD' | 'KEY'
 }
 
 export interface TaskWebCrawlSelector {

@@ -29,6 +29,7 @@ const dialogVisible = computed({
 });
 
 const loading = ref(false);
+const loadingDetail = ref(false);
 const formRef = ref();
 const form = ref<TaskConfig>({
   taskName: "",
@@ -56,6 +57,9 @@ watch(
 watch(
   () => form.value.taskType,
   () => {
+    if (loadingDetail.value) {
+      return;
+    }
     selectedSqlCodes.value = [];
     selectedCrawlCodes.value = [];
     treeSelectedKeys.value = [];
@@ -197,6 +201,7 @@ const resetForm = () => {
 const loadDetail = async () => {
   if (!props.id) return;
   loading.value = true;
+  loadingDetail.value = true;
   try {
     const res: TaskConfigRequest = await getTask(props.id);
     form.value = res.task || {
@@ -212,14 +217,16 @@ const loadDetail = async () => {
     treeSelectedKeys.value = [...selectedSqlCodes.value];
   } finally {
     loading.value = false;
+    loadingDetail.value = false;
   }
 };
 
 watch(
   () => props.visible,
-  (val) => {
+  async (val) => {
     if (val) {
       resetForm();
+      await loadOptions();
       if (props.id) {
         loadDetail();
       }

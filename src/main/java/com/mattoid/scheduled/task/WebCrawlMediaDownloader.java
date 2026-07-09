@@ -16,6 +16,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import javax.imageio.ImageIO;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.InputStream;
@@ -26,6 +32,7 @@ import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -42,6 +49,9 @@ import java.util.zip.ZipOutputStream;
 public class WebCrawlMediaDownloader {
 
     private static final String DEFAULT_MEDIA_SELECTOR = "img,video,audio,source";
+
+    private static final HostnameVerifier TRUST_ALL_HOSTNAME_VERIFIER = (hostname, session) -> true;
+    private static volatile SSLSocketFactory trustAllSslSocketFactory;
 
     private final ObjectMapper objectMapper;
     private final StorageConfigService storageConfigService;
@@ -76,8 +86,12 @@ public class WebCrawlMediaDownloader {
             for (String mediaUrl : urls) {
                 String actualUrl = applySshTunnelToUrl(mediaUrl, tunnel);
                 try {
-                    File file = downloadFile(actualUrl, proxy);
+                    File file = downloadFile(actualUrl, proxy, tunnel);
                     if (!filter.accept(file, mediaUrl)) {
+                        Files.deleteIfExists(file.toPath());
+                        continue;
+                    }
+                    if (!acceptMediaFileType(file, mediaUrl, config.getMediaFileTypes())) {
                         Files.deleteIfExists(file.toPath());
                         continue;
                     }
@@ -91,22 +105,41 @@ public class WebCrawlMediaDownloader {
         }
 
         String outputMode = config.getMediaOutputMode();
-        if ("STORE_ONLY".equalsIgnoreCase(outputMode) || "ATTACH_ZIP".equalsIgnoreCase(outputMode)) {
-            uploadToStorage(downloaded, config.getMediaStorageConfigId());
-        }
+        try {
+            if ("STORE_ONLY".equalsIgnoreCase(outputMode)) {
+                uploadToStorage(downloaded, config.getMediaStorageConfigId());
+                deleteFiles(downloaded);
+                return MediaResult.empty();
+            }
 
-        if ("ZIP".equalsIgnoreCase(outputMode) || "ATTACH_ZIP".equalsIgnoreCase(outputMode)) {
-            File zipFile = packZip(downloaded, config, params);
-            return new MediaResult(Collections.singletonList(zipFile), downloaded.size());
-        }
+            if ("ATTACH_ZIP".equalsIgnoreCase(outputMode)) {
+                uploadToStorage(downloaded, config.getMediaStorageConfigId());
+            }
 
-        return new MediaResult(downloaded, downloaded.size());
+            if ("ZIP".equalsIgnoreCase(outputMode) || "ATTACH_ZIP".equalsIgnoreCase(outputMode)) {
+                File zipFile = packZip(downloaded, config, params);
+                deleteFiles(downloaded);
+                return new MediaResult(Collections.singletonList(zipFile), downloaded.size());
+            }
+
+            // ATTACH：作为附件返回，JVM 退出时清理临时文件
+            for (File file : downloaded) {
+                file.deleteOnExit();
+            }
+            return new MediaResult(downloaded, downloaded.size());
+        } catch (Exception e) {
+            deleteFiles(downloaded);
+            throw e;
+        }
     }
 
     private void collectMediaUrls(Element element, String baseUrl, Set<String> urls) {
         String src = element.hasAttr("data-src") ? element.attr("data-src") : element.attr("src");
         if (!StringUtils.hasText(src)) {
-            src = element.attr("srcset").split(",")[0].trim().split(" ")[0];
+            String srcset = element.attr("srcset");
+            if (StringUtils.hasText(srcset)) {
+                src = srcset.split(",")[0].trim().split(" ")[0];
+            }
         }
         if (!StringUtils.hasText(src)) {
             return;
@@ -117,7 +150,7 @@ public class WebCrawlMediaDownloader {
         }
     }
 
-    private File downloadFile(String url, Proxy proxy) throws Exception {
+    private File downloadFile(String url, Proxy proxy, SshTunnel tunnel) throws Exception {
         URL parsed = new URL(url);
         String fileName = Paths.get(parsed.getPath()).getFileName().toString();
         if (!StringUtils.hasText(fileName)) {
@@ -127,24 +160,105 @@ public class WebCrawlMediaDownloader {
         URLConnection connection = proxy != null ? parsed.openConnection(proxy) : parsed.openConnection();
         connection.setConnectTimeout(30_000);
         connection.setReadTimeout(60_000);
+        applyTunnelSslBypass(connection, url, tunnel);
         try (InputStream in = connection.getInputStream()) {
             Files.copy(in, temp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
         return temp.toFile();
     }
 
-    private boolean shouldAcceptType(String url, String allowedTypes) {
+    private static void applyTunnelSslBypass(URLConnection connection, String url, SshTunnel tunnel) {
+        if (tunnel == null || url == null || !url.toLowerCase().startsWith("https")
+                || !(connection instanceof HttpsURLConnection)) {
+            return;
+        }
+        try {
+            HttpsURLConnection httpsConnection = (HttpsURLConnection) connection;
+            httpsConnection.setSSLSocketFactory(getTrustAllSslSocketFactory());
+            httpsConnection.setHostnameVerifier(TRUST_ALL_HOSTNAME_VERIFIER);
+        } catch (Exception e) {
+            log.warn("设置媒体 SSH 隧道 HTTPS 绕过失败: {}", e.getMessage());
+        }
+    }
+
+    private static SSLSocketFactory getTrustAllSslSocketFactory() throws Exception {
+        if (trustAllSslSocketFactory == null) {
+            synchronized (WebCrawlMediaDownloader.class) {
+                if (trustAllSslSocketFactory == null) {
+                    TrustManager[] trustAllCerts = new TrustManager[]{
+                            new X509TrustManager() {
+                                public X509Certificate[] getAcceptedIssuers() {
+                                    return new X509Certificate[0];
+                                }
+
+                                public void checkClientTrusted(X509Certificate[] certs, String authType) {
+                                }
+
+                                public void checkServerTrusted(X509Certificate[] certs, String authType) {
+                                }
+                            }
+                    };
+                    SSLContext sc = SSLContext.getInstance("TLS");
+                    sc.init(null, trustAllCerts, new java.security.SecureRandom());
+                    trustAllSslSocketFactory = sc.getSocketFactory();
+                }
+            }
+        }
+        return trustAllSslSocketFactory;
+    }
+
+    private boolean acceptMediaFileType(File file, String url, String allowedTypes) {
         if (!StringUtils.hasText(allowedTypes)) {
             return true;
         }
-        String lower = url.toLowerCase();
+        String contentType;
+        try {
+            contentType = Files.probeContentType(file.toPath());
+        } catch (Exception e) {
+            contentType = null;
+        }
+        if (contentType == null) {
+            contentType = guessContentType(url);
+        }
+        String lowerCt = contentType.toLowerCase();
         for (String type : allowedTypes.split(",")) {
             String t = type.trim().toLowerCase();
-            if (lower.contains("." + t) || lower.contains("/" + t)) {
+            if (t.isEmpty()) {
+                continue;
+            }
+            if (lowerCt.startsWith(t + "/")) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static String guessContentType(String url) {
+        String lower = url.toLowerCase();
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".mp4")) return "video/mp4";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        return "application/octet-stream";
+    }
+
+    private static boolean isImage(String contentType) {
+        return contentType != null && contentType.startsWith("image/");
+    }
+
+    private void deleteFiles(List<File> files) {
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            try {
+                Files.deleteIfExists(file.toPath());
+            } catch (Exception e) {
+                log.debug("删除媒体临时文件失败: {} - {}", file, e.getMessage());
+            }
+        }
     }
 
     private void uploadToStorage(List<File> files, Long storageConfigId) {
@@ -248,7 +362,7 @@ public class WebCrawlMediaDownloader {
             }
             String contentType = Files.probeContentType(file.toPath());
             if (contentType == null) {
-                contentType = guessContentType(url);
+                contentType = WebCrawlMediaDownloader.guessContentType(url);
             }
             if (allowedMimeTypes != null && !allowedMimeTypes.isEmpty()) {
                 if (!allowedMimeTypes.stream().anyMatch(contentType::contains)) {
@@ -260,7 +374,7 @@ public class WebCrawlMediaDownloader {
                     return false;
                 }
             }
-            if (isImage(contentType)) {
+            if (WebCrawlMediaDownloader.isImage(contentType)) {
                 BufferedImage image = ImageIO.read(file);
                 if (image != null) {
                     int width = image.getWidth();
@@ -272,21 +386,6 @@ public class WebCrawlMediaDownloader {
                 }
             }
             return true;
-        }
-
-        private String guessContentType(String url) {
-            String lower = url.toLowerCase();
-            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-            if (lower.endsWith(".png")) return "image/png";
-            if (lower.endsWith(".gif")) return "image/gif";
-            if (lower.endsWith(".webp")) return "image/webp";
-            if (lower.endsWith(".mp4")) return "video/mp4";
-            if (lower.endsWith(".mp3")) return "audio/mpeg";
-            return "application/octet-stream";
-        }
-
-        private boolean isImage(String contentType) {
-            return contentType != null && contentType.startsWith("image/");
         }
 
         public Long getMaxFileSizeBytes() { return maxFileSizeBytes; }

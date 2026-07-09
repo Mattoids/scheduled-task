@@ -2,6 +2,8 @@ package com.mattoid.scheduled.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.mattoid.scheduled.datasource.SshHopConfig;
+import com.mattoid.scheduled.mybatis.handler.SshHopConfigListTypeHandler;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -60,26 +62,16 @@ public class TaskWebCrawlConfig extends BaseEntity {
     private Integer sshLocalPort;
 
     /**
-     * 是否使用跳板机
+     * 是否启用 SSH 多跳链路（跳板机 / 代理机）
      */
     private Integer sshJumpHostEnabled;
 
-    private String sshJumpHostHost;
-
-    private Integer sshJumpHostPort;
-
-    private String sshJumpHostUsername;
-
-    private String sshJumpHostPassword;
-
-    private String sshJumpHostPrivateKey;
-
-    private String sshJumpHostPassphrase;
-
     /**
-     * PASSWORD / KEY
+     * SSH 多跳链路节点，按从服务侧到请求侧排序。
+     * 第一个节点最靠近服务所在机器，最后一个节点最靠近请求方（最外层代理）。
      */
-    private String sshJumpHostAuthType;
+    @TableField(typeHandler = SshHopConfigListTypeHandler.class)
+    private List<SshHopConfig> sshHops;
 
     private Integer proxyEnabled;
 
@@ -110,6 +102,11 @@ public class TaskWebCrawlConfig extends BaseEntity {
     private String fileSuffix;
 
     private String fileNamePattern;
+
+    /**
+     * Excel 中 sheet 页名称，支持内置变量
+     */
+    private String excelSheetName;
 
     private String description;
 
@@ -152,6 +149,12 @@ public class TaskWebCrawlConfig extends BaseEntity {
     private String chartLabelRotation;
 
     private String chartBackgroundColor;
+
+    /**
+     * 非数据库字段：预览时是否启用选择器，1 启用，0 禁用
+     */
+    @TableField(exist = false)
+    private Integer previewSelectorEnabled;
 
     /**
      * 非数据库字段：字段提取规则

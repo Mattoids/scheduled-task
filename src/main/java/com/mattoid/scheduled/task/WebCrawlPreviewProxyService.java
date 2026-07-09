@@ -46,18 +46,24 @@ public class WebCrawlPreviewProxyService {
 
     public PreviewHtmlResult rewrite(TaskWebCrawlConfig config) {
         WebCrawlPreviewResult preview = webCrawlExecutor.preview(config, null);
+        int statusCode = preview.getStatusCode() != null ? preview.getStatusCode() : 500;
         if (!preview.isSuccess()) {
-            return new PreviewHtmlResult(false, preview.getStatusCode(), preview.getMessage(), null, null);
+            return new PreviewHtmlResult(false, statusCode, preview.getMessage(), null, null);
         }
         String html = preview.getContent();
         if (!StringUtils.hasText(html)) {
-            return new PreviewHtmlResult(false, preview.getStatusCode(), "页面内容为空", null, null);
+            return new PreviewHtmlResult(false, statusCode, "页面内容为空", null, null);
         }
 
         String baseUrl = config.getRequestUrl();
         String token = contextCache.put(config);
-        String rewritten = rewriteHtml(html, baseUrl, token);
-        return new PreviewHtmlResult(true, preview.getStatusCode(), preview.getMessage(), rewritten, token);
+        String rewritten;
+        if (isHtml(html)) {
+            rewritten = rewriteHtml(html, baseUrl, token);
+        } else {
+            rewritten = "<pre>" + escapeHtml(html) + "</pre>";
+        }
+        return new PreviewHtmlResult(true, statusCode, preview.getMessage(), rewritten, token);
     }
 
     public ResourceProxyResult proxyResource(String token, String targetUrl) throws Exception {
@@ -106,6 +112,13 @@ public class WebCrawlPreviewProxyService {
             String style = element.attr("style");
             if (StringUtils.hasText(style)) {
                 element.attr("style", rewriteCss(style, baseUrl, token));
+            }
+            // <style> 标签内部 CSS
+            if ("style".equalsIgnoreCase(element.tagName())) {
+                String css = element.html();
+                if (StringUtils.hasText(css)) {
+                    element.html(rewriteCss(css, baseUrl, token));
+                }
             }
         }
 
@@ -303,6 +316,17 @@ public class WebCrawlPreviewProxyService {
             return true;
         }
         return url != null && url.toLowerCase().endsWith(".css");
+    }
+
+    private boolean isHtml(String content) {
+        if (!StringUtils.hasText(content)) {
+            return false;
+        }
+        String trimmed = content.trim().toLowerCase();
+        if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.startsWith("<body")) {
+            return true;
+        }
+        return trimmed.contains("<html") || trimmed.contains("<body");
     }
 
     public record PreviewHtmlResult(boolean success, int statusCode, String message,

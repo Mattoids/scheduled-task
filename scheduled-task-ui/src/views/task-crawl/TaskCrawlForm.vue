@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewRewriteTaskCrawl } from '@/api/taskCrawl'
+import { DocumentCopy } from '@element-plus/icons-vue'
+import { getTaskCrawl, createTaskCrawl, updateTaskCrawl, previewRewriteTaskCrawl, previewJsonTaskCrawl } from '@/api/taskCrawl'
 import { useUserStore } from '@/stores/user'
-import type { TaskWebCrawlConfig, TaskWebCrawlSelector } from '@/types/entity'
+import type { SshHopConfig, TaskWebCrawlConfig, TaskWebCrawlSelector } from '@/types/entity'
 
 const props = defineProps<{
   visible: boolean
@@ -21,10 +22,21 @@ const loading = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
 const previewVisible = ref(false)
+const previewLoading = ref(false)
 const previewContent = ref('')
 const previewUrl = ref('')
 const previewInfo = ref({ statusCode: undefined as number | undefined, title: undefined as string | undefined, length: 0 })
 const previewTitle = ref('')
+const previewMode = ref<'web' | 'json'>('web')
+const previewSelectorEnabled = ref<number>(1)
+const previewJson = ref<any>(null)
+const previewJsonString = computed(() => {
+  try {
+    return JSON.stringify(previewJson.value, null, 2)
+  } catch {
+    return String(previewJson.value)
+  }
+})
 
 const defaultSelector = (): TaskWebCrawlSelector => ({
   selectorType: 'CSS',
@@ -34,6 +46,27 @@ const defaultSelector = (): TaskWebCrawlSelector => ({
   dataType: 'STRING',
   isRowSelector: 0,
 })
+
+const defaultHop = (): SshHopConfig => ({
+  host: '',
+  port: 22,
+  username: '',
+  password: '',
+  privateKey: '',
+  passphrase: '',
+  authType: 'PASSWORD',
+})
+
+const handleAddHop = () => {
+  if (!form.sshHops) {
+    form.sshHops = []
+  }
+  form.sshHops.push(defaultHop())
+}
+
+const handleRemoveHop = (index: number) => {
+  form.sshHops?.splice(index, 1)
+}
 
 const form = reactive<TaskWebCrawlConfig>({
   crawlName: '',
@@ -59,13 +92,7 @@ const form = reactive<TaskWebCrawlConfig>({
   sshRemotePort: 80,
   sshLocalPort: 0,
   sshJumpHostEnabled: 0,
-  sshJumpHostHost: '',
-  sshJumpHostPort: 22,
-  sshJumpHostUsername: '',
-  sshJumpHostPassword: '',
-  sshJumpHostPrivateKey: '',
-  sshJumpHostPassphrase: '',
-  sshJumpHostAuthType: 'PASSWORD',
+  sshHops: [],
   proxyEnabled: 0,
   proxyHost: '',
   proxyPort: undefined,
@@ -77,6 +104,7 @@ const form = reactive<TaskWebCrawlConfig>({
   templateCode: '',
   fileSuffix: '',
   fileNamePattern: '',
+  excelSheetName: '',
   description: '',
   customParams: '',
   status: 1,
@@ -122,7 +150,24 @@ const selectorTypeOptions = [
   { label: 'CSS', value: 'CSS' },
   { label: 'XPath', value: 'XPATH' },
   { label: 'Regex', value: 'REGEX' },
+  { label: 'JSON', value: 'JSON' },
+  { label: '模糊匹配', value: 'FUZZY' },
 ]
+
+const selectorValuePlaceholder = (type?: string) => {
+  switch (type) {
+    case 'JSON':
+      return 'JSON 路径，如 $.data.list[0].name'
+    case 'FUZZY':
+      return 'CSS选择器|匹配文本，如 a|登录'
+    case 'XPATH':
+      return 'XPath 表达式'
+    case 'REGEX':
+      return '正则表达式'
+    default:
+      return '选择器表达式'
+  }
+}
 
 const dataTypeOptions = [
   { label: '文本', value: 'STRING' },
@@ -141,6 +186,7 @@ const loadDetail = async () => {
     if (!form.selectors || form.selectors.length === 0) {
       form.selectors = [defaultSelector()]
     }
+    form.sshHops = Array.isArray(res.sshHops) ? res.sshHops : []
   } finally {
     loading.value = false
   }
@@ -171,6 +217,31 @@ const handleSave = async () => {
   }
 }
 
+const handleCopyPreview = async () => {
+  const text = previewMode.value === 'web' ? previewContent.value : previewJsonString.value
+  if (!text) {
+    ElMessage.warning('暂无可复制内容')
+    return
+  }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    ElMessage.success('复制成功')
+  } catch (e: any) {
+    ElMessage.error(`复制失败：${e?.message || '未知错误'}`)
+  }
+}
+
 const handlePreview = async () => {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -178,29 +249,61 @@ const handlePreview = async () => {
     ElMessage.warning('请输入请求 URL')
     return
   }
+  previewLoading.value = true
+  previewVisible.value = true
   previewing.value = true
+  form.previewSelectorEnabled = previewSelectorEnabled.value
   try {
-    const html = await previewRewriteTaskCrawl(form)
-    const userStore = useUserStore()
-    if (userStore.token) {
-      document.cookie = `accessToken=${userStore.token}; path=/; max-age=600`
+    if (previewMode.value === 'web') {
+      const html = await previewRewriteTaskCrawl(form)
+      const userStore = useUserStore()
+      if (userStore.token) {
+        document.cookie = `accessToken=${userStore.token}; path=/; max-age=600`
+      }
+      revokePreviewUrl()
+      previewContent.value = html || ''
+      previewUrl.value = URL.createObjectURL(new Blob([html || ''], { type: 'text/html' }))
+      previewInfo.value = {
+        statusCode: undefined,
+        title: undefined,
+        length: (html || '').length,
+      }
+      previewTitle.value = '网页预览'
+    } else {
+      const res = await previewJsonTaskCrawl(form)
+      if (!res.success) {
+        ElMessage.error(`JSON 预览失败：${res.message || '未知错误'}`)
+        previewVisible.value = false
+        return
+      }
+      previewJson.value = res.data ?? null
+      previewInfo.value = {
+        statusCode: res.statusCode,
+        title: res.title,
+        length: previewJsonString.value.length,
+      }
+      previewTitle.value = res.title ? `${res.title} - JSON 预览` : 'JSON 预览'
     }
-    revokePreviewUrl()
-    previewContent.value = html || ''
-    previewUrl.value = URL.createObjectURL(new Blob([html || ''], { type: 'text/html' }))
-    previewInfo.value = {
-      statusCode: undefined,
-      title: undefined,
-      length: (html || '').length,
-    }
-    previewTitle.value = '网页预览'
-    previewVisible.value = true
   } catch (e: any) {
     ElMessage.error(`预览失败：${e?.message || '未知错误'}`)
+    previewVisible.value = false
   } finally {
+    previewLoading.value = false
     previewing.value = false
   }
 }
+
+watch(previewMode, () => {
+  if (previewVisible.value) {
+    handlePreview()
+  }
+})
+
+watch(previewSelectorEnabled, () => {
+  if (previewVisible.value) {
+    handlePreview()
+  }
+})
 
 const revokePreviewUrl = () => {
   if (previewUrl.value) {
@@ -249,13 +352,7 @@ const resetForm = () => {
     sshRemotePort: 80,
     sshLocalPort: 0,
     sshJumpHostEnabled: 0,
-    sshJumpHostHost: '',
-    sshJumpHostPort: 22,
-    sshJumpHostUsername: '',
-    sshJumpHostPassword: '',
-    sshJumpHostPrivateKey: '',
-    sshJumpHostPassphrase: '',
-    sshJumpHostAuthType: 'PASSWORD',
+    sshHops: [],
     proxyEnabled: 0,
     proxyHost: '',
     proxyPort: undefined,
@@ -267,6 +364,7 @@ const resetForm = () => {
     templateCode: '',
     fileSuffix: '',
     fileNamePattern: '',
+    excelSheetName: '',
     description: '',
     customParams: '',
     status: 1,
@@ -387,7 +485,7 @@ watch(
               placeholder='JSON 格式，保存时会自动加密'
             />
           </el-form-item>
-          <el-divider content-position="left">HTTP 代理</el-divider>
+          <el-divider content-position="left">代理</el-divider>
           <el-form-item label="启用代理">
             <el-switch v-model="form.proxyEnabled" :active-value="1" :inactive-value="0" />
           </el-form-item>
@@ -517,48 +615,68 @@ watch(
               </el-col>
             </el-row>
 
-            <el-form-item label="跳板机">
+            <el-form-item label="跳板机/代理链">
               <el-switch v-model="form.sshJumpHostEnabled" :active-value="1" :inactive-value="0" />
             </el-form-item>
             <template v-if="form.sshJumpHostEnabled === 1">
-              <el-divider content-position="left">跳板机 SSH 配置</el-divider>
-              <el-row :gutter="20">
-                <el-col :span="12">
-                  <el-form-item label="跳板机地址">
-                    <el-input v-model="form.sshJumpHostHost" placeholder="跳板机地址，如 192.168.1.10" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="12">
-                  <el-form-item label="跳板机 SSH 端口">
-                    <el-input-number v-model="form.sshJumpHostPort" :min="1" :max="65535" />
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-form-item label="跳板机用户名">
-                <el-input v-model="form.sshJumpHostUsername" />
-              </el-form-item>
-              <el-form-item label="跳板机认证方式">
-                <el-radio-group v-model="form.sshJumpHostAuthType">
-                  <el-radio-button label="PASSWORD">密码</el-radio-button>
-                  <el-radio-button label="KEY">私钥</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="form.sshJumpHostAuthType === 'PASSWORD'" label="跳板机密码">
-                <el-input v-model="form.sshJumpHostPassword" type="password" show-password />
-              </el-form-item>
-              <template v-if="form.sshJumpHostAuthType === 'KEY'">
-                <el-form-item label="跳板机私钥">
-                  <el-input
-                    v-model="form.sshJumpHostPrivateKey"
-                    type="textarea"
-                    :rows="4"
-                    placeholder="保存时自动加密"
-                  />
+              <el-alert
+                type="info"
+                :closable="false"
+                show-icon
+                title="链路说明"
+                description="按从服务侧到请求侧配置中转服务器：越靠上越靠近服务所在机器，越靠下越靠近请求方（最外层代理）。"
+                style="margin-bottom: 16px"
+              />
+              <div
+                v-for="(hop, index) in form.sshHops"
+                :key="index"
+                class="hop-row"
+              >
+                <el-divider content-position="left">
+                  中转节点 {{ index + 1 }}
+                  <span v-if="index === 0">（最靠近服务）</span>
+                  <span v-else-if="index === form.sshHops!.length - 1">（最外层代理）</span>
+                </el-divider>
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item label="服务器地址">
+                      <el-input v-model="hop.host" :placeholder="`中转节点 ${index + 1} 地址，如 192.168.1.10`" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="SSH 端口">
+                      <el-input-number v-model="hop.port" :min="1" :max="65535" />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-form-item label="用户名">
+                  <el-input v-model="hop.username" />
                 </el-form-item>
-                <el-form-item label="跳板机私钥口令">
-                  <el-input v-model="form.sshJumpHostPassphrase" type="password" show-password />
+                <el-form-item label="认证方式">
+                  <el-radio-group v-model="hop.authType">
+                    <el-radio-button label="PASSWORD">密码</el-radio-button>
+                    <el-radio-button label="KEY">私钥</el-radio-button>
+                  </el-radio-group>
                 </el-form-item>
-              </template>
+                <el-form-item v-if="hop.authType === 'PASSWORD'" label="密码">
+                  <el-input v-model="hop.password" type="password" show-password />
+                </el-form-item>
+                <template v-if="hop.authType === 'KEY'">
+                  <el-form-item label="私钥">
+                    <el-input
+                      v-model="hop.privateKey"
+                      type="textarea"
+                      :rows="4"
+                      placeholder="保存时自动加密"
+                    />
+                  </el-form-item>
+                  <el-form-item label="私钥口令">
+                    <el-input v-model="hop.passphrase" type="password" show-password />
+                  </el-form-item>
+                </template>
+                <el-button type="danger" @click="handleRemoveHop(index)">删除该节点</el-button>
+              </div>
+              <el-button type="primary" @click="handleAddHop">新增中转节点</el-button>
             </template>
           </template>
         </el-tab-pane>
@@ -604,7 +722,7 @@ watch(
                 </el-select>
               </el-col>
               <el-col :span="7">
-                <el-input v-model="selector.selectorValue" placeholder="选择器表达式" />
+                <el-input v-model="selector.selectorValue" :placeholder="selectorValuePlaceholder(selector.selectorType)" />
               </el-col>
               <el-col :span="3">
                 <el-input v-model="selector.attribute" placeholder="属性" />
@@ -717,6 +835,9 @@ watch(
           <el-form-item label="文件名模式">
             <el-input v-model="form.fileNamePattern" />
           </el-form-item>
+          <el-form-item v-if="form.outputFormat === 'EXCEL'" label="Sheet 名称">
+            <el-input v-model="form.excelSheetName" placeholder="留空使用爬取名称，支持 {yyyyMMdd} 等内置变量" />
+          </el-form-item>
           <el-form-item label="启用图表">
             <el-switch v-model="form.chartEnabled" :active-value="1" :inactive-value="0" />
           </el-form-item>
@@ -764,13 +885,52 @@ watch(
     top="5vh"
     destroy-on-close
   >
-    <div v-if="previewInfo.length" class="preview-info">
-      内容长度：{{ previewInfo.length }} 字符
+    <div class="preview-toolbar">
+      <el-radio-group v-model="previewMode" size="small">
+        <el-radio-button label="web">网页</el-radio-button>
+        <el-radio-button label="json">JSON</el-radio-button>
+      </el-radio-group>
+      <div class="preview-actions">
+        <div class="selector-toggle">
+          <el-switch
+            v-model="previewSelectorEnabled"
+            :active-value="1"
+            :inactive-value="0"
+            active-text="选择器"
+            inactive-text="选择器"
+            inline-prompt
+            size="small"
+          />
+        </div>
+      </div>
     </div>
-    <iframe
-      :src="previewUrl"
-      style="width: 100%; height: 70vh; border: 1px solid #dcdfe6; border-radius: 4px"
-    />
+    <div v-if="previewInfo.length" class="preview-info">
+      <span v-if="previewInfo.statusCode" class="info-item">状态码：{{ previewInfo.statusCode }}</span>
+      <span v-if="previewInfo.title" class="info-item">标题：{{ previewInfo.title }}</span>
+      <span class="info-item">内容长度：{{ previewInfo.length }} 字符</span>
+    </div>
+    <div
+      v-loading="previewLoading"
+      element-loading-text="加载中..."
+      class="preview-content-wrapper"
+    >
+      <iframe
+        v-if="previewMode === 'web'"
+        :src="previewUrl"
+        style="width: 100%; height: 70vh; border: 1px solid #dcdfe6; border-radius: 4px"
+      />
+      <pre v-else class="json-preview">{{ previewJsonString }}</pre>
+      <el-tooltip content="复制" placement="top">
+        <el-button
+          class="copy-btn"
+          type="primary"
+          size="small"
+          circle
+          :icon="DocumentCopy"
+          @click="handleCopyPreview"
+        />
+      </el-tooltip>
+    </div>
   </el-dialog>
 </template>
 
@@ -778,9 +938,61 @@ watch(
 .selector-row {
   margin-bottom: 12px;
 }
+.hop-row {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+.hop-row .el-divider {
+  margin-top: 0;
+}
+.preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.selector-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-content-wrapper {
+  position: relative;
+  min-height: 70vh;
+}
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
 .preview-info {
   margin-bottom: 8px;
   font-size: 13px;
   color: #606266;
+}
+.preview-info .info-item {
+  margin-right: 16px;
+}
+.json-preview {
+  width: 100%;
+  height: 70vh;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  background: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

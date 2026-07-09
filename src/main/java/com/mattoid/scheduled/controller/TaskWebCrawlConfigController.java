@@ -16,6 +16,7 @@ import com.mattoid.scheduled.service.TaskWebCrawlSelectorService;
 import com.mattoid.scheduled.task.WebCrawlExecutor;
 import com.mattoid.scheduled.task.WebCrawlPreviewProxyService;
 import com.mattoid.scheduled.task.WebCrawlPreviewResult;
+import com.mattoid.scheduled.task.WebCrawlPreviewJsonResult;
 import com.mattoid.scheduled.task.WebCrawlSshTunnelService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -92,6 +93,12 @@ public class TaskWebCrawlConfigController {
                     .body("<html><body><h1>预览失败</h1><p>" + escapeHtml(result.message()) + "</p></body></html>");
         }
         return ResponseEntity.ok(result.html());
+    }
+
+    @PreAuthorize("hasAuthority('taskCrawl:view')")
+    @PostMapping("/preview-json")
+    public Result<WebCrawlPreviewJsonResult> previewJson(@RequestBody TaskWebCrawlConfig config) {
+        return Result.ok(webCrawlExecutor.previewJson(config, null));
     }
 
     // 预览资源代理不依赖 JWT cookie，仅通过一次性预览 token 校验，

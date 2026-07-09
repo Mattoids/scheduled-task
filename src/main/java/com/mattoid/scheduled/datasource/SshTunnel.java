@@ -6,8 +6,11 @@ import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.connection.channel.direct.LocalPortForwarder;
 
 import java.io.IOException;
+import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 @Data
@@ -22,12 +25,10 @@ public class SshTunnel {
     private Path keyFilePath;
 
     /**
-     * 跳板机相关资源（仅双跳隧道使用）
+     * 多跳链路中的中间节点资源（从请求侧到服务侧排序）。
+     * 为空时表示直连服务所在机器。
      */
-    private SSHClient jumpClient;
-    private LocalPortForwarder jumpForwarder;
-    private Thread jumpForwarderThread;
-    private Path jumpKeyFilePath;
+    private List<HopResource> intermediateHops = new ArrayList<>();
 
     public SshTunnel(String tunnelId, SSHClient client, LocalPortForwarder forwarder,
                      Thread forwarderThread, int localPort, String localHost) {
@@ -40,14 +41,38 @@ public class SshTunnel {
     }
 
     public boolean isConnected() {
-        boolean targetConnected = client != null && client.isConnected() && client.isAuthenticated();
-        if (jumpClient == null) {
-            return targetConnected;
+        if (client == null || !client.isConnected() || !client.isAuthenticated()) {
+            return false;
         }
-        return targetConnected && jumpClient.isConnected() && jumpClient.isAuthenticated();
+        for (HopResource hop : intermediateHops) {
+            if (hop.getClient() == null || !hop.getClient().isConnected()
+                    || !hop.getClient().isAuthenticated()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void disconnect() {
+        closeForwarder(forwarder);
+        interruptThread(forwarderThread);
+        sleepQuietly(100);
+        disconnectClient(client);
+
+        for (int i = intermediateHops.size() - 1; i >= 0; i--) {
+            HopResource hop = intermediateHops.get(i);
+            closeForwarder(hop.getForwarder());
+            interruptThread(hop.getForwarderThread());
+            sleepQuietly(100);
+            closeServerSocket(hop.getServerSocket());
+            disconnectClient(hop.getClient());
+            deleteKeyFile(hop.getKeyFilePath());
+        }
+
+        deleteKeyFile(keyFilePath);
+    }
+
+    private void closeForwarder(LocalPortForwarder forwarder) {
         if (forwarder != null) {
             try {
                 forwarder.close();
@@ -55,10 +80,25 @@ public class SshTunnel {
                 log.warn("关闭 SSH 端口转发失败: {}", tunnelId, e);
             }
         }
-        if (forwarderThread != null) {
-            forwarderThread.interrupt();
+    }
+
+    private void interruptThread(Thread thread) {
+        if (thread != null) {
+            thread.interrupt();
         }
-        sleepQuietly(100);
+    }
+
+    private void closeServerSocket(ServerSocket serverSocket) {
+        if (serverSocket != null && !serverSocket.isClosed()) {
+            try {
+                serverSocket.close();
+            } catch (Exception e) {
+                log.warn("关闭 SSH 隧道本地监听端口失败: {}", tunnelId, e);
+            }
+        }
+    }
+
+    private void disconnectClient(SSHClient client) {
         if (client != null && client.isConnected()) {
             try {
                 client.disconnect();
@@ -66,36 +106,14 @@ public class SshTunnel {
                 log.warn("断开 SSH 连接失败: {}", tunnelId, e);
             }
         }
-        if (jumpForwarder != null) {
-            try {
-                jumpForwarder.close();
-            } catch (Exception e) {
-                log.warn("关闭跳板机端口转发失败: {}", tunnelId, e);
-            }
-        }
-        if (jumpForwarderThread != null) {
-            jumpForwarderThread.interrupt();
-        }
-        sleepQuietly(100);
-        if (jumpClient != null && jumpClient.isConnected()) {
-            try {
-                jumpClient.disconnect();
-            } catch (Exception e) {
-                log.warn("断开跳板机 SSH 连接失败: {}", tunnelId, e);
-            }
-        }
+    }
+
+    private void deleteKeyFile(Path keyFilePath) {
         if (keyFilePath != null) {
             try {
                 Files.deleteIfExists(keyFilePath);
             } catch (Exception e) {
                 log.warn("删除临时 SSH 密钥文件失败: {}", keyFilePath, e);
-            }
-        }
-        if (jumpKeyFilePath != null) {
-            try {
-                Files.deleteIfExists(jumpKeyFilePath);
-            } catch (Exception e) {
-                log.warn("删除跳板机临时 SSH 密钥文件失败: {}", jumpKeyFilePath, e);
             }
         }
     }
@@ -106,5 +124,14 @@ public class SshTunnel {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    @Data
+    public static class HopResource {
+        private final SSHClient client;
+        private final LocalPortForwarder forwarder;
+        private final Thread forwarderThread;
+        private final ServerSocket serverSocket;
+        private final Path keyFilePath;
     }
 }

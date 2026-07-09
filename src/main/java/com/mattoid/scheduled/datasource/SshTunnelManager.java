@@ -16,6 +16,7 @@ import net.schmizz.sshj.userauth.password.PasswordFinder;
 import net.schmizz.sshj.userauth.password.PasswordUtils;
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -24,6 +25,9 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,16 +43,12 @@ public class SshTunnelManager {
 
     public boolean testConnection(SshConfig config, String tunnelId) throws Exception {
         closeTunnel(tunnelId);
-        Path keyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
-        try (SSHClient client = createClient()) {
-            client.connect(config.getHost(), config.getPort() == null ? 22 : config.getPort());
-            authenticate(client, config, keyPath);
-            return client.isAuthenticated();
-        } finally {
-            if (keyPath != null) {
-                Files.deleteIfExists(keyPath);
-            }
-        }
+        ClientChain chain = buildClientChain(config, tunnelId);
+        boolean result = chain.serviceClient().isAuthenticated();
+        cleanupResources(chain.intermediateResources());
+        disconnectClient(chain.serviceClient());
+        deleteKeyFile(chain.serviceKeyPath());
+        return result;
     }
 
     public SshTunnel createTunnel(DatasourceConfig config) throws Exception {
@@ -60,24 +60,22 @@ public class SshTunnelManager {
 
     public SshTunnel createTunnel(SshConfig config, String tunnelId) throws Exception {
         closeTunnel(tunnelId);
-        if (config.getJumpHost() != null && !config.getJumpHost().isBlank()) {
-            return createDoubleHopTunnel(config, tunnelId);
+
+        String remoteHost = config.getRemoteHost();
+        int remotePort = resolveRemotePort(config.getRemotePort());
+        if (!StringUtils.hasText(remoteHost)) {
+            throw new IllegalArgumentException("SSH 隧道目标主机未配置");
         }
-        return createSingleHopTunnel(config, tunnelId);
-    }
 
-    private SshTunnel createSingleHopTunnel(SshConfig config, String tunnelId) throws Exception {
-        Path keyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
-        SSHClient client = createClient();
+        int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
+                ? config.getLocalPort() : findAvailablePort();
+
+        ClientChain chain = buildClientChain(config, tunnelId);
+        SSHClient serviceClient = chain.serviceClient();
+        Path serviceKeyPath = chain.serviceKeyPath();
+        List<SshTunnel.HopResource> intermediateResources = chain.intermediateResources();
+
         try {
-            client.connect(config.getHost(), config.getPort() == null ? 22 : config.getPort());
-            authenticate(client, config, keyPath);
-
-            int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
-                    ? config.getLocalPort() : findAvailablePort();
-            String remoteHost = config.getRemoteHost();
-            int remotePort = config.getRemotePort() == null ? 0 : config.getRemotePort();
-
             ServerSocket serverSocket = new ServerSocket();
             serverSocket.setReuseAddress(true);
             serverSocket.bind(new InetSocketAddress("127.0.0.1", localPort));
@@ -86,168 +84,231 @@ public class SshTunnelManager {
                     "127.0.0.1", serverSocket.getLocalPort(), remoteHost, remotePort
             );
             LocalPortForwarder forwarder = new LocalPortForwarder(
-                    client.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
+                    serviceClient.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
             );
-            Thread forwarderThread = new Thread(() -> {
-                try {
-                    forwarder.listen();
-                } catch (IOException e) {
-                    if (!"Socket closed".equals(e.getMessage())) {
-                        log.error("SSH 隧道监听线程异常: {}", tunnelId, e);
-                    }
-                }
-            }, "ssh-tunnel-" + tunnelId);
-            forwarderThread.setDaemon(true);
-            forwarderThread.start();
-
-            SshTunnel tunnel = new SshTunnel(tunnelId, client, forwarder, forwarderThread,
-                    serverSocket.getLocalPort(), "127.0.0.1");
-            tunnel.setKeyFilePath(keyPath);
-            tunnels.put(tunnelId, tunnel);
-
-            // 等待监听线程进入 accept，避免请求时连接被拒绝
+            Thread forwarderThread = startForwarder(forwarder, tunnelId);
             waitForForwarderStartup(200);
 
-            log.info("SSH tunnel created for {}: 127.0.0.1:{} -> {}:{}",
-                    tunnelId, tunnel.getLocalPort(), remoteHost, remotePort);
+            SshTunnel tunnel = new SshTunnel(tunnelId, serviceClient, forwarder, forwarderThread,
+                    serverSocket.getLocalPort(), "127.0.0.1");
+            tunnel.setKeyFilePath(serviceKeyPath);
+            tunnel.getIntermediateHops().addAll(intermediateResources);
+            tunnels.put(tunnelId, tunnel);
+
+            List<SshHopConfig> connectionHops = toConnectionOrder(config.getHops());
+            log.info("SSH {} tunnel created for {}: 127.0.0.1:{} -> {}:{} via {}",
+                    connectionHops.isEmpty() ? "single-hop" : "multi-hop",
+                    tunnelId, tunnel.getLocalPort(), remoteHost, remotePort,
+                    connectionHops.stream().map(SshHopConfig::getHost).toList());
             return tunnel;
         } catch (Exception e) {
-            if (keyPath != null) {
-                Files.deleteIfExists(keyPath);
-            }
-            client.close();
+            disconnectClient(serviceClient);
+            deleteKeyFile(serviceKeyPath);
+            cleanupResources(intermediateResources);
             throw e;
         }
     }
 
-    private SshTunnel createDoubleHopTunnel(SshConfig config, String tunnelId) throws Exception {
-        Path jumpKeyPath = writeKeyFile(config.getJumpPrivateKey(), tunnelId + "_jump");
-        SSHClient jumpClient = createClient();
-        ServerSocket jumpServerSocket = null;
-        LocalPortForwarder jumpForwarder = null;
-        Thread jumpForwarderThread = null;
-        try {
-            jumpClient.connect(config.getJumpHost(), config.getJumpPort() == null ? 22 : config.getJumpPort());
-            authenticate(jumpClient, buildJumpAuthConfig(config), jumpKeyPath);
+    /**
+     * 建立 SSH 客户端链路。返回的客户端已连接到最终的服务所在机器，
+     * 中间节点资源按从请求侧到服务侧的顺序保存。
+     */
+    private ClientChain buildClientChain(SshConfig config, String tunnelId) throws Exception {
+        List<SshHopConfig> connectionHops = toConnectionOrder(config.getHops());
+        List<SshTunnel.HopResource> intermediateResources = new ArrayList<>();
 
-            int intermediatePort = findAvailablePort();
-            jumpServerSocket = new ServerSocket();
-            jumpServerSocket.setReuseAddress(true);
-            jumpServerSocket.bind(new InetSocketAddress("127.0.0.1", intermediatePort));
+        SSHClient currentClient;
+        Path currentKeyPath;
 
-            Parameters jumpParams = new Parameters(
-                    "127.0.0.1", jumpServerSocket.getLocalPort(),
-                    config.getHost(), config.getPort() == null ? 22 : config.getPort()
-            );
-            jumpForwarder = new LocalPortForwarder(
-                    jumpClient.getConnection(), jumpParams, jumpServerSocket, LoggerFactory.DEFAULT
-            );
-            final LocalPortForwarder finalJumpForwarder = jumpForwarder;
-            jumpForwarderThread = new Thread(() -> {
-                try {
-                    finalJumpForwarder.listen();
-                } catch (IOException e) {
-                    if (!"Socket closed".equals(e.getMessage())) {
-                        log.error("跳板机端口转发监听线程异常: {}", tunnelId, e);
-                    }
-                }
-            }, "ssh-tunnel-jump-" + tunnelId);
-            jumpForwarderThread.setDaemon(true);
-            jumpForwarderThread.start();
+        if (connectionHops.isEmpty()) {
+            currentKeyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
+            currentClient = createClient();
+            int sshPort = config.getPort() == null ? 22 : config.getPort();
+            log.info("SSH 直接连接目标服务器 {}:{}", config.getHost(), sshPort);
+            connectClient(currentClient, config.getHost(), sshPort,
+                    "SSH 直接连接目标服务器失败: " + config.getHost() + ":" + sshPort);
+            authenticate(currentClient, config, currentKeyPath);
+        } else {
+            SshHopConfig firstHop = connectionHops.get(0);
+            currentKeyPath = writeKeyFile(firstHop.getPrivateKey(), tunnelId + "_hop_0");
+            currentClient = createClient();
+            int firstHopPort = firstHop.getPort() == null ? 22 : firstHop.getPort();
+            log.info("SSH 多跳链路：第 1 跳 {}:{}", firstHop.getHost(), firstHopPort);
+            connectClient(currentClient, firstHop.getHost(), firstHopPort,
+                    "SSH 第 1 跳连接失败: " + firstHop.getHost() + ":" + firstHopPort);
+            authenticate(currentClient, hopToSshConfig(firstHop), currentKeyPath);
 
-            // 等待跳板机本地监听线程进入 accept，避免第二跳连接时因线程尚未启动而失败
-            waitForForwarderStartup(200);
-
-            Path targetKeyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
-            SSHClient targetClient = createClient();
-            try {
-                targetClient.connect("127.0.0.1", intermediatePort);
-                authenticate(targetClient, config, targetKeyPath);
-
-                int localPort = config.getLocalPort() != null && config.getLocalPort() > 0
-                        ? config.getLocalPort() : findAvailablePort();
-                String remoteHost = config.getRemoteHost();
-                int remotePort = config.getRemotePort() == null ? 0 : config.getRemotePort();
+            for (int i = 1; i < connectionHops.size(); i++) {
+                SshHopConfig nextHop = connectionHops.get(i);
+                int intermediatePort = findAvailablePort();
 
                 ServerSocket serverSocket = new ServerSocket();
                 serverSocket.setReuseAddress(true);
-                serverSocket.bind(new InetSocketAddress("127.0.0.1", localPort));
+                serverSocket.bind(new InetSocketAddress("127.0.0.1", intermediatePort));
 
+                int nextHopPort = nextHop.getPort() == null ? 22 : nextHop.getPort();
+                log.info("SSH 多跳链路：经本地 127.0.0.1:{} 转发到第 {} 跳 {}:{}",
+                        intermediatePort, i + 1, nextHop.getHost(), nextHopPort);
                 Parameters params = new Parameters(
-                        "127.0.0.1", serverSocket.getLocalPort(), remoteHost, remotePort
+                        "127.0.0.1", serverSocket.getLocalPort(),
+                        nextHop.getHost(), nextHopPort
                 );
                 LocalPortForwarder forwarder = new LocalPortForwarder(
-                        targetClient.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
+                        currentClient.getConnection(), params, serverSocket, LoggerFactory.DEFAULT
                 );
-                Thread forwarderThread = new Thread(() -> {
-                    try {
-                        forwarder.listen();
-                    } catch (IOException e) {
-                        if (!"Socket closed".equals(e.getMessage())) {
-                            log.error("SSH 隧道监听线程异常: {}", tunnelId, e);
-                        }
-                    }
-                }, "ssh-tunnel-" + tunnelId);
-                forwarderThread.setDaemon(true);
-                forwarderThread.start();
-
-                // 等待目标机本地监听线程进入 accept，避免请求时连接被拒绝
+                Thread forwarderThread = startForwarder(forwarder, tunnelId + "_hop_" + (i - 1));
                 waitForForwarderStartup(200);
 
-                SshTunnel tunnel = new SshTunnel(tunnelId, targetClient, forwarder, forwarderThread,
-                        serverSocket.getLocalPort(), "127.0.0.1");
-                tunnel.setKeyFilePath(targetKeyPath);
-                tunnel.setJumpClient(jumpClient);
-                tunnel.setJumpForwarder(jumpForwarder);
-                tunnel.setJumpForwarderThread(jumpForwarderThread);
-                tunnel.setJumpKeyFilePath(jumpKeyPath);
-                tunnels.put(tunnelId, tunnel);
-                log.info("SSH double-hop tunnel created for {}: 127.0.0.1:{} -> {}:{} via jump {}",
-                        tunnelId, tunnel.getLocalPort(), remoteHost, remotePort, config.getJumpHost());
-                return tunnel;
-            } catch (Exception e) {
-                if (targetKeyPath != null) {
-                    Files.deleteIfExists(targetKeyPath);
+                intermediateResources.add(new SshTunnel.HopResource(
+                        currentClient, forwarder, forwarderThread, serverSocket, currentKeyPath
+                ));
+
+                currentKeyPath = writeKeyFile(nextHop.getPrivateKey(), tunnelId + "_hop_" + i);
+                SSHClient nextClient = createClient();
+                connectClient(nextClient, "127.0.0.1", intermediatePort,
+                        "SSH 经本地端口 127.0.0.1:" + intermediatePort + " 转发连接失败");
+                authenticate(nextClient, hopToSshConfig(nextHop), currentKeyPath);
+
+                currentClient = nextClient;
+            }
+
+            int serviceIntermediatePort = findAvailablePort();
+            ServerSocket serviceServerSocket = new ServerSocket();
+            serviceServerSocket.setReuseAddress(true);
+            serviceServerSocket.bind(new InetSocketAddress("127.0.0.1", serviceIntermediatePort));
+
+            int serviceSshPort = config.getPort() == null ? 22 : config.getPort();
+            log.info("SSH 多跳链路：经本地 127.0.0.1:{} 转发到目标服务器 {}:{}",
+                    serviceIntermediatePort, config.getHost(), serviceSshPort);
+            Parameters serviceParams = new Parameters(
+                    "127.0.0.1", serviceServerSocket.getLocalPort(),
+                    config.getHost(), serviceSshPort
+            );
+            LocalPortForwarder serviceForwarder = new LocalPortForwarder(
+                    currentClient.getConnection(), serviceParams, serviceServerSocket, LoggerFactory.DEFAULT
+            );
+            Thread serviceForwarderThread = startForwarder(serviceForwarder, tunnelId + "_service");
+            waitForForwarderStartup(200);
+
+            intermediateResources.add(new SshTunnel.HopResource(
+                    currentClient, serviceForwarder, serviceForwarderThread, serviceServerSocket, currentKeyPath
+            ));
+
+            currentKeyPath = writeKeyFile(config.getPrivateKey(), tunnelId);
+            currentClient = createClient();
+            connectClient(currentClient, "127.0.0.1", serviceIntermediatePort,
+                    "SSH 经本地端口 127.0.0.1:" + serviceIntermediatePort + " 转发连接失败");
+            authenticate(currentClient, config, currentKeyPath);
+        }
+
+        return new ClientChain(currentClient, currentKeyPath, intermediateResources);
+    }
+
+    private List<SshHopConfig> toConnectionOrder(List<SshHopConfig> hops) {
+        if (hops == null || hops.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<SshHopConfig> result = new ArrayList<>(hops);
+        Collections.reverse(result);
+        return result;
+    }
+
+    private SshConfig hopToSshConfig(SshHopConfig hop) {
+        SshConfig config = new SshConfig();
+        config.setHost(hop.getHost());
+        config.setPort(hop.getPort());
+        config.setUsername(hop.getUsername());
+        config.setPassword(hop.getPassword());
+        config.setPrivateKey(hop.getPrivateKey());
+        config.setPassphrase(hop.getPassphrase());
+        config.setAuthType(hop.getAuthType());
+        return config;
+    }
+
+    private Thread startForwarder(LocalPortForwarder forwarder, String name) {
+        Thread thread = new Thread(() -> {
+            try {
+                forwarder.listen();
+            } catch (IOException e) {
+                if (!"Socket closed".equals(e.getMessage())) {
+                    log.error("SSH 端口转发监听线程异常: {}", name, e);
                 }
-                targetClient.close();
-                throw e;
             }
-        } catch (Exception e) {
-            if (jumpKeyPath != null) {
-                Files.deleteIfExists(jumpKeyPath);
-            }
-            if (jumpForwarder != null) {
-                try {
-                    jumpForwarder.close();
-                } catch (Exception ignored) {
-                }
-            }
-            if (jumpServerSocket != null && !jumpServerSocket.isClosed()) {
-                try {
-                    jumpServerSocket.close();
-                } catch (Exception ignored) {
-                }
-            }
-            jumpClient.close();
-            throw e;
+        }, "ssh-tunnel-" + name);
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
+    }
+
+    private void cleanupResources(List<SshTunnel.HopResource> resources) {
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            SshTunnel.HopResource hop = resources.get(i);
+            closeForwarder(hop.getForwarder());
+            interruptThread(hop.getForwarderThread());
+            sleepQuietly(100);
+            closeServerSocket(hop.getServerSocket());
+            disconnectClient(hop.getClient());
+            deleteKeyFile(hop.getKeyFilePath());
         }
     }
 
-    private SshConfig buildJumpAuthConfig(SshConfig config) {
-        SshConfig jumpConfig = new SshConfig();
-        jumpConfig.setHost(config.getJumpHost());
-        jumpConfig.setPort(config.getJumpPort());
-        jumpConfig.setUsername(config.getJumpUsername());
-        jumpConfig.setPassword(config.getJumpPassword());
-        jumpConfig.setPrivateKey(config.getJumpPrivateKey());
-        jumpConfig.setPassphrase(config.getJumpPassphrase());
-        jumpConfig.setAuthType(config.getJumpAuthType());
-        return jumpConfig;
+    private void closeForwarder(LocalPortForwarder forwarder) {
+        if (forwarder != null) {
+            try {
+                forwarder.close();
+            } catch (Exception e) {
+                log.warn("关闭 SSH 端口转发失败", e);
+            }
+        }
+    }
+
+    private void interruptThread(Thread thread) {
+        if (thread != null) {
+            thread.interrupt();
+        }
+    }
+
+    private void closeServerSocket(ServerSocket serverSocket) {
+        if (serverSocket != null && !serverSocket.isClosed()) {
+            try {
+                serverSocket.close();
+            } catch (Exception e) {
+                log.warn("关闭 SSH 隧道本地监听端口失败", e);
+            }
+        }
+    }
+
+    private void disconnectClient(SSHClient client) {
+        if (client != null && client.isConnected()) {
+            try {
+                client.disconnect();
+            } catch (Exception e) {
+                log.warn("断开 SSH 连接失败", e);
+            }
+        }
+    }
+
+    private void deleteKeyFile(Path keyFilePath) {
+        if (keyFilePath != null) {
+            try {
+                Files.deleteIfExists(keyFilePath);
+            } catch (Exception e) {
+                log.warn("删除临时 SSH 密钥文件失败: {}", keyFilePath, e);
+            }
+        }
     }
 
     private void waitForForwarderStartup(int waitMs) {
         try {
             Thread.sleep(waitMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void sleepQuietly(int millis) {
+        try {
+            Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -281,6 +342,18 @@ public class SshTunnelManager {
         client.addHostKeyVerifier(new PromiscuousVerifier());
         client.getTransport().setTimeoutMs(30000);
         return client;
+    }
+
+    private void connectClient(SSHClient client, String host, int port, String errorHint) throws IOException {
+        try {
+            client.connect(host, port);
+        } catch (IOException e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("Operation timed out") || msg.contains("Connection timed out") || msg.contains("Connection refused"))) {
+                throw new IOException(errorHint + " - " + msg, e);
+            }
+            throw e;
+        }
     }
 
     private Path writeKeyFile(String privateKey, String tunnelId) throws IOException {
@@ -324,7 +397,6 @@ public class SshTunnelManager {
         if ("PASSWORD".equalsIgnoreCase(config.getAuthType())) {
             return Boolean.FALSE;
         }
-        // 未指定时按旧逻辑：有私钥用私钥，否则用密码
         return keyPath != null ? Boolean.TRUE : Boolean.FALSE;
     }
 
@@ -386,6 +458,13 @@ public class SshTunnelManager {
         }
     }
 
+    private int resolveRemotePort(Integer remotePort) {
+        if (remotePort != null && remotePort > 0) {
+            return remotePort;
+        }
+        throw new IllegalArgumentException("SSH 隧道目标端口未配置或无效: " + remotePort);
+    }
+
     private SshConfig toSshConfig(DatasourceConfig config) {
         SshConfig sshConfig = new SshConfig();
         sshConfig.setHost(config.getSshHost());
@@ -395,6 +474,7 @@ public class SshTunnelManager {
         sshConfig.setPrivateKey(config.getSshPrivateKey());
         sshConfig.setPassphrase(config.getSshPassphrase());
         sshConfig.setLocalPort(config.getSshLocalPort());
+        sshConfig.setAuthType(config.getSshAuthType());
         return sshConfig;
     }
 
@@ -411,5 +491,9 @@ public class SshTunnelManager {
             return "unknown";
         }
         return tunnelId.replaceAll("[^a-zA-Z0-9_-]", "_");
+    }
+
+    private record ClientChain(SSHClient serviceClient, Path serviceKeyPath,
+                               List<SshTunnel.HopResource> intermediateResources) {
     }
 }
