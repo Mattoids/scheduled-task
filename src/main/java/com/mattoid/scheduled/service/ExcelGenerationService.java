@@ -30,8 +30,12 @@ public class ExcelGenerationService {
     }
 
     public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName, String baseFilePath, boolean updateExistingSheet) throws Exception {
+        return generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet, -1);
+    }
+
+    public File generateSingleExcel(List<Map<String, Object>> data, String outputPath, String sheetName, String baseFilePath, boolean updateExistingSheet, int insertPosition) throws Exception {
         String resolvedSheetName = resolveSheetName(sheetName);
-        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath, baseFilePath, updateExistingSheet);
+        return generateMergedExcel(List.of(new ExcelSheetSource(resolvedSheetName, data)), outputPath, baseFilePath, updateExistingSheet, insertPosition);
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath) throws Exception {
@@ -43,6 +47,10 @@ public class ExcelGenerationService {
     }
 
     public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath, String baseFilePath, boolean updateExistingSheet) throws Exception {
+        return generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, -1);
+    }
+
+    public File generateMergedExcel(List<ExcelSheetSource> sources, String outputPath, String baseFilePath, boolean updateExistingSheet, int insertPosition) throws Exception {
         File output = new File(outputPath);
         File baseFile = StringUtils.hasText(baseFilePath) ? new File(baseFilePath) : null;
         boolean useBaseFile = baseFile != null && baseFile.exists();
@@ -50,16 +58,19 @@ public class ExcelGenerationService {
         // 当输出路径与基础文件路径相同时，直接写入输出流会导致读取基础文件时被截断，
         // 因此先写入临时文件，再原子替换到目标位置。
         Path tempOutput = Files.createTempFile("excel_gen_", ".xlsx");
+        List<String> newlyCreatedSheets = new ArrayList<>();
         try (Workbook workbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
              FileOutputStream fos = new FileOutputStream(tempOutput.toFile())) {
             Map<String, SheetInfo> sheets = new LinkedHashMap<>();
+            int currentPosition = Math.max(0, insertPosition);
 
             for (ExcelSheetSource source : sources) {
                 if (source.data() == null || source.data().isEmpty()) {
                     continue;
                 }
                 String resolvedSheetName = resolveSheetName(source.sheetName());
-                if (useBaseFile && workbook.getSheet(resolvedSheetName) != null) {
+                boolean sheetExisted = workbook.getSheet(resolvedSheetName) != null;
+                if (useBaseFile && sheetExisted) {
                     if (updateExistingSheet) {
                         workbook.removeSheetAt(workbook.getSheetIndex(resolvedSheetName));
                     } else {
@@ -68,7 +79,12 @@ public class ExcelGenerationService {
                     }
                 }
                 writeDataToSheet(workbook, sheets, source.sheetName(), source.data());
+                if (!sheetExisted || updateExistingSheet) {
+                    newlyCreatedSheets.add(resolvedSheetName);
+                }
             }
+
+            applySheetPositions(workbook, newlyCreatedSheets, currentPosition);
 
             if (sheets.isEmpty() && workbook.getNumberOfSheets() == 0) {
                 workbook.createSheet("Sheet1");
@@ -93,19 +109,32 @@ public class ExcelGenerationService {
      * @param updateExistingSheet 为 true 时，覆盖 baseFile 中已存在的同名 sheet；为 false 时跳过。
      */
     public File appendSheetsToBaseFile(File baseFile, File sourceFile, String outputPath, boolean updateExistingSheet) throws Exception {
+        return appendSheetsToBaseFile(baseFile, sourceFile, outputPath, updateExistingSheet, -1);
+    }
+
+    /**
+     * 将 sourceFile 中的所有 sheet 按名称合并到 baseFile 中。
+     *
+     * @param updateExistingSheet 为 true 时，覆盖 baseFile 中已存在的同名 sheet；为 false 时跳过。
+     * @param insertPosition      新 sheet 插入位置，从 0 开始；负数表示追加到末尾。
+     */
+    public File appendSheetsToBaseFile(File baseFile, File sourceFile, String outputPath, boolean updateExistingSheet, int insertPosition) throws Exception {
         File output = new File(outputPath);
         boolean useBaseFile = baseFile != null && baseFile.exists();
 
         // 当输出路径与基础文件路径相同时，直接写入输出流会导致读取基础文件时被截断，
         // 因此先写入临时文件，再原子替换到目标位置。
         Path tempOutput = Files.createTempFile("excel_append_", ".xlsx");
+        List<String> newlyCreatedSheets = new ArrayList<>();
         try (Workbook baseWorkbook = useBaseFile ? WorkbookFactory.create(baseFile) : new XSSFWorkbook();
              Workbook sourceWorkbook = WorkbookFactory.create(sourceFile);
              FileOutputStream fos = new FileOutputStream(tempOutput.toFile())) {
+            int currentPosition = Math.max(0, insertPosition);
             for (int i = 0; i < sourceWorkbook.getNumberOfSheets(); i++) {
                 Sheet sourceSheet = sourceWorkbook.getSheetAt(i);
                 String sheetName = sourceSheet.getSheetName();
-                if (baseWorkbook.getSheet(sheetName) != null) {
+                boolean sheetExisted = baseWorkbook.getSheet(sheetName) != null;
+                if (sheetExisted) {
                     if (updateExistingSheet) {
                         baseWorkbook.removeSheetAt(baseWorkbook.getSheetIndex(sheetName));
                     } else {
@@ -115,7 +144,11 @@ public class ExcelGenerationService {
                 }
                 Sheet targetSheet = baseWorkbook.createSheet(sheetName);
                 copySheet(sourceSheet, targetSheet);
+                if (!sheetExisted || updateExistingSheet) {
+                    newlyCreatedSheets.add(sheetName);
+                }
             }
+            applySheetPositions(baseWorkbook, newlyCreatedSheets, currentPosition);
             if (baseWorkbook.getNumberOfSheets() == 0) {
                 baseWorkbook.createSheet("Sheet1");
             }
@@ -165,6 +198,24 @@ public class ExcelGenerationService {
             case FORMULA -> target.setCellFormula(source.getCellFormula());
             case BLANK -> target.setBlank();
             default -> target.setCellValue(source.toString());
+        }
+    }
+
+    private void applySheetPositions(Workbook workbook, List<String> newlyCreatedSheets, int startPosition) {
+        if (newlyCreatedSheets.isEmpty() || startPosition < 0) {
+            return;
+        }
+        int currentPosition = startPosition;
+        for (String sheetName : newlyCreatedSheets) {
+            int sheetIndex = workbook.getSheetIndex(sheetName);
+            if (sheetIndex < 0) {
+                continue;
+            }
+            int targetPosition = Math.min(currentPosition, workbook.getNumberOfSheets() - 1);
+            if (sheetIndex != targetPosition) {
+                workbook.setSheetOrder(sheetName, targetPosition);
+            }
+            currentPosition++;
         }
     }
 

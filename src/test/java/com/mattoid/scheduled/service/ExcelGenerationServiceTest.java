@@ -227,6 +227,74 @@ class ExcelGenerationServiceTest {
         }
     }
 
+    @Test
+    void shouldInsertNewSheetAtSpecifiedPosition() throws Exception {
+        File base = File.createTempFile("excel_position_", ".xlsx");
+        base.deleteOnExit();
+        try (Workbook baseWorkbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(base)) {
+            baseWorkbook.createSheet("A");
+            baseWorkbook.createSheet("B");
+            baseWorkbook.createSheet("C");
+            baseWorkbook.write(fos);
+        }
+
+        File source = File.createTempFile("excel_source_position_", ".xlsx");
+        source.deleteOnExit();
+        try (Workbook sourceWorkbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(source)) {
+            Sheet sheet = sourceWorkbook.createSheet("D");
+            sheet.createRow(0).createCell(0).setCellValue("d");
+            sourceWorkbook.write(fos);
+        }
+
+        File output = File.createTempFile("excel_output_position_", ".xlsx");
+        output.deleteOnExit();
+
+        File result = service.appendSheetsToBaseFile(base, source, output.getAbsolutePath(), false, 1);
+        assertNotNull(result);
+
+        try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {
+            assertEquals(4, workbook.getNumberOfSheets());
+            assertEquals("A", workbook.getSheetName(0));
+            assertEquals("D", workbook.getSheetName(1));
+            assertEquals("B", workbook.getSheetName(2));
+            assertEquals("C", workbook.getSheetName(3));
+        }
+    }
+
+    @Test
+    void shouldInsertMultipleNewSheetsAtSpecifiedPosition() throws Exception {
+        File base = File.createTempFile("excel_multi_position_", ".xlsx");
+        base.deleteOnExit();
+        try (Workbook baseWorkbook = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(base)) {
+            baseWorkbook.createSheet("A");
+            baseWorkbook.createSheet("B");
+            baseWorkbook.write(fos);
+        }
+
+        List<Map<String, Object>> data = List.of(row("name", "X", "value", 1));
+        List<ExcelGenerationService.ExcelSheetSource> sources = List.of(
+                new ExcelGenerationService.ExcelSheetSource("D", data),
+                new ExcelGenerationService.ExcelSheetSource("E", data)
+        );
+
+        File output = File.createTempFile("excel_output_multi_position_", ".xlsx");
+        output.deleteOnExit();
+
+        File result = service.generateMergedExcel(sources, output.getAbsolutePath(), base.getAbsolutePath(), false, 0);
+        assertNotNull(result);
+
+        try (Workbook workbook = new XSSFWorkbook(new FileInputStream(result))) {
+            assertEquals(4, workbook.getNumberOfSheets());
+            assertEquals("D", workbook.getSheetName(0));
+            assertEquals("E", workbook.getSheetName(1));
+            assertEquals("A", workbook.getSheetName(2));
+            assertEquals("B", workbook.getSheetName(3));
+        }
+    }
+
     private Map<String, Object> row(Object... keyValues) {
         Map<String, Object> row = new LinkedHashMap<>();
         for (int i = 0; i < keyValues.length; i += 2) {

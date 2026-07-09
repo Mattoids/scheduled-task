@@ -299,7 +299,7 @@ public class TaskExecutionService {
                             updateExistingSheet = isUpdateSameSheetEnabled(mergeSqls.get(0));
                         }
                     }
-                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet));
+                    results.addFile(excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, getAppendPosition(mergeSqls.get(0))));
                 }
 
                 for (int idx : individualIndexes) {
@@ -592,7 +592,7 @@ public class TaskExecutionService {
         if (baseFile != null) {
             File finalOutput = new File(outputFileName);
             boolean updateExistingSheet = isUpdateSameSheetEnabled(sqlConfigs.get(0));
-            excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName, updateExistingSheet);
+            excelGenerationService.appendSheetsToBaseFile(baseFile, currentFile, outputFileName, updateExistingSheet, getAppendPosition(sqlConfigs.get(0)));
             if (!currentFile.equals(finalOutput)) {
                 Files.deleteIfExists(currentFile.toPath());
             }
@@ -641,6 +641,11 @@ public class TaskExecutionService {
 
     private boolean isUpdateSameSheetEnabled(TaskSqlConfig sqlConfig) {
         return sqlConfig.getExcelAppendUpdateSameSheet() != null && sqlConfig.getExcelAppendUpdateSameSheet() == 1;
+    }
+
+    private int getAppendPosition(TaskSqlConfig sqlConfig) {
+        Integer position = sqlConfig.getExcelAppendPosition();
+        return position != null ? position : -1;
     }
 
     private File resolveBaseFile(TaskSqlConfig sqlConfig) {
@@ -717,10 +722,10 @@ public class TaskExecutionService {
                     for (Map.Entry<String, List<Map<String, Object>>> subEntry : subGroups.entrySet()) {
                         sources.add(new ExcelGenerationService.ExcelSheetSource(subEntry.getKey(), stripSheetNameColumn(subEntry.getValue())));
                     }
-                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet);
+                    yield excelGenerationService.generateMergedExcel(sources, outputPath, baseFilePath, updateExistingSheet, getAppendPosition(sqlConfig));
                 } else {
                     String sheetName = StringUtils.hasText(sqlConfig.getExcelSheetName()) ? sqlConfig.getExcelSheetName() : sqlConfig.getSqlName();
-                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet);
+                    yield excelGenerationService.generateSingleExcel(data, outputPath, sheetName, baseFilePath, updateExistingSheet, getAppendPosition(sqlConfig));
                 }
             }
             case "TXT" -> {

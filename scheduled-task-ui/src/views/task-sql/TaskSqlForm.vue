@@ -47,6 +47,7 @@ const form = ref<TaskSqlConfig>({
   excelAppendMode: 0,
   excelBaseFilePath: "",
   excelAppendUpdateSameSheet: 0,
+  excelAppendPosition: undefined,
   fileSuffix: "",
   fileNamePattern: "",
   customParams: "",
@@ -214,6 +215,7 @@ const resetForm = () => {
     excelAppendMode: 0,
     excelBaseFilePath: "",
     excelAppendUpdateSameSheet: 0,
+    excelAppendPosition: undefined,
     fileSuffix: "",
     fileNamePattern: "",
     customParams: "",
@@ -785,6 +787,19 @@ const handleClose = () => {
           />
           <span class="form-tip" style="margin-left: 12px"
             >开启后追加时会用新内容覆盖基础文件中已存在的同名 sheet</span
+          >
+        </el-form-item>
+        <el-form-item v-if="isAppendEnabled" label="插入位置">
+          <el-input-number
+            v-model="form.excelAppendPosition"
+            :min="0"
+            :precision="0"
+            placeholder="留空表示追加到末尾"
+            style="width: 100%"
+            controls-position="right"
+          />
+          <span class="form-tip" style="margin-left: 12px"
+            >从 0 开始，0 表示第一个；留空则追加到末尾</span
           >
         </el-form-item>
       </template>

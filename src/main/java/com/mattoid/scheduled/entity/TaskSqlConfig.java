@@ -97,6 +97,11 @@ public class TaskSqlConfig extends BaseEntity {
      */
     private Integer excelAppendUpdateSameSheet;
 
+    /**
+     * Excel 追加模式新 sheet 插入位置，从 0 开始；null 或负数表示追加到末尾
+     */
+    private Integer excelAppendPosition;
+
     private String fileSuffix;
 
     private String fileNamePattern;

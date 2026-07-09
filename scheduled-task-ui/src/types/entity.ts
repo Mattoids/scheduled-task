@@ -35,6 +35,7 @@ export interface TaskSqlConfig {
   excelAppendMode?: number
   excelBaseFilePath?: string
   excelAppendUpdateSameSheet?: number
+  excelAppendPosition?: number
   fileSuffix?: string
   fileNamePattern?: string
   customParams?: string
