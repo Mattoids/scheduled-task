@@ -29,7 +29,6 @@ const dialogVisible = computed({
 });
 
 const loading = ref(false);
-const loadingDetail = ref(false);
 const formRef = ref();
 const form = ref<TaskConfig>({
   taskName: "",
@@ -54,17 +53,11 @@ watch(
   { deep: true },
 );
 
-watch(
-  () => form.value.taskType,
-  () => {
-    if (loadingDetail.value) {
-      return;
-    }
-    selectedSqlCodes.value = [];
-    selectedCrawlCodes.value = [];
-    treeSelectedKeys.value = [];
-  },
-);
+const handleTaskTypeChange = () => {
+  selectedSqlCodes.value = [];
+  selectedCrawlCodes.value = [];
+  treeSelectedKeys.value = [];
+};
 
 const rules = {
   taskName: [{ required: true, message: "请输入任务名称", trigger: "blur" }],
@@ -201,7 +194,6 @@ const resetForm = () => {
 const loadDetail = async () => {
   if (!props.id) return;
   loading.value = true;
-  loadingDetail.value = true;
   try {
     const res: TaskConfigRequest = await getTask(props.id);
     form.value = res.task || {
@@ -217,7 +209,6 @@ const loadDetail = async () => {
     treeSelectedKeys.value = [...selectedSqlCodes.value];
   } finally {
     loading.value = false;
-    loadingDetail.value = false;
   }
 };
 
@@ -396,7 +387,7 @@ onMounted(() => {
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="任务类型">
-            <el-radio-group v-model="form.taskType">
+            <el-radio-group v-model="form.taskType" @change="handleTaskTypeChange">
               <el-radio label="SQL">SQL</el-radio>
               <el-radio label="CRAWL">网页爬取</el-radio>
             </el-radio-group>
