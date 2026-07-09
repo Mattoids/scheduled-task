@@ -13,7 +13,6 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,7 +123,7 @@ public class DynamicDataSourceManager {
         getOrCreateDataSource(config);
     }
 
-    String buildJdbcUrl(DatasourceConfig config, String host, int port) {
+    private String buildJdbcUrl(DatasourceConfig config, String host, int port) {
         StringBuilder url = new StringBuilder();
         String dbType = config.getDbType().toLowerCase();
         switch (dbType) {
@@ -147,55 +146,16 @@ public class DynamicDataSourceManager {
             default:
                 throw new IllegalArgumentException("Unsupported db type: " + config.getDbType());
         }
-
-        Map<String, String> params = parseJdbcUrlParams(config.getJdbcUrlParams(), dbType);
-        // MySQL 通过 SSH 隧道时，服务端仍可能要求安全传输；
-        // 默认开启 SSL（不校验证书），避免 --require_secure_transport=ON 报错。
-        if ("mysql".equals(dbType) && Integer.valueOf(1).equals(config.getSshEnabled())) {
-            params.remove("useSSL");
-            if (!params.containsKey("sslMode")) {
-                params.put("sslMode", "REQUIRED");
+        if (config.getJdbcUrlParams() != null && !config.getJdbcUrlParams().isBlank()) {
+            String sep;
+            if ("sqlserver".equals(dbType)) {
+                sep = ";";
+            } else {
+                sep = url.indexOf("?") < 0 ? "?" : "&";
             }
-        }
-
-        if (!params.isEmpty()) {
-            boolean isSqlServer = "sqlserver".equals(dbType);
-            String paramSep = isSqlServer ? ";" : "&";
-            String prefix = isSqlServer ? ";" : "?";
-            StringBuilder paramBuilder = new StringBuilder();
-            for (Map.Entry<String, String> entry : params.entrySet()) {
-                if (!paramBuilder.isEmpty()) {
-                    paramBuilder.append(paramSep);
-                }
-                paramBuilder.append(entry.getKey());
-                if (entry.getValue() != null) {
-                    paramBuilder.append("=").append(entry.getValue());
-                }
-            }
-            url.append(prefix).append(paramBuilder);
+            url.append(sep).append(config.getJdbcUrlParams());
         }
         return url.toString();
-    }
-
-    private Map<String, String> parseJdbcUrlParams(String rawParams, String dbType) {
-        Map<String, String> result = new LinkedHashMap<>();
-        if (rawParams == null || rawParams.isBlank()) {
-            return result;
-        }
-        String sep = "sqlserver".equals(dbType) ? ";" : "&";
-        for (String part : rawParams.split(sep)) {
-            String trimmed = part.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            int eq = trimmed.indexOf('=');
-            if (eq > 0) {
-                result.put(trimmed.substring(0, eq), trimmed.substring(eq + 1));
-            } else {
-                result.put(trimmed, null);
-            }
-        }
-        return result;
     }
 
     private boolean testConnection(HikariDataSource ds) {
