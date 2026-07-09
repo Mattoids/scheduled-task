@@ -302,6 +302,48 @@ class ExcelTemplateProcessorTest {
     }
 
     @Test
+    void convertsUrlValuesToClickableHyperlinks() throws Exception {
+        ExcelTemplateProcessor processor = createProcessor();
+
+        File template = File.createTempFile("template_url", ".xlsx");
+        template.deleteOnExit();
+        try (Workbook wb = new XSSFWorkbook();
+             FileOutputStream fos = new FileOutputStream(template)) {
+            Sheet sheet = wb.createSheet();
+            Row row = sheet.createRow(0);
+            row.createCell(0).setCellValue("${title}");
+            row.createCell(1).setCellValue("${url}");
+            wb.write(fos);
+        }
+
+        File output = File.createTempFile("output_url", ".xlsx");
+        output.deleteOnExit();
+        List<Map<String, Object>> data = List.of(
+                Map.of("title", "Example", "url", "https://example.com/path"),
+                Map.of("title", "Plain", "url", "not a link"),
+                Map.of("title", "Http", "url", "http://example.org")
+        );
+        File result = processor.process(template, data, output.getAbsolutePath(), true);
+
+        try (FileInputStream fis = new FileInputStream(result);
+             Workbook wb = WorkbookFactory.create(fis)) {
+            Sheet sheet = wb.getSheetAt(0);
+            Cell linkCell = sheet.getRow(1).getCell(1);
+            assertEquals("https://example.com/path", linkCell.getStringCellValue());
+            assertNotNull(linkCell.getHyperlink());
+            assertEquals("https://example.com/path", linkCell.getHyperlink().getAddress());
+
+            Cell plainCell = sheet.getRow(2).getCell(1);
+            assertEquals("not a link", plainCell.getStringCellValue());
+            assertNull(plainCell.getHyperlink());
+
+            Cell httpCell = sheet.getRow(3).getCell(1);
+            assertNotNull(httpCell.getHyperlink());
+            assertEquals("http://example.org", httpCell.getHyperlink().getAddress());
+        }
+    }
+
+    @Test
     void excelChartPlaceholderReplacedWithPicture() throws Exception {
         ChartGenerationService realChartService = new ChartGenerationService();
         List<Map<String, Object>> data = List.of(
