@@ -219,7 +219,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         return TestConnectionResult.ok();
     }
 
-    JavaMailSenderImpl buildJavaMailSender(EmailConfig emailConfig) {
+    public JavaMailSenderImpl buildJavaMailSender(EmailConfig emailConfig) {
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
         sender.setHost(emailConfig.getSmtpHost());
         sender.setPort(emailConfig.getSmtpPort());
