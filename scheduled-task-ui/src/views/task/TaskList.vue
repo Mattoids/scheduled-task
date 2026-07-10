@@ -200,11 +200,13 @@ onMounted(() => {
         <template #default="{ row }">
           <el-switch
             v-permission="'task:edit'"
+            class="switch-inner-text"
             :model-value="row.status"
             active-value="ENABLE"
             inactive-value="DISABLE"
             active-text="启用"
             inactive-text="关闭"
+            inline-prompt
             @change="handleStatusChange(row)"
           />
         </template>

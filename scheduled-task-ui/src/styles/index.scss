@@ -385,3 +385,22 @@ body,
     padding: 16px 24px;
   }
 }
+
+// Switch with inner text (used in list tables)
+.el-switch.switch-inner-text {
+  .el-switch__core {
+    min-width: 56px;
+  }
+
+  .el-switch__core .el-switch__inner {
+    padding: 0 4px 0 18px;
+  }
+
+  &.is-checked .el-switch__core .el-switch__inner {
+    padding: 0 18px 0 4px;
+  }
+
+  .el-switch__core .el-switch__inner-wrapper span {
+    font-size: 11px;
+  }
+}

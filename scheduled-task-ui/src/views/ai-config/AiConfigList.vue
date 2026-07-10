@@ -167,11 +167,13 @@ onMounted(loadPage);
         <template #default="{ row }">
           <el-switch
             v-permission="'system:user'"
+            class="switch-inner-text"
             :model-value="row.isDefault"
             :active-value="1"
             :inactive-value="0"
             active-text="启用"
             inactive-text="关闭"
+            inline-prompt
             @change="handleDefaultChange(row)"
           />
         </template>

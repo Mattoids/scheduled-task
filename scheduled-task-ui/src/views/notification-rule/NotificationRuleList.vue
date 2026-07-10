@@ -463,11 +463,13 @@ onMounted(() => {
         <template #default="{ row }">
           <el-switch
             v-permission="'notificationRule:edit'"
+            class="switch-inner-text"
             :model-value="row.enabled"
             :active-value="1"
             :inactive-value="0"
             active-text="启用"
             inactive-text="关闭"
+            inline-prompt
             @change="handleEnabledChange(row)"
           />
         </template>
