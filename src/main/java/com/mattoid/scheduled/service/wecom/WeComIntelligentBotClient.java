@@ -296,8 +296,8 @@ public class WeComIntelligentBotClient {
                         }
 
                         String fromUser = extractFromUser(body);
-                        log.info("智能机器人长链收到消息: configId={}, msgType={}, fromUser={}, content={}",
-                                configId, msgType, fromUser, truncate(content, 200));
+                        log.info("智能机器人长链收到消息: configId={}, reqId={}, msgType={}, fromUser={}, content={}, raw={}",
+                                configId, reqId, msgType, fromUser, truncate(content, 200), truncate(payload, 800));
 
                         String reply = "";
                         CommandResult result = null;
@@ -379,6 +379,12 @@ public class WeComIntelligentBotClient {
         payload.put("cmd", CMD_RESPONSE);
         payload.put("headers", Map.of("req_id", reqId));
         payload.put("body", body);
+        // 打印完整回复报文，便于核对 cmd/req_id/body 与企业微信长链协议是否一致（req_id 必须等于回调里的 headers.req_id）。
+        try {
+            log.info("智能机器人长链回复报文: reqId={}, json={}", reqId, objectMapper.writeValueAsString(payload));
+        } catch (Exception ignore) {
+            // 日志序列化失败不影响实际发送
+        }
         sendJson(session, payload);
     }
 
