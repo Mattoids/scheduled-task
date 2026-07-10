@@ -8,6 +8,12 @@ import org.springframework.stereotype.Service;
 @Service
 public class AiKnowledgeDocService extends ServiceImpl<AiKnowledgeDocMapper, AiKnowledgeDoc> {
 
+    private final AiKnowledgeDocStorageService storageService;
+
+    public AiKnowledgeDocService(AiKnowledgeDocStorageService storageService) {
+        this.storageService = storageService;
+    }
+
     public AiKnowledgeDoc getLatestByDatasource(Long datasourceId, String docType) {
         return lambdaQuery()
                 .eq(AiKnowledgeDoc::getDatasourceId, datasourceId)
@@ -15,5 +21,12 @@ public class AiKnowledgeDocService extends ServiceImpl<AiKnowledgeDocMapper, AiK
                 .orderByDesc(AiKnowledgeDoc::getCreateTime)
                 .last("LIMIT 1")
                 .one();
+    }
+
+    public String readContent(AiKnowledgeDoc doc) {
+        if (doc == null) {
+            return null;
+        }
+        return storageService.read(doc.getFilePath());
     }
 }

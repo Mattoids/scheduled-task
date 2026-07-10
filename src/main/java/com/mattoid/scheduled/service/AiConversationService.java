@@ -167,14 +167,14 @@ public class AiConversationService {
         if (conversation.getDocId() != null) {
             AiKnowledgeDoc doc = aiKnowledgeDocService.getById(conversation.getDocId());
             if (doc != null) {
-                return doc.getContent();
+                return aiKnowledgeDocService.readContent(doc);
             }
         }
         if (conversation.getDatasourceId() != null) {
             AiKnowledgeDoc doc = aiKnowledgeDocService.getLatestByDatasource(conversation.getDatasourceId(), "SCHEMA");
             if (doc != null) {
                 conversation.setDocId(doc.getId());
-                return doc.getContent();
+                return aiKnowledgeDocService.readContent(doc);
             }
         }
         return null;

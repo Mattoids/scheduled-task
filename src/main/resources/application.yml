@@ -43,6 +43,9 @@ report:
     expiration: 86400000
   upload:
     path: ${user.home}/scheduled-task/uploads
+  ai:
+    knowledge-doc:
+      path: ${user.home}/scheduled-task/ai-knowledge-docs
   api:
     key: ${API_KEY:}
   default:

@@ -16,7 +16,7 @@ public class AiKnowledgeDoc extends BaseEntity {
 
     private String title;
 
-    private String content;
+    private String filePath;
 
     private Integer status;
 

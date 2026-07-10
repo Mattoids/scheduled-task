@@ -22,15 +22,18 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
     private final DatasourceSchemaService datasourceSchemaService;
     private final AiAssistantService aiAssistantService;
     private final AiKnowledgeDocService aiKnowledgeDocService;
+    private final AiKnowledgeDocStorageService aiKnowledgeDocStorageService;
 
     public DatasourceConfigService(DynamicDataSourceManager dataSourceManager,
                                    DatasourceSchemaService datasourceSchemaService,
                                    AiAssistantService aiAssistantService,
-                                   AiKnowledgeDocService aiKnowledgeDocService) {
+                                   AiKnowledgeDocService aiKnowledgeDocService,
+                                   AiKnowledgeDocStorageService aiKnowledgeDocStorageService) {
         this.dataSourceManager = dataSourceManager;
         this.datasourceSchemaService = datasourceSchemaService;
         this.aiAssistantService = aiAssistantService;
         this.aiKnowledgeDocService = aiKnowledgeDocService;
+        this.aiKnowledgeDocStorageService = aiKnowledgeDocStorageService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -115,11 +118,13 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
             throw new IllegalStateException("无法生成数据字典内容，请检查 AI 配置或数据源是否包含表结构");
         }
 
+        String filePath = aiKnowledgeDocStorageService.save(datasourceId, "SCHEMA", docContent);
+
         AiKnowledgeDoc doc = new AiKnowledgeDoc();
         doc.setDatasourceId(datasourceId);
         doc.setDocType("SCHEMA");
         doc.setTitle(config.getName() + " 数据字典");
-        doc.setContent(docContent);
+        doc.setFilePath(filePath);
         doc.setStatus(1);
         aiKnowledgeDocService.save(doc);
         return doc;
