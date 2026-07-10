@@ -78,3 +78,11 @@ export interface RecentTaskLog {
   endTime?: string
   resultMessage?: string
 }
+
+export namespace AiAssistantService {
+  export interface NaturalConfigResult {
+    type: string
+    config: Record<string, any>
+    summary: string
+  }
+}

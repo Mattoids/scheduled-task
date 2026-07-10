@@ -76,6 +76,12 @@ export const menuRoutes: RouteRecordRaw[] = [
     meta: { title: 'AI 配置', icon: 'Cpu', permission: 'system:user' },
   },
   {
+    path: '/ai-chat',
+    name: 'AiChat',
+    component: () => import('@/views/ai-chat/AiChatView.vue'),
+    meta: { title: 'AI 助手', icon: 'ChatDotRound', permission: 'task:view' },
+  },
+  {
     path: '/storage-config',
     name: 'StorageConfig',
     component: () => import('@/views/storage-config/StorageConfigList.vue'),
