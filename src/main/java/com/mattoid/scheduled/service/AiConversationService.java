@@ -10,6 +10,7 @@ import com.mattoid.scheduled.dto.SqlGenerateResult;
 import com.mattoid.scheduled.entity.AiConfig;
 import com.mattoid.scheduled.entity.AiConversation;
 import com.mattoid.scheduled.entity.AiKnowledgeDoc;
+import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.mapper.AiConversationMapper;
 import com.mattoid.scheduled.task.SqlExecutor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +72,7 @@ public class AiConversationService {
     private final AiClientFactory aiClientFactory;
     private final SqlExecutor sqlExecutor;
     private final ChartGenerationService chartGenerationService;
+    private final DatasourceConfigService datasourceConfigService;
 
     @Value("${report.upload.path:${user.home}/scheduled-task/uploads}")
     private String uploadPath;
@@ -81,7 +83,8 @@ public class AiConversationService {
                                  AiConfigService aiConfigService,
                                  AiClientFactory aiClientFactory,
                                  SqlExecutor sqlExecutor,
-                                 ChartGenerationService chartGenerationService) {
+                                 ChartGenerationService chartGenerationService,
+                                 DatasourceConfigService datasourceConfigService) {
         this.aiConversationMapper = aiConversationMapper;
         this.aiKnowledgeDocService = aiKnowledgeDocService;
         this.aiAssistantService = aiAssistantService;
@@ -89,6 +92,7 @@ public class AiConversationService {
         this.aiClientFactory = aiClientFactory;
         this.sqlExecutor = sqlExecutor;
         this.chartGenerationService = chartGenerationService;
+        this.datasourceConfigService = datasourceConfigService;
     }
 
     public AiConversation getOrCreate(String sessionId, Long datasourceId) {
@@ -177,7 +181,8 @@ public class AiConversationService {
         // 默认每次查询独立、不带上下文，避免无关问题之间相互污染；
         // 仅当用户话像是承接上文（追问/补条件/换图表等）时才把历史喂给模型，防止记忆丢失。
         List<AiMessage> aiHistory = isContextDependent(userMessage) ? history : java.util.Collections.emptyList();
-        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, aiHistory);
+        String customPrompt = resolveCustomPrompt(datasourceId);
+        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, aiHistory, customPrompt);
         if (!StringUtils.hasText(sqlResult.getSql())) {
             // AI 判断用户没有提出数据查询需求（寒暄、闲聊、咨询功能等），回退到通用对话。
             return new ChatReplyResult(handleGenericChat(userMessage, messages, channel));
@@ -212,6 +217,18 @@ public class AiConversationService {
 
         String summary = summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, aiHistory, channel);
         return new ChatReplyResult(appendSqlBlock(summary, sqlResult.getSql(), channel));
+    }
+
+    /** 读取数据源配置的自定义 prompt，缺失或为空时返回 null（AI 生成时不注入）。 */
+    private String resolveCustomPrompt(Long datasourceId) {
+        if (datasourceId == null) {
+            return null;
+        }
+        DatasourceConfig config = datasourceConfigService.getById(datasourceId);
+        if (config == null || !StringUtils.hasText(config.getCustomPrompt())) {
+            return null;
+        }
+        return config.getCustomPrompt();
     }
 
     /**

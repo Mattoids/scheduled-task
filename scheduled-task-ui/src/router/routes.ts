@@ -54,8 +54,28 @@ export const menuRoutes: RouteRecordRaw[] = [
   {
     path: '/datasource',
     name: 'Datasource',
-    component: () => import('@/views/datasource/DatasourceList.vue'),
-    meta: { title: '数据源管理', icon: 'Coin', permission: 'datasource:view' },
+    redirect: '/datasource/list',
+    meta: { title: '数据源管理', icon: 'Coin', permission: null },
+    children: [
+      {
+        path: '/datasource/list',
+        name: 'DatasourceList',
+        component: () => import('@/views/datasource/DatasourceList.vue'),
+        meta: { title: '数据源', permission: 'datasource:view' },
+      },
+      {
+        path: '/datasource/sync-log',
+        name: 'DatasourceSyncLog',
+        component: () => import('@/views/datasource/SchemaSyncLogList.vue'),
+        meta: { title: '同步日志', permission: 'datasource:view' },
+      },
+      {
+        path: '/datasource/prompt',
+        name: 'DatasourcePrompt',
+        component: () => import('@/views/datasource/DatasourcePromptList.vue'),
+        meta: { title: '自定义 prompt', permission: 'datasource:view' },
+      },
+    ],
   },
   {
     path: '/email-recipient',

@@ -226,6 +226,7 @@ export interface DatasourceConfig {
   sshLocalPort?: number
   sshAuthType?: 'password' | 'key'
   remark?: string
+  customPrompt?: string
   status?: number
   createTime?: string
 }

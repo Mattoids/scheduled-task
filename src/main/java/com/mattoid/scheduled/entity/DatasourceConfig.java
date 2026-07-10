@@ -44,5 +44,12 @@ public class DatasourceConfig extends BaseEntity {
     private String sshAuthType;
 
     private String remark;
+
+    /**
+     * 数据源自定义 prompt：AI 生成 SQL 时与该数据源的数据字典文档一并注入，
+     * 用于固化业务口径、固定过滤条件（如 is_delete=0）、表/字段偏好、时间口径等。
+     */
+    private String customPrompt;
+
     private Integer status;
 }

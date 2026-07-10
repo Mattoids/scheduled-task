@@ -101,6 +101,14 @@ public class DatasourceSchemaSyncLogService extends ServiceImpl<DatasourceSchema
         return page(new Page<>(current, size), wrapper);
     }
 
+    /** 全量分页查询同步日志，可选按数据源过滤，按创建时间倒序。 */
+    public Page<DatasourceSchemaSyncLog> pageAll(long current, long size, Long datasourceId) {
+        LambdaQueryWrapper<DatasourceSchemaSyncLog> wrapper = new LambdaQueryWrapper<DatasourceSchemaSyncLog>()
+                .eq(datasourceId != null, DatasourceSchemaSyncLog::getDatasourceId, datasourceId)
+                .orderByDesc(DatasourceSchemaSyncLog::getCreateTime);
+        return page(new Page<>(current, size), wrapper);
+    }
+
     private String truncate(String value) {
         if (!StringUtils.hasText(value)) {
             return value;

@@ -19,6 +19,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/datasource")
 public class DatasourceConfigController {
@@ -121,6 +123,26 @@ public class DatasourceConfigController {
             return Result.error("数据字典文档不存在");
         }
         return Result.ok(aiKnowledgeDocService.readContent(doc));
+    }
+
+    @OperationAudit(operationType = "UPDATE", resourceType = "DATASOURCE")
+    @PreAuthorize("hasAuthority('datasource:edit')")
+    @PutMapping("/{id}/prompt")
+    public Result<Boolean> updatePrompt(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        String customPrompt = body != null ? body.get("customPrompt") : null;
+        boolean ok = datasourceConfigService.lambdaUpdate()
+                .eq(DatasourceConfig::getId, id)
+                .set(DatasourceConfig::getCustomPrompt, StringUtils.hasText(customPrompt) ? customPrompt : null)
+                .update();
+        return Result.ok(ok);
+    }
+
+    @PreAuthorize("hasAuthority('datasource:view')")
+    @GetMapping("/sync-logs")
+    public Result<PageResult<DatasourceSchemaSyncLog>> allSyncLogs(PageQuery query,
+                                                                   @RequestParam(required = false) Long datasourceId) {
+        Page<DatasourceSchemaSyncLog> page = datasourceSchemaSyncLogService.pageAll(query.getCurrent(), query.getSize(), datasourceId);
+        return Result.ok(PageUtil.convert(page));
     }
 
     private void decryptSensitive(DatasourceConfig config) {

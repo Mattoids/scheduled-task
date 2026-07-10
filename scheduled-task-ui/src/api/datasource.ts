@@ -44,6 +44,14 @@ export const pageDatasourceSyncLogs = (id: number, params: PageQuery) => {
   return request.get<PageResult<DatasourceSchemaSyncLog>>(`/datasource/${id}/sync-logs`, { params })
 }
 
+export const pageAllDatasourceSyncLogs = (params: PageQuery & { datasourceId?: number }) => {
+  return request.get<PageResult<DatasourceSchemaSyncLog>>('/datasource/sync-logs', { params })
+}
+
+export const updateDatasourcePrompt = (id: number, customPrompt: string) => {
+  return request.put<void>(`/datasource/${id}/prompt`, { customPrompt })
+}
+
 export const getSchemaDocContent = (id: number, docId: number) => {
   return request.get<string>(`/datasource/${id}/schema-docs/${docId}/content`)
 }

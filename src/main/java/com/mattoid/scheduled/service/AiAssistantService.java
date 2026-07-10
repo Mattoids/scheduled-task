@@ -274,6 +274,15 @@ public class AiAssistantService {
      * 历史上下文帮助理解指代、补充条件和延续前一次查询意图。
      */
     public SqlGenerateResult generateSql(String schemaDoc, String userQuestion, List<AiMessage> history) {
+        return generateSql(schemaDoc, userQuestion, history, null);
+    }
+
+    /**
+     * 根据数据字典文档、用户问题、对话历史以及数据源自定义 prompt 生成 SQL。
+     * customPrompt 用于固化该数据源的业务口径、固定过滤条件（如 is_delete=0）、表/字段偏好与时间口径，
+     * 会作为高优先级规则注入 system prompt，引导模型生成更贴合该数据源的 SQL。
+     */
+    public SqlGenerateResult generateSql(String schemaDoc, String userQuestion, List<AiMessage> history, String customPrompt) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
             return SqlGenerateResult.fail("未配置默认 AI");
@@ -283,6 +292,12 @@ public class AiAssistantService {
         // 仅保留一条 system 消息并置于首位（兼容 SenseNova 等要求 system 必须在开头的厂商），
         // 历史上下文以 user/assistant 轮次形式跟在用户消息之后，避免在 user 之后再插入 system。
         StringBuilder systemPrompt = new StringBuilder(SYSTEM_PROMPT_SQL_GENERATE);
+        if (StringUtils.hasText(customPrompt)) {
+            systemPrompt.append("\n\n【该数据源的自定义规则，请在生成 SQL 时严格遵循】\n")
+                    .append(customPrompt.trim())
+                    .append("\n注意：自定义规则用于明确业务口径与固定条件，不得突破上方通用约束中关于表/字段真实性、仅生成 SELECT 等硬性要求；"
+                            + "当自定义规则指定了固定过滤（如 is_delete=0）或偏好表/字段时，必须在 SQL 中体现。");
+        }
         boolean hasHistory = history != null && !history.isEmpty();
         if (hasHistory) {
             systemPrompt.append("\n\n另外，以下是与当前用户的连续对话记录，生成 SQL 时请结合上下文理解用户意图（如指代、补充条件、延续上次查询）。");
