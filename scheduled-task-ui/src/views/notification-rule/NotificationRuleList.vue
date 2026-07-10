@@ -466,10 +466,10 @@ onMounted(() => {
             :model-value="row.enabled"
             :active-value="1"
             :inactive-value="0"
+            active-text="启用"
+            inactive-text="关闭"
             @change="handleEnabledChange(row)"
           />
-          <el-tag v-if="row.enabled === 1" type="success">启用</el-tag>
-          <el-tag v-else type="danger">禁用</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="170" />

@@ -203,10 +203,10 @@ onMounted(() => {
             :model-value="row.status"
             active-value="ENABLE"
             inactive-value="DISABLE"
+            active-text="启用"
+            inactive-text="关闭"
             @change="handleStatusChange(row)"
           />
-          <el-tag v-if="row.status === 'ENABLE'" type="success">启用</el-tag>
-          <el-tag v-else type="danger">禁用</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="170" />

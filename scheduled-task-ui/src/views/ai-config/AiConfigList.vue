@@ -170,11 +170,10 @@ onMounted(loadPage);
             :model-value="row.isDefault"
             :active-value="1"
             :inactive-value="0"
+            active-text="启用"
+            inactive-text="关闭"
             @change="handleDefaultChange(row)"
           />
-          <el-tag :type="row.isDefault === 1 ? 'success' : 'info'">{{
-            row.isDefault === 1 ? "是" : "否"
-          }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="status" label="状态" width="80" align="center">
