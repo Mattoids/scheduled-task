@@ -18,11 +18,6 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,13 +47,6 @@ public class WeComIntelligentBotClient {
     private static final long TEST_TIMEOUT_MS = 10_000;
     private static final long RECONNECT_DELAY_SECONDS = 5;
     private static final long RECONNECT_MAX_DELAY_SECONDS = 60;
-
-    /**
-     * 用于对回调里的 response_url 发起 HTTP POST 投递回复。JDK 内置客户端，复用实例即可。
-     */
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
 
     private final NotificationConfigMapper notificationConfigMapper;
     private final WeComCommandHandler weComCommandHandler;
@@ -282,6 +270,19 @@ public class WeComIntelligentBotClient {
                         return;
                     }
 
+                    if (CMD_RESPONSE.equals(cmd) || (reqId != null && reqId.equals(connection.getPendingRespondReqId()))) {
+                        int errcode = extractErrcode(msg);
+                        String errmsg = extractErrmsg(msg);
+                        connection.setPendingRespondReqId(null);
+                        if (errcode == 0) {
+                            log.info("智能机器人长链回复已被企业微信受理: configId={}, reqId={}", configId, reqId);
+                        } else {
+                            log.error("智能机器人长链回复被企业微信拒绝: configId={}, reqId={}, errcode={}, errmsg={}",
+                                    configId, reqId, errcode, errmsg);
+                        }
+                        return;
+                    }
+
                     if (!connection.isSubscribed()) {
                         log.warn("智能机器人长链尚未订阅成功，忽略消息: configId={}", configId);
                         return;
@@ -323,17 +324,14 @@ public class WeComIntelligentBotClient {
                             log.warn("智能机器人长链模式暂不支持发送图片，已忽略图表: configId={}", configId);
                         }
                         if (StringUtils.hasText(reply)) {
-                            // 长链回复的正确投递通道是回调 body 里的 response_url（含一次性 response_code），
-                            // 走 WebSocket 发 aibot_respond_msg 只会被 ACK、不会落到用户会话。
-                            String responseUrl = (String) body.get("response_url");
-                            if (StringUtils.hasText(responseUrl)) {
-                                log.info("智能机器人长链准备回复: configId={}, fromUser={}, reply={}",
-                                        configId, fromUser, truncate(reply, 200));
-                                sendReplyViaResponseUrl(responseUrl, reply, configId, fromUser);
-                            } else {
-                                log.warn("智能机器人长链回调缺少 response_url，无法投递回复: configId={}, fromUser={}, msgType={}",
-                                        configId, fromUser, msgType);
-                            }
+                            // 长链模式下，回调里虽带 response_url，但对该地址 POST（无论 msgtype=text 还是 stream）
+                            // 都会被企业微信以 errcode 40008 invalid message type 拒收；长链的正确投递通道是 WebSocket
+                            // 上的 aibot_respond_msg 命令。两个关键点：(1) headers.req_id 必须回显回调里的 req_id，
+                            // 否则企微返回 846605 invalid req_id；(2) stream 帧必须 finish=true 收尾，否则只 ACK 不渲染。
+                            log.info("智能机器人长链准备回复: configId={}, fromUser={}, reply={}",
+                                    configId, fromUser, truncate(reply, 200));
+                            connection.setPendingRespondReqId(reqId);
+                            sendResponse(session, reqId, reply, configId, fromUser);
                         } else {
                             log.info("智能机器人长链无需回复: configId={}, fromUser={}", configId, fromUser);
                         }
@@ -388,14 +386,12 @@ public class WeComIntelligentBotClient {
     }
 
     /**
-     * 通过回调里携带的 response_url（含一次性 response_code）投递回复。
-     * 企业微信智能机器人长链采用「长连接收、HTTP 回」模型：WebSocket 上发 aibot_respond_msg 只会被 ACK、
-     * 不会把消息投递到用户会话；必须对该 response_url 发起 HTTP POST，body 为流式帧
-     * {msgtype:"stream", stream:{id, content, finish:true}}（用 msgtype=text 会被 errcode 40008 拒收）。
+     * 通过长连接上的 aibot_respond_msg 命令回复用户。
+     * body 为 {msgtype:"stream", stream:{id, content, finish:true}}，finish=true 表示这是最终答复，
+     * 企微收到后立即渲染到用户会话。headers.req_id 必须回显回调里的 req_id（由调用方传入），
+     * 否则企微以 846605 invalid req_id 拒收。
      */
-    private void sendReplyViaResponseUrl(String responseUrl, String content, Long configId, String fromUser) {
-        // 智能机器人（aibot）回复以流式帧投递：一次性答复用单帧 finish=true 结束即可。
-        // 用 msgtype=text 会被企业微信以 errcode 40008 invalid message type 拒收。
+    private void sendResponse(WebSocketSession session, String reqId, String content, Long configId, String fromUser) {
         Map<String, Object> stream = new java.util.LinkedHashMap<>();
         stream.put("id", UUID.randomUUID().toString().replace("-", ""));
         stream.put("content", content);
@@ -403,27 +399,14 @@ public class WeComIntelligentBotClient {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("msgtype", "stream");
         body.put("stream", stream);
-        String json;
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("cmd", CMD_RESPONSE);
+        payload.put("headers", Map.of("req_id", reqId));
+        payload.put("body", body);
         try {
-            json = objectMapper.writeValueAsString(body);
-        } catch (Exception e) {
-            log.error("智能机器人回复序列化失败: configId={}", configId, e);
-            return;
-        }
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(responseUrl))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
-                    .build();
-            log.info("智能机器人长链通过 response_url 回复: configId={}, fromUser={}, body={}",
-                    configId, fromUser, truncate(json, 500));
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-            log.info("智能机器人长链 response_url 回复结果: configId={}, status={}, body={}",
-                    configId, response.statusCode(), truncate(response.body(), 500));
-        } catch (Exception e) {
-            log.error("智能机器人长链 response_url 回复失败: configId={}, fromUser={}", configId, fromUser, e);
+            sendJson(session, payload);
+        } catch (IOException e) {
+            log.error("智能机器人长链 aibot_respond_msg 投递失败: configId={}, fromUser={}", configId, fromUser, e);
         }
     }
 
@@ -613,6 +596,7 @@ public class WeComIntelligentBotClient {
         private java.util.concurrent.ScheduledFuture<?> reconnectTask;
         private int reconnectAttempts = 0;
         private volatile boolean stopped = false;
+        private volatile String pendingRespondReqId;
 
         BotConnection(Long configId) {
             this.configId = configId;
@@ -679,6 +663,14 @@ public class WeComIntelligentBotClient {
 
         boolean isStopped() {
             return stopped;
+        }
+
+        String getPendingRespondReqId() {
+            return pendingRespondReqId;
+        }
+
+        void setPendingRespondReqId(String reqId) {
+            this.pendingRespondReqId = reqId;
         }
 
         void stop() {
