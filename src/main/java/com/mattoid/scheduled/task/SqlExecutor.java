@@ -141,18 +141,33 @@ public class SqlExecutor {
         StringBuffer sb = new StringBuffer();
         while (matcher.find()) {
             String placeholder = matcher.group(1);
-            String replacement = resolveParamPlaceholder(placeholder, params);
-            if (replacement == null) {
+            ParamResolution resolved = resolveParamPlaceholder(placeholder, params);
+            if (resolved == null) {
                 matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
-            } else {
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+                continue;
             }
+            // 模板若已用单引号包住占位符（如 '${startTime}'），只转义不再加引号，
+            // 否则会拼成 ''2026-06-01'' 触发语法错误；未包住的字符串仍自动加引号。
+            String escaped = resolved.value().replace("'", "''");
+            String replacement;
+            if (isSingleQuoted(sql, matcher.start(), matcher.end())) {
+                replacement = escaped;
+            } else if (resolved.stringLike()) {
+                replacement = "'" + escaped + "'";
+            } else {
+                replacement = escaped;
+            }
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
         matcher.appendTail(sb);
         return sb.toString();
     }
 
-    private String resolveParamPlaceholder(String placeholder, Map<String, Object> params) {
+    private boolean isSingleQuoted(String sql, int start, int end) {
+        return start > 0 && end < sql.length() && sql.charAt(start - 1) == '\'' && sql.charAt(end) == '\'';
+    }
+
+    private ParamResolution resolveParamPlaceholder(String placeholder, Map<String, Object> params) {
         String variable;
         String format;
         int colonIndex = placeholder.indexOf(':');
@@ -170,17 +185,17 @@ public class SqlExecutor {
         if (value == null) {
             return null;
         }
+        boolean stringLike = value instanceof String || value instanceof Character;
         if (format != null && !format.isEmpty()) {
             String formatted = PlaceholderUtils.formatValue(value, format);
             if (formatted != null) {
-                return formatted;
+                return new ParamResolution(formatted, stringLike);
             }
         }
-        String text = value.toString();
-        if (value instanceof String || value instanceof Character) {
-            return "'" + text.replace("'", "''") + "'";
-        }
-        return text;
+        return new ParamResolution(value.toString(), stringLike);
+    }
+
+    private record ParamResolution(String value, boolean stringLike) {
     }
 
     private String replaceBuiltInPlaceholders(String sql) {
