@@ -22,6 +22,10 @@ export const updateAiConfig = (id: number, data: AiConfig) => {
   return request.put<void>(`/ai-config/${id}`, data)
 }
 
+export const updateAiConfigDefault = (id: number, isDefault: number) => {
+  return request.put<void>(`/ai-config/${id}/default`, { isDefault })
+}
+
 export const deleteAiConfig = (id: number) => {
   return request.delete<void>(`/ai-config/${id}`)
 }

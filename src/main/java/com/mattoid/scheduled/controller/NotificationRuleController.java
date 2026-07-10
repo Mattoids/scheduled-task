@@ -7,6 +7,7 @@ import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
+import com.mattoid.scheduled.dto.ChangeEnabledRequest;
 import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.NotificationConfig;
 import com.mattoid.scheduled.entity.NotificationRule;
@@ -93,6 +94,16 @@ public class NotificationRuleController {
                 .set(NotificationRule::getAiConfigId, rule.getAiConfigId())
                 .set(NotificationRule::getStorageConfigId, rule.getStorageConfigId())
                 .set(NotificationRule::getEnabled, rule.getEnabled())
+                .eq(NotificationRule::getId, id));
+        return Result.ok(updated);
+    }
+
+    @OperationAudit(operationType = "UPDATE", resourceType = "NOTIFICATION_RULE")
+    @PreAuthorize("hasAuthority('notificationRule:edit')")
+    @PutMapping("/{id}/enabled")
+    public Result<Boolean> updateEnabled(@PathVariable Long id, @RequestBody ChangeEnabledRequest request) {
+        boolean updated = notificationRuleService.update(new LambdaUpdateWrapper<NotificationRule>()
+                .set(NotificationRule::getEnabled, request.getEnabled())
                 .eq(NotificationRule::getId, id));
         return Result.ok(updated);
     }

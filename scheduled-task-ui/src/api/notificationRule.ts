@@ -18,6 +18,10 @@ export const updateNotificationRule = (id: number, data: NotificationRule) => {
   return request.put<void>(`/notification-rule/${id}`, data)
 }
 
+export const updateNotificationRuleEnabled = (id: number, enabled: number) => {
+  return request.put<void>(`/notification-rule/${id}/enabled`, { enabled })
+}
+
 export const deleteNotificationRule = (id: number) => {
   return request.delete<void>(`/notification-rule/${id}`)
 }

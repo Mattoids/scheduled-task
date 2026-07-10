@@ -6,6 +6,7 @@ import com.mattoid.scheduled.ai.AiChatResponse;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
+import com.mattoid.scheduled.dto.ChangeDefaultRequest;
 import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.AiConfig;
 import com.mattoid.scheduled.service.AiConfigService;
@@ -59,6 +60,12 @@ public class AiConfigController {
     public Result<Boolean> update(@PathVariable Long id, @RequestBody AiConfig config) {
         config.setId(id);
         return Result.ok(aiConfigService.saveOrUpdateConfig(config));
+    }
+
+    @PreAuthorize("hasAuthority('system:user')")
+    @PutMapping("/{id}/default")
+    public Result<Boolean> updateDefault(@PathVariable Long id, @RequestBody ChangeDefaultRequest request) {
+        return Result.ok(aiConfigService.updateDefault(id, request.getIsDefault()));
     }
 
     @PreAuthorize("hasAuthority('system:user')")

@@ -73,4 +73,21 @@ public class AiConfigService extends ServiceImpl<AiConfigMapper, AiConfig> {
         }
         return saveOrUpdate(config);
     }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean updateDefault(Long id, Integer isDefault) {
+        AiConfig config = getById(id);
+        if (config == null) {
+            return false;
+        }
+        if (isDefault != null && isDefault == 1) {
+            // 清除其他默认配置
+            lambdaUpdate()
+                    .set(AiConfig::getIsDefault, 0)
+                    .ne(AiConfig::getId, id)
+                    .update();
+        }
+        config.setIsDefault(isDefault);
+        return updateById(config);
+    }
 }

@@ -2,7 +2,13 @@
 import { ref, reactive, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePagination } from "@/composables/usePagination";
-import { pageAiConfig, deleteAiConfig, getAiConfig, testAiConfig } from "@/api/aiConfig";
+import {
+  pageAiConfig,
+  deleteAiConfig,
+  getAiConfig,
+  testAiConfig,
+  updateAiConfigDefault,
+} from "@/api/aiConfig";
 import AiConfigForm from "./AiConfigForm.vue";
 import type { AiConfig } from "@/types/entity";
 import { useAppStore } from "@/stores/app";
@@ -75,6 +81,13 @@ const handleTest = async (row: AiConfig) => {
   } catch (e: any) {
     ElMessage.error(e?.message || "测试失败");
   }
+};
+
+const handleDefaultChange = async (row: AiConfig) => {
+  const isDefault = row.isDefault === 1 ? 0 : 1;
+  await updateAiConfigDefault(row.id!, isDefault);
+  ElMessage.success("默认状态更新成功");
+  loadPage();
 };
 
 const onFormSuccess = () => {
@@ -150,8 +163,15 @@ onMounted(loadPage);
         min-width="180"
         show-overflow-tooltip
       />
-      <el-table-column prop="isDefault" label="默认" width="80" align="center">
+      <el-table-column prop="isDefault" label="默认" width="120" align="center">
         <template #default="{ row }">
+          <el-switch
+            v-permission="'system:user'"
+            :model-value="row.isDefault"
+            :active-value="1"
+            :inactive-value="0"
+            @change="handleDefaultChange(row)"
+          />
           <el-tag :type="row.isDefault === 1 ? 'success' : 'info'">{{
             row.isDefault === 1 ? "是" : "否"
           }}</el-tag>

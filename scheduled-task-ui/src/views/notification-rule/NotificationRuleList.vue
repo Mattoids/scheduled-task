@@ -6,6 +6,7 @@ import {
   pageNotificationRule,
   createNotificationRule,
   updateNotificationRule,
+  updateNotificationRuleEnabled,
   deleteNotificationRule,
 } from "@/api/notificationRule";
 import { listNotificationConfig } from "@/api/notificationConfig";
@@ -256,6 +257,13 @@ const handleDelete = async (row: NotificationRule) => {
   loadPage();
 };
 
+const handleEnabledChange = async (row: NotificationRule) => {
+  const enabled = row.enabled === 1 ? 0 : 1;
+  await updateNotificationRuleEnabled(row.id!, enabled);
+  ElMessage.success("启用状态更新成功");
+  loadPage();
+};
+
 const handleSubmit = async () => {
   const valid = await formRef.value?.validate().catch(() => false);
   if (!valid) return;
@@ -451,8 +459,15 @@ onMounted(() => {
           <span v-else>{{ row.wecomToUser || "-" }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="enabled" label="启用状态" width="100">
+      <el-table-column prop="enabled" label="启用状态" width="120" align="center">
         <template #default="{ row }">
+          <el-switch
+            v-permission="'notificationRule:edit'"
+            :model-value="row.enabled"
+            :active-value="1"
+            :inactive-value="0"
+            @change="handleEnabledChange(row)"
+          />
           <el-tag v-if="row.enabled === 1" type="success">启用</el-tag>
           <el-tag v-else type="danger">禁用</el-tag>
         </template>
