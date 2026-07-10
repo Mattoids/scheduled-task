@@ -57,7 +57,58 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
     public boolean saveOrUpdate(NotificationConfig entity) {
         validateConfigCode(entity);
         entity.setConfigJson(encryptSecrets(entity.getConfigType(), entity.getConfigJson()));
-        return super.saveOrUpdate(entity);
+        boolean result = super.saveOrUpdate(entity);
+        syncIntelligentBotConnection(entity);
+        return result;
+    }
+
+    @Override
+    public boolean removeById(java.io.Serializable id) {
+        boolean result = super.removeById(id);
+        if (result) {
+            // 删除配置时顺带断开可能存在的长链连接（非长链配置为 no-op）。
+            try {
+                Long configId = id instanceof Long ? (Long) id : Long.valueOf(id.toString());
+                weComIntelligentBotClient.disconnect(configId);
+            } catch (Exception e) {
+                log.debug("断开智能机器人长链连接失败: id={}", id, e);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 长链智能机器人在「启用 + LONGCHAIN」时建立/维持 WebSocket，禁用或切到 CALLBACK 模式时断开。
+     * 这样配置保存后立即生效，不必重启应用。
+     */
+    private void syncIntelligentBotConnection(NotificationConfig entity) {
+        if (entity == null || entity.getId() == null
+                || !"WECOM_INTELLIGENT_BOT".equals(entity.getConfigType())) {
+            return;
+        }
+        boolean enabled = entity.getStatus() != null && entity.getStatus() == 1;
+        boolean longChain = isLongChainMode(entity.getConfigJson());
+        try {
+            if (enabled && longChain) {
+                weComIntelligentBotClient.connect(entity.getId());
+            } else {
+                weComIntelligentBotClient.disconnect(entity.getId());
+            }
+        } catch (Exception e) {
+            log.error("同步智能机器人连接状态失败: configId={}", entity.getId(), e);
+        }
+    }
+
+    private boolean isLongChainMode(String configJson) {
+        if (!StringUtils.hasText(configJson)) {
+            return false;
+        }
+        try {
+            Map<?, ?> map = objectMapper.readValue(configJson, Map.class);
+            return "LONGCHAIN".equalsIgnoreCase(String.valueOf(map.get("mode")));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void validateConfigCode(NotificationConfig entity) {

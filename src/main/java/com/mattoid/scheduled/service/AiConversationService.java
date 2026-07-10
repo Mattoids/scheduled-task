@@ -136,6 +136,21 @@ public class AiConversationService {
         return conversation;
     }
 
+    /**
+     * 与 {@link #chat} 同样会落库会话消息，但额外返回 {@link ChatReplyResult}（含图表文件），
+     * 供企业微信等需要拿到图片附件、又希望保留连续上下文（追问/换图表）的渠道使用。
+     */
+    public ChatReplyResult chatAndPersist(String sessionId, Long datasourceId, String userMessage, ReplyChannel channel) {
+        ChatReplyResult result = chatWithResult(sessionId, datasourceId, userMessage, channel);
+        AiConversation conversation = getOrCreate(sessionId, datasourceId);
+        List<AiMessage> messages = loadMessages(conversation);
+        messages.add(AiMessage.user(userMessage));
+        messages.add(AiMessage.assistant(result.text()));
+        conversation.setMessages(JSON.toJSONString(messages));
+        aiConversationMapper.updateById(conversation);
+        return result;
+    }
+
     public ChatReplyResult chatWithResult(String sessionId, Long datasourceId, String userMessage, ReplyChannel channel) {
         AiConversation conversation = getOrCreate(sessionId, datasourceId);
         List<AiMessage> messages = loadMessages(conversation);

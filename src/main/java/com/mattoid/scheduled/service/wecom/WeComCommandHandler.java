@@ -4,14 +4,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.dto.IntentResult;
-import com.mattoid.scheduled.dto.SqlGenerateResult;
-import com.mattoid.scheduled.entity.AiKnowledgeDoc;
 import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.AiConversationService;
 import com.mattoid.scheduled.service.AiKnowledgeDocService;
 import com.mattoid.scheduled.service.ChartGenerationService;
 import com.mattoid.scheduled.service.DatasourceConfigService;
@@ -58,6 +57,7 @@ public class WeComCommandHandler {
     private final ChartGenerationService chartGenerationService;
     private final DatasourceConfigService datasourceConfigService;
     private final AiKnowledgeDocService aiKnowledgeDocService;
+    private final AiConversationService aiConversationService;
 
     public WeComCommandHandler(TaskConfigService taskConfigService,
                                TaskExecutionService taskExecutionService,
@@ -67,7 +67,8 @@ public class WeComCommandHandler {
                                TaskSqlConfigService taskSqlConfigService,
                                ChartGenerationService chartGenerationService,
                                DatasourceConfigService datasourceConfigService,
-                               AiKnowledgeDocService aiKnowledgeDocService) {
+                               AiKnowledgeDocService aiKnowledgeDocService,
+                               AiConversationService aiConversationService) {
         this.taskConfigService = taskConfigService;
         this.taskExecutionService = taskExecutionService;
         this.taskLogMapper = taskLogMapper;
@@ -77,6 +78,7 @@ public class WeComCommandHandler {
         this.chartGenerationService = chartGenerationService;
         this.datasourceConfigService = datasourceConfigService;
         this.aiKnowledgeDocService = aiKnowledgeDocService;
+        this.aiConversationService = aiConversationService;
     }
 
     public CommandResult handle(WxCpXmlMessage message, Long configId) {
@@ -90,7 +92,7 @@ public class WeComCommandHandler {
         String command = StringUtils.hasText(eventKey) ? eventKey.trim() : content.trim();
         CommandResult result = processCommand(command);
         if (result != null && result.hasText() && result.getText().startsWith("未知指令")) {
-            return handleAiFallback(command);
+            return handleAiFallback(command, message.getFromUserName());
         }
         return result;
     }
@@ -99,13 +101,21 @@ public class WeComCommandHandler {
      * 纯文本指令处理（用于智能机器人长链模式）
      */
     public CommandResult handleText(String content) {
+        return handleText(content, null);
+    }
+
+    /**
+     * 纯文本指令处理（用于智能机器人长链模式），fromUser 用于构建每用户独立的会话上下文，
+     * 使追问、换图表等连续对话在企业微信中同样生效。
+     */
+    public CommandResult handleText(String content, String fromUser) {
         if (!StringUtils.hasText(content)) {
             return new CommandResult("无法识别指令，请发送\"帮助\"查看可用指令。");
         }
         String command = content.trim();
         CommandResult result = processCommand(command);
         if (result != null && result.hasText() && result.getText().startsWith("未知指令")) {
-            return handleAiFallback(command);
+            return handleAiFallback(command, fromUser);
         }
         return result;
     }
@@ -146,32 +156,56 @@ public class WeComCommandHandler {
         }
     }
 
-    private CommandResult handleAiFallback(String content) {
+    private CommandResult handleAiFallback(String content, String fromUser) {
         try {
-            // 优先识别"数据源：名称 问题"前缀，按指定数据源执行自然语言查询，不依赖 AI 意图识别
+            String sessionId = wecomSession(fromUser);
+
+            // 1) 显式「数据源：名称 问题」前缀：按名称解析数据源后走 schema-doc SQL 流水线（与 Web 同款）。
             DatasourcePrefix prefix = extractDatasourcePrefix(content);
             if (prefix != null) {
                 if (!StringUtils.hasText(prefix.question())) {
                     return new CommandResult("请在数据源名称后补充要查询的问题，例如：数据源：" + prefix.name() + " 上个月销售额前 10 的门店");
                 }
-                return handleQueryDataByDatasource(prefix.name(), prefix.question(), Collections.emptyMap());
+                return queryByDatasourceName(prefix.name(), prefix.question(), sessionId);
             }
+
+            // 2) 任务管理类意图保持原行为（查看/触发/日志/创建任务）。
             IntentResult intent = aiAssistantService.parseIntent(content);
             if (intent != null && intent.isRecognized()) {
-                return executeIntent(intent, content);
+                String action = intent.getAction();
+                if (isTaskIntent(action)) {
+                    return executeIntent(intent, content);
+                }
+                if ("QUERY_DATA".equalsIgnoreCase(action)) {
+                    // 命中预置 SQL（管理后台配置的 TaskSqlConfig）则沿用原逻辑；未命中则落到下方的默认数据源流水线。
+                    CommandResult preconfigured = handleQueryDataIntent(intent.getParams(), content, sessionId);
+                    if (preconfigured != null) {
+                        return preconfigured;
+                    }
+                }
             }
-            return new CommandResult(aiAssistantService.chatReply(content));
+
+            // 3) 其它自由文本：统一走 Web 同款 schema-doc SQL 流水线（WECOM 渠道：纯文本、绝不回显 SQL），
+            //    由 AiConversationService 内部判断是数据查询还是寒暄闲聊。
+            return queryByDefaultDatasource(content, sessionId);
         } catch (Exception e) {
             log.error("AI 分析企业微信消息失败: {}", content, e);
             return new CommandResult("AI 处理失败，请稍后再试。");
         }
     }
 
+    private boolean isTaskIntent(String action) {
+        return "VIEW_TASKS".equalsIgnoreCase(action)
+                || "TRIGGER_TASK".equalsIgnoreCase(action)
+                || "VIEW_LOGS".equalsIgnoreCase(action)
+                || "CREATE_TASK".equalsIgnoreCase(action);
+    }
+
     private CommandResult executeIntent(IntentResult intent, String originalContent) {
         String action = intent.getAction();
         Map<String, String> params = intent.getParams();
         if (!StringUtils.hasText(action)) {
-            return new CommandResult(aiAssistantService.chatReply(originalContent));
+            return queryByDefaultDatasource(originalContent, wecomSession(null));
         }
         try {
             return switch (action) {
@@ -179,8 +213,7 @@ public class WeComCommandHandler {
                 case "TRIGGER_TASK" -> new CommandResult(handleTriggerTaskIntent(params));
                 case "VIEW_LOGS" -> new CommandResult(handleViewLogsIntent(params));
                 case "CREATE_TASK" -> handleCreateTaskIntent(params);
-                case "QUERY_DATA" -> handleQueryDataIntent(params, originalContent);
-                default -> new CommandResult(aiAssistantService.chatReply(originalContent));
+                default -> queryByDefaultDatasource(originalContent, wecomSession(null));
             };
         } catch (Exception e) {
             log.error("AI 意图执行失败: action={}, params={}", action, params, e);
@@ -295,11 +328,15 @@ public class WeComCommandHandler {
         }
     }
 
-    private CommandResult handleQueryDataIntent(Map<String, String> params, String originalContent) {
-        // 当 AI 意图识别出数据源名称时，直接在该数据源上按自然语言生成并执行 SQL
+    /**
+     * 处理 QUERY_DATA 意图：优先按 AI 识别的数据源走 schema-doc 流水线；否则尝试匹配管理后台预置 SQL。
+     * 返回 null 表示「没有命中任何预置 SQL 且未指定数据源」，由调用方回退到默认数据源的 schema-doc 流水线。
+     */
+    private CommandResult handleQueryDataIntent(Map<String, String> params, String originalContent, String sessionId) {
+        // 当 AI 意图识别出数据源名称时，直接在该数据源上按自然语言生成并执行 SQL（Web 同款，纯文本、不回显 SQL）。
         String dsName = params != null ? params.get("datasource") : null;
         if (StringUtils.hasText(dsName)) {
-            return handleQueryDataByDatasource(dsName.trim(), originalContent, params);
+            return queryByDatasourceName(dsName.trim(), originalContent, sessionId);
         }
 
         String keyword = params.get("keyword");
@@ -309,7 +346,8 @@ public class WeComCommandHandler {
 
         List<TaskSqlConfig> candidates = findMatchingSqlConfigs(keyword);
         if (candidates.isEmpty()) {
-            return new CommandResult("未找到与 \"" + keyword + "\" 相关的 SQL 配置，请检查关键词或先在管理后台创建 SQL。");
+            // 不再直接提示「未找到 SQL 配置」，而是让调用方回退到默认数据源的 schema-doc 流水线（与 Web 一致）。
+            return null;
         }
         if (candidates.size() > 1) {
             StringBuilder sb = new StringBuilder("找到多个相关 SQL，请指定更精确的关键词：\n");
@@ -353,13 +391,13 @@ public class WeComCommandHandler {
     }
 
     /**
-     * 在指定数据源（按名称选择）上，基于已同步的数据字典由 AI 生成只读 SQL 并执行，返回企业微信纯文本摘要。
+     * 按数据源名称解析后，走 Web 同款 schema-doc SQL 流水线（WECOM 渠道：纯文本、绝不回显 SQL）。
+     * 名称未匹配到唯一数据源时返回引导文案，由用户重试。
      */
-    private CommandResult handleQueryDataByDatasource(String dsName, String question, Map<String, String> intentParams) {
+    private CommandResult queryByDatasourceName(String dsName, String question, String sessionId) {
         if (!StringUtils.hasText(dsName)) {
             return new CommandResult("请指定数据源名称，例如：数据源：销售库 查询上个月销售额前 10 的门店");
         }
-
         List<DatasourceConfig> matches = findDatasourcesByName(dsName);
         if (matches.isEmpty()) {
             return new CommandResult("未找到名称包含 \"" + dsName + "\" 的已启用数据源，请检查名称或先在管理后台创建并启用数据源。");
@@ -375,72 +413,49 @@ public class WeComCommandHandler {
             }
             return new CommandResult(sb.toString());
         }
-
-        DatasourceConfig ds = matches.get(0);
-        AiKnowledgeDoc doc = aiKnowledgeDocService.getLatestByDatasource(ds.getId(), "SCHEMA");
-        String schemaDoc = aiKnowledgeDocService.readContent(doc);
-        if (!StringUtils.hasText(schemaDoc)) {
-            return new CommandResult("数据源 \"" + ds.getName() + "\" 尚未同步数据字典，请先在管理后台的【数据源】中执行\"同步数据字典\"，然后再查询。");
-        }
-
-        String userQuestion = StringUtils.hasText(question) ? question : dsName;
-        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userQuestion);
-        if (!StringUtils.hasText(sqlResult.getSql())) {
-            return new CommandResult("未能根据数据字典生成 SQL：" + sqlResult.getExplanation());
-        }
-
-        List<Map<String, Object>> rows;
-        try {
-            SqlExecutor.validateReadOnlySql(sqlResult.getSql());
-            Map<String, Object> execParams = new HashMap<>(sqlResult.getParams());
-            rows = sqlExecutor.executeQuery(ds.getId(), sqlResult.getSql(), execParams);
-        } catch (Exception e) {
-            log.error("数据源查询执行失败: datasource={}, sql={}", ds.getName(), sqlResult.getSql(), e);
-            return new CommandResult("查询失败：" + e.getMessage() + "\nSQL：" + sqlResult.getSql());
-        }
-
-        if (rows.isEmpty()) {
-            return new CommandResult("查询完成，未返回数据。\n数据源：" + ds.getName() + "\nSQL：" + sqlResult.getSql());
-        }
-
-        File chartFile = null;
-        String chartType = intentParams != null ? intentParams.get("chartType") : null;
-        if (!StringUtils.hasText(chartType)) {
-            chartType = sqlResult.getChartType();
-        }
-        if (StringUtils.hasText(chartType)) {
-            try {
-                String chartTitle = StringUtils.hasText(sqlResult.getChartTitle()) ? sqlResult.getChartTitle() : ds.getName();
-                chartFile = chartGenerationService.generateChart(rows, chartType, chartTitle);
-            } catch (Exception e) {
-                log.error("生成图表失败: type={}", chartType, e);
-            }
-        }
-
-        String summary = buildFreeFormSummary(ds, sqlResult.getSql(), rows);
-        return new CommandResult(summary, chartFile);
+        return queryViaSchema(sessionId, matches.get(0).getId(), question);
     }
 
-    private String buildFreeFormSummary(DatasourceConfig ds, String sql, List<Map<String, Object>> rows) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("查询结果\n");
-        sb.append("数据源：").append(ds.getName()).append("\n");
-        sb.append("SQL：").append(sql).append("\n");
-        sb.append("行数：").append(rows.size()).append("\n");
-        int previewLimit = Math.min(rows.size(), 10);
-        List<String> columns = new ArrayList<>(rows.get(0).keySet());
-        sb.append("预览（前 ").append(previewLimit).append(" 行）：\n");
-        for (int i = 0; i < previewLimit; i++) {
-            Map<String, Object> row = rows.get(i);
-            for (String col : columns) {
-                sb.append(col).append(":").append(row.get(col)).append("  ");
+    /**
+     * 使用默认数据源（第一个已启用且已同步数据字典的数据源）走 Web 同款 schema-doc SQL 流水线。
+     * 当没有任何已启用数据源时回退到通用对话；当数据源已启用但未同步数据字典时，
+     * 由 {@link AiConversationService} 给出「请先同步表结构」的明确引导。
+     */
+    private CommandResult queryByDefaultDatasource(String question, String sessionId) {
+        Long dsId = resolveDefaultDatasourceId();
+        return queryViaSchema(sessionId, dsId, question);
+    }
+
+    private CommandResult queryViaSchema(String sessionId, Long datasourceId, String question) {
+        AiConversationService.ChatReplyResult result = aiConversationService.chatAndPersist(
+                sessionId, datasourceId, question, AiConversationService.ReplyChannel.WECOM);
+        return new CommandResult(result.text(), result.imageFile());
+    }
+
+    /**
+     * 选择默认数据源：优先返回「已启用且已生成 SCHEMA 数据字典」的第一个数据源（按 ID 升序）；
+     * 若都已启用但未生成字典，则返回第一个已启用数据源（让上层提示用户去同步）；
+     * 没有任何已启用数据源时返回 null（回退到通用对话）。
+     */
+    private Long resolveDefaultDatasourceId() {
+        List<DatasourceConfig> enabled = datasourceConfigService.lambdaQuery()
+                .eq(DatasourceConfig::getStatus, 1)
+                .orderByAsc(DatasourceConfig::getId)
+                .list();
+        if (enabled.isEmpty()) {
+            return null;
+        }
+        for (DatasourceConfig ds : enabled) {
+            if (aiKnowledgeDocService.getLatestByDatasource(ds.getId(), "SCHEMA") != null) {
+                return ds.getId();
             }
-            sb.append("\n");
         }
-        if (rows.size() > previewLimit) {
-            sb.append("...");
-        }
-        return sb.toString();
+        return enabled.get(0).getId();
+    }
+
+    /** 企业微信每用户独立会话：fromUser 缺失时退化为共享会话（长链/异常场景兜底）。 */
+    private String wecomSession(String fromUser) {
+        return StringUtils.hasText(fromUser) ? "wecom:" + fromUser : "wecom:anonymous";
     }
 
     private DatasourcePrefix extractDatasourcePrefix(String content) {
@@ -846,8 +861,9 @@ public class WeComCommandHandler {
                 "运行 {任务ID} - 按 ID 手动运行任务\n" +
                 "运行{任务名称}任务 - 按名称手动运行任务\n" +
                 "运行 {任务名称} {时间范围} - 按指定时间范围运行任务，例如：运行 销售日报 昨天\n" +
-                "查询 {数据关键词} [折线图/柱状图/饼状图] - 直接查询 SQL 数据\n" +
+                "查询 {数据关键词} [折线图/柱状图/饼状图] - 直接查询预置 SQL 数据\n" +
                 "数据源：{数据源名称} {查询问题} - 在指定数据源中按自然语言查询（需先同步数据字典），例如：数据源：销售库 上个月销售额前 10 的门店\n" +
+                "{任意数据问题} - 直接用自然语言向默认数据源提问（需先同步数据字典），例如：上个月 道达尔 有多少人进行过点赞\n" +
                 "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务";
     }
 }

@@ -54,6 +54,27 @@ public class WeComAppManager {
         return objectMapper.readValue(notificationConfig.getConfigJson(), WeComAppConfig.class);
     }
 
+    /**
+     * 是否为「智能机器人-长链（WebSocket）模式」。该模式通过 {@link WeComIntelligentBotClient} 长链收发消息，
+     * 不应进入 HTTP 回调（/api/wecom/callback/{id}）：回调入口缺少长链所需的 botId/botSecret 解密流程，
+     * 强行按应用模式解密只会失败并刷出错误堆栈。供回调控制器提前识别并忽略此类请求。
+     */
+    public boolean isLongChainBot(Long configId) {
+        NotificationConfig nc = notificationConfigMapper.selectById(configId);
+        if (nc == null || !"WECOM_INTELLIGENT_BOT".equals(nc.getConfigType())) {
+            return false;
+        }
+        if (!StringUtils.hasText(nc.getConfigJson())) {
+            return false;
+        }
+        try {
+            Map<?, ?> map = objectMapper.readValue(nc.getConfigJson(), Map.class);
+            return "LONGCHAIN".equalsIgnoreCase(String.valueOf(map.get("mode")));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public WxCpService getService(Long configId) {
         WxCpService service = serviceCache.get(configId);
         if (service != null) {

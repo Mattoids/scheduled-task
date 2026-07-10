@@ -61,6 +61,12 @@ public class WeComCallbackController {
         log.info("收到企业微信消息回调: configId={}, body={}", configId, body);
 
         try {
+            // 长链（WebSocket）智能机器人通过 WeComIntelligentBotClient 收发消息，不走 HTTP 回调；
+            // 若企业微信仍向本端点 POST（例如管理后台误填了回调 URL），直接确认收下并忽略，避免按应用模式解密失败刷堆栈。
+            if (weComAppManager.isLongChainBot(configId)) {
+                log.warn("收到长链智能机器人的 HTTP 回调，已忽略（长链消息经 WebSocket 处理）: configId={}", configId);
+                return "success";
+            }
             WxCpXmlMessage message = weComAppManager.parseMessage(configId, actualSignature, timestamp, nonce, body);
             log.info("企业微信消息解析成功: configId={}, fromUser={}, msgType={}, content={}, eventKey={}",
                     configId, message.getFromUserName(), message.getMsgType(), message.getContent(), message.getEventKey());

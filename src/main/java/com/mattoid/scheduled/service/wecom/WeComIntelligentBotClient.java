@@ -301,7 +301,7 @@ public class WeComIntelligentBotClient {
                         String reply = "";
                         CommandResult result = null;
                         if (StringUtils.hasText(content)) {
-                            result = weComCommandHandler.handleText(content.trim());
+                            result = weComCommandHandler.handleText(content.trim(), fromUser);
                         }
                         if (result != null && result.hasText()) {
                             reply = result.getText();
