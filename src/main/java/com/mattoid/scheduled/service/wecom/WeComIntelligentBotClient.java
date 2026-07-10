@@ -313,7 +313,7 @@ public class WeComIntelligentBotClient {
                         if (StringUtils.hasText(reply)) {
                             log.info("智能机器人长链准备回复: configId={}, fromUser={}, reply={}",
                                     configId, fromUser, truncate(reply, 200));
-                            sendResponse(session, reqId, reply, false);
+                            sendResponse(session, reqId, reply);
                         } else {
                             log.info("智能机器人长链无需回复: configId={}, fromUser={}", configId, fromUser);
                         }
@@ -367,15 +367,18 @@ public class WeComIntelligentBotClient {
         sendJson(session, payload);
     }
 
-    private void sendResponse(WebSocketSession session, String reqId, String content, boolean finish) throws IOException {
-        Map<String, Object> stream = new java.util.HashMap<>();
-        stream.put("content", content);
-        stream.put("finish", finish);
-        Map<String, Object> payload = Map.of(
-                "cmd", CMD_RESPONSE,
-                "headers", Map.of("req_id", reqId),
-                "body", Map.of("stream", stream)
-        );
+    private void sendResponse(WebSocketSession session, String reqId, String content) throws IOException {
+        // 智能机器人长链被动回复：业务侧一次性生成完整文本，使用标准非流式文本报文。
+        // body 必须带 msgtype=text 与 text.content，企业微信才会在机器人会话中正常渲染这条回复。
+        Map<String, Object> text = new java.util.HashMap<>();
+        text.put("content", content);
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("msgtype", "text");
+        body.put("text", text);
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("cmd", CMD_RESPONSE);
+        payload.put("headers", Map.of("req_id", reqId));
+        payload.put("body", body);
         sendJson(session, payload);
     }
 
