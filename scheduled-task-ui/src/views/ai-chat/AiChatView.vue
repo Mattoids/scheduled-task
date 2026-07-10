@@ -316,11 +316,14 @@ onMounted(() => {
 }
 
 .message-content {
-  max-width: 70%;
+  max-width: 80%;
+  min-width: 60px;
   padding: 10px 14px;
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .message-user .message-content {
@@ -340,6 +343,8 @@ onMounted(() => {
   font-size: 14px;
   line-height: 1.6;
   color: var(--el-text-color-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-body :first-child {
@@ -388,6 +393,7 @@ onMounted(() => {
   border-radius: 4px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 13px;
+  word-break: break-word;
 }
 
 .markdown-body pre {
@@ -396,11 +402,13 @@ onMounted(() => {
   border-radius: 6px;
   overflow-x: auto;
   margin: 8px 0;
+  max-width: 100%;
 }
 
 .markdown-body pre code {
   padding: 0;
   background: transparent;
+  word-break: break-all;
 }
 
 .markdown-body img {
@@ -421,9 +429,12 @@ onMounted(() => {
 
 .markdown-body table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   margin: 8px 0;
   font-size: 13px;
+  display: block;
+  overflow-x: auto;
 }
 
 .markdown-body th,
@@ -431,6 +442,7 @@ onMounted(() => {
   border: 1px solid var(--el-border-color);
   padding: 6px 10px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .markdown-body th {
@@ -441,6 +453,7 @@ onMounted(() => {
 .markdown-body a {
   color: var(--el-color-primary);
   text-decoration: none;
+  word-break: break-all;
 }
 
 .markdown-body a:hover {
