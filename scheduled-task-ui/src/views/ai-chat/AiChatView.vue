@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { format as formatSql } from "sql-formatter";
 import {
   chatWithAssistant,
   autoConfigureByNaturalLanguage,
@@ -48,8 +49,40 @@ const scrollToBottom = () => {
   });
 };
 
+// 后端把 SQL 以 HTML 转义后的文本塞进 <code class="language-sql">，这里解码 → 格式化 → 重新转义，
+// 让 SQL 以多行缩进、关键字大写的美化形式展示，而不是堆在一行。
+const SQL_CODE_BLOCK_RE = /<code class="language-sql">([\s\S]*?)<\/code>/g;
+
+const formatEmbeddedSql = (content: string) => {
+  return content.replace(SQL_CODE_BLOCK_RE, (_match, raw: string) => {
+    const decoded = raw
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+    let formatted = decoded;
+    try {
+      formatted = formatSql(decoded, {
+        language: "mysql",
+        keywordCase: "upper",
+        tabWidth: 2,
+        linesBetweenQueries: 1,
+      });
+    } catch (e) {
+      formatted = decoded;
+    }
+    const escaped = formatted
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    return `<code class="language-sql">${escaped}</code>`;
+  });
+};
+
 const renderMarkdown = (content: string) => {
-  const raw = marked.parse(content || "", { breaks: true, gfm: true }) as string;
+  const raw = marked.parse(formatEmbeddedSql(content || ""), {
+    breaks: true,
+    gfm: true,
+  }) as string;
   return DOMPurify.sanitize(raw, { ADD_TAGS: ["details", "summary"] });
 };
 
@@ -298,7 +331,8 @@ onMounted(() => {
 .message {
   display: flex;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  align-items: flex-start;
 }
 
 .message-user {
@@ -306,35 +340,45 @@ onMounted(() => {
 }
 
 .message-avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: var(--el-color-primary);
+  background: linear-gradient(135deg, var(--el-color-primary), var(--el-color-primary-light-3));
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(64, 158, 255, 0.35);
 }
 
 .message-user .message-avatar {
-  background: var(--el-color-success);
+  background: linear-gradient(135deg, var(--el-color-success), var(--el-color-success-light-3));
+  box-shadow: 0 2px 6px rgba(103, 194, 58, 0.35);
 }
 
 .message-content {
-  max-width: 80%;
+  max-width: 78%;
   min-width: 60px;
-  padding: 10px 14px;
-  border-radius: 8px;
+  padding: 12px 16px;
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
   overflow-wrap: break-word;
   word-break: break-word;
 }
 
+.message-assistant .message-content {
+  border-top-left-radius: 4px;
+}
+
 .message-user .message-content {
-  background: var(--el-color-primary-light-9);
+  border-top-right-radius: 4px;
+  background: linear-gradient(135deg, var(--el-color-primary-light-8), var(--el-color-primary-light-9));
+  border-color: var(--el-color-primary-light-7);
 }
 
 .message-content pre {
@@ -469,32 +513,57 @@ onMounted(() => {
 }
 
 .markdown-body details.sql-block {
-  margin: 14px 0 2px;
+  margin: 16px 0 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-left: 3px solid var(--el-color-primary-light-5);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .markdown-body details.sql-block summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   cursor: pointer;
-  padding-top: 10px;
-  margin-top: 12px;
-  border-top: 1px solid var(--el-border-color);
+  padding: 10px 14px;
+  background: linear-gradient(180deg, var(--el-fill-color-light), var(--el-fill-color-blank));
   font-size: 13px;
-  color: var(--el-text-color-secondary);
+  font-weight: 500;
+  color: var(--el-text-color-regular);
   user-select: none;
   list-style: none;
+  transition: background 0.15s ease;
+}
+
+.markdown-body details.sql-block summary:hover {
+  background: var(--el-fill-color-light);
 }
 
 .markdown-body details.sql-block summary::-webkit-details-marker {
   display: none;
 }
 
+.markdown-body details.sql-block summary::before {
+  content: "{ }";
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  letter-spacing: 0.5px;
+}
+
 .markdown-body details.sql-block summary::after {
   content: "▾";
+  margin-left: auto;
   font-size: 12px;
   color: var(--el-text-color-placeholder);
   transition: transform 0.15s ease;
+}
+
+.markdown-body details.sql-block[open] summary {
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .markdown-body details.sql-block[open] summary::after {
@@ -502,10 +571,10 @@ onMounted(() => {
 }
 
 .markdown-body details.sql-block pre {
-  margin: 10px 0 0;
-  padding: 12px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 0;
   background: #f6f8fa;
   overflow-x: auto;
 }
@@ -513,7 +582,8 @@ onMounted(() => {
 .markdown-body details.sql-block pre code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
+  color: var(--el-text-color-primary);
   background: transparent;
   white-space: pre;
 }
