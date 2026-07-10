@@ -157,7 +157,11 @@ public class SqlExecutor {
                 return formatted;
             }
         }
-        return value.toString();
+        String text = value.toString();
+        if (value instanceof String || value instanceof Character) {
+            return "'" + text.replace("'", "''") + "'";
+        }
+        return text;
     }
 
     private String replaceBuiltInPlaceholders(String sql) {
