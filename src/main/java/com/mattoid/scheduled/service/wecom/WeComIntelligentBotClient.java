@@ -18,6 +18,9 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +50,9 @@ public class WeComIntelligentBotClient {
     private static final long TEST_TIMEOUT_MS = 10_000;
     private static final long RECONNECT_DELAY_SECONDS = 5;
     private static final long RECONNECT_MAX_DELAY_SECONDS = 60;
+
+    /** 企业微信图片消息原图（base64 编码前）上限：2MB。 */
+    private static final int MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
     private final NotificationConfigMapper notificationConfigMapper;
     private final WeComCommandHandler weComCommandHandler;
@@ -321,9 +327,13 @@ public class WeComIntelligentBotClient {
                             reply = result.getText();
                         }
                         if (result != null && result.hasImage()) {
-                            log.warn("智能机器人长链模式暂不支持发送图片，已忽略图表: configId={}", configId);
-                        }
-                        if (StringUtils.hasText(reply)) {
+                            // 图表查询：长链 aibot_respond_msg 支持 msgtype=image（base64+md5，原图≤2MB），
+                            // 直接把 PNG 回给用户，图表本身就是这次数据查询的答复。
+                            log.info("智能机器人长链准备回复图表: configId={}, fromUser={}, image={}",
+                                    configId, fromUser, result.getImageFile().getAbsolutePath());
+                            connection.setPendingRespondReqId(reqId);
+                            sendImageResponse(session, reqId, result.getImageFile(), configId, fromUser);
+                        } else if (StringUtils.hasText(reply)) {
                             // 长链模式下，回调里虽带 response_url，但对该地址 POST（无论 msgtype=text 还是 stream）
                             // 都会被企业微信以 errcode 40008 invalid message type 拒收；长链的正确投递通道是 WebSocket
                             // 上的 aibot_respond_msg 命令。两个关键点：(1) headers.req_id 必须回显回调里的 req_id，
@@ -408,6 +418,49 @@ public class WeComIntelligentBotClient {
         } catch (IOException e) {
             log.error("智能机器人长链 aibot_respond_msg 投递失败: configId={}, fromUser={}", configId, fromUser, e);
         }
+    }
+
+    /**
+     * 通过长连接上的 aibot_respond_msg 命令回复一张图片（图表）。
+     * 企业微信智能机器人长链图片消息格式为 {msgtype:"image", image:{base64, md5}}，
+     * 其中 base64 为图片二进制编码，md5 为图片二进制（编码前）的 32 位小写 md5；原图须 ≤2MB、JPG/PNG。
+     * headers.req_id 必须回显回调里的 req_id，否则企微以 846605 invalid req_id 拒收。
+     */
+    private void sendImageResponse(WebSocketSession session, String reqId, File imageFile, Long configId, String fromUser) {
+        try {
+            byte[] raw = Files.readAllBytes(imageFile.toPath());
+            if (raw.length > MAX_IMAGE_BYTES) {
+                log.error("智能机器人长链图片超过 2MB 上限，无法发送: configId={}, size={}, file={}",
+                        configId, raw.length, imageFile.getAbsolutePath());
+                sendResponse(session, reqId, "图表图片过大（超过 2MB），无法通过企业微信发送，请在网页端查看。", configId, fromUser);
+                return;
+            }
+            String base64 = Base64.getEncoder().encodeToString(raw);
+            String md5 = bytesToHex(MessageDigest.getInstance("MD5").digest(raw));
+            Map<String, Object> image = new java.util.LinkedHashMap<>();
+            image.put("base64", base64);
+            image.put("md5", md5);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("msgtype", "image");
+            body.put("image", image);
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("cmd", CMD_RESPONSE);
+            payload.put("headers", Map.of("req_id", reqId));
+            payload.put("body", body);
+            sendJson(session, payload);
+        } catch (Exception e) {
+            log.error("智能机器人长链图片回复失败: configId={}, fromUser={}, file={}",
+                    configId, fromUser, imageFile.getAbsolutePath(), e);
+        }
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
     }
 
     private void sendJson(WebSocketSession session, Map<String, Object> payload) throws IOException {
