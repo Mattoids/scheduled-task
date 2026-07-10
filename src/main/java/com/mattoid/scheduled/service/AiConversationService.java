@@ -37,9 +37,11 @@ public class AiConversationService {
     private static final String SYSTEM_PROMPT_SQL_SUMMARY = """
             你是一名数据分析助手。请根据用户的原始问题、生成的 SQL 以及执行结果，给出简洁、准确的中文回复。
             回复要求：
-            1. 直接回答用户问题，不要重复 SQL。
-            2. 如果结果是数据表格，请用文字概括关键信息；必要时可列出少量具体数据。
-            3. 如果执行失败或没有数据，请说明原因并给出建议。
+            1. 使用 Markdown 格式回复。
+            2. 如果结果是数据表格，请用 Markdown 表格展示全部或关键数据，并在表格前用一句话概括。
+            3. 如果结果是单值或汇总统计，直接给出结论，必要时可列出关键指标。
+            4. 不要重复 SQL。
+            5. 如果执行失败或没有数据，请说明原因并给出建议。
             """;
 
     private final AiConversationMapper aiConversationMapper;
@@ -113,7 +115,8 @@ public class AiConversationService {
     }
 
     private String handleSqlChat(Long datasourceId, String schemaDoc, String userMessage, List<AiMessage> messages) {
-        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage);
+        List<AiMessage> history = messages.size() > 1 ? messages.subList(0, messages.size() - 1) : java.util.Collections.emptyList();
+        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, history);
         if (!StringUtils.hasText(sqlResult.getSql())) {
             return "未能根据数据字典生成 SQL：" + sqlResult.getExplanation();
         }
@@ -137,7 +140,7 @@ public class AiConversationService {
             executeInfo += "（图表生成失败，已返回数据摘要）";
         }
 
-        return summarizeSqlResult(userMessage, sqlResult, rows, executeInfo);
+        return summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, history);
     }
 
     private String handleGenericChat(String userMessage, List<AiMessage> messages) {
@@ -183,10 +186,18 @@ public class AiConversationService {
     }
 
     private String summarizeSqlResult(String userMessage, SqlGenerateResult sqlResult,
-                                      List<Map<String, Object>> rows, String executeInfo) {
+                                      List<Map<String, Object>> rows, String executeInfo,
+                                      List<AiMessage> history) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
             return executeInfo + "\n\nSQL：" + sqlResult.getSql() + "\n\n结果：\n" + JSON.toJSONString(rows);
+        }
+
+        List<AiMessage> requestMessages = new ArrayList<>();
+        requestMessages.add(AiMessage.system(SYSTEM_PROMPT_SQL_SUMMARY));
+        if (history != null && !history.isEmpty()) {
+            requestMessages.add(AiMessage.system("以下是对话历史，总结时请结合上下文理解用户意图。"));
+            requestMessages.addAll(history);
         }
 
         StringBuilder userPrompt = new StringBuilder();
@@ -195,9 +206,6 @@ public class AiConversationService {
         userPrompt.append("执行信息：").append(executeInfo).append("\n\n");
         userPrompt.append("执行结果（JSON）：\n").append(JSON.toJSONString(rows)).append("\n\n");
         userPrompt.append("请根据以上信息回复用户。");
-
-        List<AiMessage> requestMessages = new ArrayList<>();
-        requestMessages.add(AiMessage.system(SYSTEM_PROMPT_SQL_SUMMARY));
         requestMessages.add(AiMessage.user(userPrompt.toString()));
 
         AiClient client = aiClientFactory.createClient(config);

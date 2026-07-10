@@ -252,22 +252,30 @@ public class AiAssistantService {
     }
 
     /**
-     * 根据数据字典文档和用户问题生成 SQL
+     * 根据数据字典文档和用户问题生成 SQL（无历史上下文）
      */
     public SqlGenerateResult generateSql(String schemaDoc, String userQuestion) {
+        return generateSql(schemaDoc, userQuestion, null);
+    }
+
+    /**
+     * 根据数据字典文档、用户问题以及对话历史生成 SQL。
+     * 历史上下文帮助理解指代、补充条件和延续前一次查询意图。
+     */
+    public SqlGenerateResult generateSql(String schemaDoc, String userQuestion, List<AiMessage> history) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
             return SqlGenerateResult.fail("未配置默认 AI");
         }
 
-        StringBuilder userPrompt = new StringBuilder();
-        userPrompt.append("数据库结构文档：\n").append(schemaDoc).append("\n\n");
-        userPrompt.append("用户问题：").append(userQuestion).append("\n\n");
-        userPrompt.append("请生成 SQL。");
-
         List<AiMessage> messages = new ArrayList<>();
         messages.add(AiMessage.system(SYSTEM_PROMPT_SQL_GENERATE));
-        messages.add(AiMessage.user(userPrompt.toString()));
+        messages.add(AiMessage.user("数据库结构文档：\n" + schemaDoc));
+        if (history != null && !history.isEmpty()) {
+            messages.add(AiMessage.system("以下是与当前用户的连续对话记录，生成 SQL 时请结合上下文理解用户意图。"));
+            messages.addAll(history);
+        }
+        messages.add(AiMessage.user("用户问题：" + userQuestion + "\n\n请生成 SQL。"));
 
         AiClient client = aiClientFactory.createClient(config);
         AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
