@@ -78,8 +78,15 @@ const formatEmbeddedSql = (content: string) => {
   });
 };
 
+// 防御性剔除：模型偶发会在总结正文里复述 ```sql 代码块，渲染前去掉，
+// 保证 SQL 只出现在「执行 SQL」折叠块（HTML <code class="language-sql">，不会被本规则命中）中。
+const SQL_FENCE_RE = /```\s*sql\b[\s\S]*?```/gi;
+const stripLeakedSqlFences = (content: string) =>
+  content.replace(SQL_FENCE_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+
 const renderMarkdown = (content: string) => {
-  const raw = marked.parse(formatEmbeddedSql(content || ""), {
+  const cleaned = stripLeakedSqlFences(content || "");
+  const raw = marked.parse(formatEmbeddedSql(cleaned), {
     breaks: true,
     gfm: true,
   }) as string;

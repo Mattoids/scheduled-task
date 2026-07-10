@@ -38,10 +38,10 @@ public class AiConversationService {
             你是一名数据分析助手。请根据用户的原始问题、生成的 SQL 以及执行结果，给出简洁、准确的中文回复。
             回复要求：
             1. 使用 Markdown 格式回复。
-            2. 如果结果是数据表格，请用 Markdown 表格展示全部或关键数据，并在表格前用一句话概括。
-            3. 如果结果是单值或汇总统计，直接给出结论，必要时可列出关键指标。
-            4. 不要重复 SQL。
-            5. 如果执行失败或没有数据，请说明原因并给出建议。
+            2. 默认情况下（用户没有明确要求图表、文字榜单等其他形式），只要结果是多行多列的数据，就用 Markdown 表格展示；列较多时列出关键列，并在表格前用一句话概括结论。
+            3. 如果结果是单值或汇总统计，直接给出结论，必要时列出关键指标。
+            4. 严禁在回复中出现 SQL 语句、SQL 代码块或对 SQL 的解释说明；SQL 会由系统在回复末尾单独折叠展示，你只负责总结结果。
+            5. 如果执行失败或没有数据，请说明原因并给出建议，同样不要贴出 SQL。
             """;
 
     private static final String SYSTEM_PROMPT_SQL_SUMMARY_WECOM = """
@@ -50,8 +50,8 @@ public class AiConversationService {
             1. 使用纯文本回复，不要使用 Markdown、表格、图片等富文本格式。
             2. 如果结果是数据表格，请用文字分行列出关键数据，每行一个记录，字段用冒号分隔。
             3. 如果结果是单值或汇总统计，直接给出结论。
-            4. 不要重复 SQL。
-            5. 如果执行失败或没有数据，请说明原因并给出建议。
+            4. 严禁在回复中出现 SQL 语句或对 SQL 的解释；SQL 不会发给企业微信用户，你只需总结结果。
+            5. 如果执行失败或没有数据，请说明原因并给出建议，同样不要贴出 SQL。
             """;
 
     public enum ReplyChannel {
@@ -164,7 +164,8 @@ public class AiConversationService {
         List<AiMessage> aiHistory = isContextDependent(userMessage) ? history : java.util.Collections.emptyList();
         SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, aiHistory);
         if (!StringUtils.hasText(sqlResult.getSql())) {
-            return new ChatReplyResult("未能根据数据字典生成 SQL：" + sqlResult.getExplanation());
+            // AI 判断用户没有提出数据查询需求（寒暄、闲聊、咨询功能等），回退到通用对话。
+            return new ChatReplyResult(handleGenericChat(userMessage, messages, channel));
         }
 
         List<Map<String, Object>> rows;
@@ -176,7 +177,8 @@ public class AiConversationService {
             executeInfo = "查询成功，返回 " + rows.size() + " 条数据。";
         } catch (Exception e) {
             log.error("AI 生成 SQL 执行失败: {}", sqlResult.getSql(), e);
-            return new ChatReplyResult("SQL 执行失败：" + e.getMessage() + "\n\nSQL：" + sqlResult.getSql());
+            // 失败原因放在对话正文，SQL 仅放入 Web 端折叠块，避免正文中泄露 SQL。
+            return new ChatReplyResult(appendSqlBlock("SQL 执行失败：" + e.getMessage(), sqlResult.getSql(), channel));
         }
 
         if (StringUtils.hasText(sqlResult.getChartType()) && !rows.isEmpty()) {
@@ -286,7 +288,7 @@ public class AiConversationService {
                                       List<AiMessage> history, ReplyChannel channel) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
-            return executeInfo + "\n\nSQL：" + sqlResult.getSql() + "\n\n结果：\n" + JSON.toJSONString(rows);
+            return buildFallbackSummary(executeInfo, rows, channel);
         }
 
         List<AiMessage> requestMessages = new ArrayList<>();
@@ -314,9 +316,95 @@ public class AiConversationService {
         AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), requestMessages));
         if (!response.isSuccess()) {
             log.error("SQL 结果总结失败: {}", response.getErrorMessage());
-            return executeInfo + "\n\nSQL：" + sqlResult.getSql() + "\n\n结果：\n" + JSON.toJSONString(rows);
+            return buildFallbackSummary(executeInfo, rows, channel);
         }
         return response.getContent();
+    }
+
+    /**
+     * AI 不可用（未配置或调用失败）时的兜底回复：只返回执行信息与数据预览，
+     * 对话正文中绝不出现 SQL 或原始 JSON（SQL 由调用方通过 appendSqlBlock 单独折叠展示）。
+     */
+    private String buildFallbackSummary(String executeInfo, List<Map<String, Object>> rows, ReplyChannel channel) {
+        if (rows == null || rows.isEmpty()) {
+            return executeInfo;
+        }
+        String preview = channel == ReplyChannel.WECOM ? buildPlainPreview(rows, 20) : buildMarkdownTable(rows, 50);
+        if (!StringUtils.hasText(preview)) {
+            return executeInfo;
+        }
+        return executeInfo + "\n\n" + preview;
+    }
+
+    private String buildMarkdownTable(List<Map<String, Object>> rows, int maxRows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        List<String> columns = new ArrayList<>(rows.get(0).keySet());
+        if (columns.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("| ").append(String.join(" | ", columns)).append(" |\n");
+        sb.append("| ");
+        for (int i = 0; i < columns.size(); i++) {
+            if (i > 0) {
+                sb.append(" | ");
+            }
+            sb.append("---");
+        }
+        sb.append(" |\n");
+        int limit = Math.min(rows.size(), maxRows);
+        for (int i = 0; i < limit; i++) {
+            Map<String, Object> row = rows.get(i);
+            sb.append("| ");
+            for (int c = 0; c < columns.size(); c++) {
+                if (c > 0) {
+                    sb.append(" | ");
+                }
+                sb.append(escapeCell(row.get(columns.get(c))));
+            }
+            sb.append(" |\n");
+        }
+        if (rows.size() > maxRows) {
+            sb.append("\n（仅展示前 ").append(maxRows).append(" 条，共 ").append(rows.size()).append(" 条）");
+        }
+        return sb.toString();
+    }
+
+    private String buildPlainPreview(List<Map<String, Object>> rows, int maxRows) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        List<String> columns = new ArrayList<>(rows.get(0).keySet());
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(rows.size(), maxRows);
+        for (int i = 0; i < limit; i++) {
+            Map<String, Object> row = rows.get(i);
+            StringBuilder line = new StringBuilder();
+            for (String col : columns) {
+                if (line.length() > 0) {
+                    line.append("，");
+                }
+                line.append(col).append("：").append(row.get(col) == null ? "" : row.get(col));
+            }
+            sb.append(line).append("\n");
+        }
+        if (rows.size() > maxRows) {
+            sb.append("（仅展示前 ").append(maxRows).append(" 条，共 ").append(rows.size()).append(" 条）");
+        }
+        return sb.toString().trim();
+    }
+
+    private String escapeCell(Object value) {
+        if (value == null) {
+            return "";
+        }
+        // 转义会破坏 Markdown 表格的字符，并把换行压成空格，保持单元格单行。
+        return value.toString()
+                .replace("|", "\\|")
+                .replace("\r", " ")
+                .replace("\n", " ");
     }
 
     private String loadSchemaDoc(AiConversation conversation) {
