@@ -6,6 +6,7 @@ import {
   pageDatasource,
   deleteDatasource,
   testDatasource,
+  syncDatasourceSchema,
 } from "@/api/datasource";
 import DatasourceForm from "./DatasourceForm.vue";
 import type { DatasourceConfig } from "@/types/entity";
@@ -66,6 +67,22 @@ const handleTest = async (row: DatasourceConfig) => {
           ? "数据库连接失败"
           : "连接失败";
     ElMessage.error(`${stageText}：${res.message || "未知错误"}`);
+  }
+};
+
+const handleSync = async (row: DatasourceConfig) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认同步数据源 "${row.name}" 的表结构？同步过程可能耗时较久。`,
+      "提示",
+      { type: "info" }
+    );
+    const res = await syncDatasourceSchema(row.id!);
+    ElMessage.success(`同步成功，已生成文档：${res.title}`);
+  } catch (e: any) {
+    if (e !== "cancel") {
+      ElMessage.error(e?.message || "同步失败");
+    }
   }
 };
 const onFormSuccess = () => {
@@ -133,6 +150,13 @@ onMounted(loadPage);
             v-permission="'datasource:edit'"
             @click="handleTest(row)"
             >测试</el-button
+          >
+          <el-button
+            link
+            type="warning"
+            v-permission="'datasource:edit'"
+            @click="handleSync(row)"
+            >同步</el-button
           >
           <el-button
             link

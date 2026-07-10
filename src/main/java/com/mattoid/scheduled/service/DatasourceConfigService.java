@@ -3,6 +3,7 @@ package com.mattoid.scheduled.service;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.mattoid.scheduled.common.TestConnectionResult;
 import com.mattoid.scheduled.datasource.DynamicDataSourceManager;
+import com.mattoid.scheduled.entity.AiKnowledgeDoc;
 import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.mapper.DatasourceConfigMapper;
 import com.mattoid.scheduled.util.CryptoUtil;
@@ -18,9 +19,18 @@ import javax.sql.DataSource;
 public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper, DatasourceConfig> {
 
     private final DynamicDataSourceManager dataSourceManager;
+    private final DatasourceSchemaService datasourceSchemaService;
+    private final AiAssistantService aiAssistantService;
+    private final AiKnowledgeDocService aiKnowledgeDocService;
 
-    public DatasourceConfigService(DynamicDataSourceManager dataSourceManager) {
+    public DatasourceConfigService(DynamicDataSourceManager dataSourceManager,
+                                   DatasourceSchemaService datasourceSchemaService,
+                                   AiAssistantService aiAssistantService,
+                                   AiKnowledgeDocService aiKnowledgeDocService) {
         this.dataSourceManager = dataSourceManager;
+        this.datasourceSchemaService = datasourceSchemaService;
+        this.aiAssistantService = aiAssistantService;
+        this.aiKnowledgeDocService = aiKnowledgeDocService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -84,6 +94,29 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
         }
         applySshAuthType(config, existing);
         return dataSourceManager.testDataSourceConnection(config);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public AiKnowledgeDoc syncSchema(Long datasourceId) throws Exception {
+        DatasourceConfig config = getById(datasourceId);
+        if (config == null) {
+            throw new IllegalArgumentException("数据源不存在");
+        }
+        if (!StringUtils.hasText(config.getDriverClass())) {
+            config.setDriverClass(resolveDriverClass(config.getDbType()));
+        }
+
+        String rawSchema = datasourceSchemaService.extractSchema(config);
+        String docContent = aiAssistantService.generateSchemaDoc(rawSchema);
+
+        AiKnowledgeDoc doc = new AiKnowledgeDoc();
+        doc.setDatasourceId(datasourceId);
+        doc.setDocType("SCHEMA");
+        doc.setTitle(config.getName() + " 数据字典");
+        doc.setContent(docContent);
+        doc.setStatus(1);
+        aiKnowledgeDocService.save(doc);
+        return doc;
     }
 
     private void applySshAuthType(DatasourceConfig config, DatasourceConfig existing) {

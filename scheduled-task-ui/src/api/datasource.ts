@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import type { PageQuery, PageResult } from '@/types'
-import type { DatasourceConfig } from '@/types/entity'
+import type { AiKnowledgeDoc, DatasourceConfig } from '@/types/entity'
 import type { TestConnectionResult } from '@/types'
 
 export const pageDatasource = (params: PageQuery) => {
@@ -33,4 +33,8 @@ export const testDatasource = (id: number) => {
 
 export const testDatasourceConfig = (data: DatasourceConfig) => {
   return request.post<TestConnectionResult>('/datasource/test', data)
+}
+
+export const syncDatasourceSchema = (id: number) => {
+  return request.post<AiKnowledgeDoc>(`/datasource/${id}/sync-schema`)
 }

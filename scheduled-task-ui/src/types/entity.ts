@@ -391,6 +391,31 @@ export interface AiConfig {
   updateTime?: string
 }
 
+export interface AiKnowledgeDoc {
+  id?: number
+  datasourceId?: number
+  docType?: string
+  title?: string
+  content?: string
+  status?: number
+  datasourceName?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface AiConversation {
+  id?: number
+  sessionId?: string
+  userId?: number
+  title?: string
+  datasourceId?: number
+  docId?: number
+  messages?: string
+  status?: number
+  createTime?: string
+  updateTime?: string
+}
+
 export interface StorageConfig {
   id?: number
   configName: string

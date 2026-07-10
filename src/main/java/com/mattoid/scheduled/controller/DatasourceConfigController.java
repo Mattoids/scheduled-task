@@ -8,6 +8,7 @@ import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.common.TestConnectionResult;
 import com.mattoid.scheduled.dto.PageQuery;
+import com.mattoid.scheduled.entity.AiKnowledgeDoc;
 import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.service.DatasourceConfigService;
 import com.mattoid.scheduled.util.CryptoUtil;
@@ -77,6 +78,13 @@ public class DatasourceConfigController {
     @PostMapping("/{id}/test")
     public Result<TestConnectionResult> test(@PathVariable Long id) {
         return Result.ok(datasourceConfigService.testConnection(id));
+    }
+
+    @OperationAudit(operationType = "UPDATE", resourceType = "DATASOURCE")
+    @PreAuthorize("hasAuthority('datasource:edit')")
+    @PostMapping("/{id}/sync-schema")
+    public Result<AiKnowledgeDoc> syncSchema(@PathVariable Long id) throws Exception {
+        return Result.ok(datasourceConfigService.syncSchema(id));
     }
 
     private void decryptSensitive(DatasourceConfig config) {

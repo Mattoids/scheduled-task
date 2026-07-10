@@ -8,6 +8,7 @@ import com.mattoid.scheduled.ai.AiClient;
 import com.mattoid.scheduled.ai.AiClientFactory;
 import com.mattoid.scheduled.ai.AiMessage;
 import com.mattoid.scheduled.dto.IntentResult;
+import com.mattoid.scheduled.dto.SqlGenerateResult;
 import com.mattoid.scheduled.entity.AiConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -61,6 +62,36 @@ public class AiAssistantService {
             你是企业微信智能助手，服务于定时任务报表系统。
             请根据用户消息给出简洁、友好、专业的中文回复。
             如果用户询问系统功能，可提示可用指令，例如：帮助、任务列表、运行 {任务ID}、任务日志 {任务ID}。
+            """;
+
+    private static final String SYSTEM_PROMPT_SCHEMA_DOC = """
+            你是一名数据库专家。请根据下面提供的数据库表结构信息，整理成一份清晰、结构化的数据字典文档。
+            文档需要包含：
+            1. 数据库概述（库名、表数量）。
+            2. 每张表的名称、业务用途推断、字段列表（字段名、类型、是否可空、备注）、主键信息。
+            3. 表与表之间可能存在的关联关系推断。
+            请使用 Markdown 格式输出，便于后续 AI 对话检索使用。
+            """;
+
+    private static final String SYSTEM_PROMPT_SQL_GENERATE = """
+            你是一名 SQL 专家。请根据提供的数据库结构文档以及用户的自然语言问题，生成一条可执行的 SQL 查询语句。
+            只返回 JSON 格式结果，不要包含任何解释。
+            返回格式：{"sql":"SELECT ...","params":{},"explanation":"简要说明"}
+            注意：
+            1. 仅生成 SELECT 查询，禁止生成 INSERT/UPDATE/DELETE/DROP/ALTER 等变更语句。
+            2. SQL 中的参数请使用 ${name} 占位符，并在 params 中提供默认值。
+            3. 如果无法生成，请返回 {"sql":"","params":{},"explanation":"无法生成 SQL"}。
+            """;
+
+    private static final String SYSTEM_PROMPT_NATURAL_CONFIG = """
+            你是一个定时任务报表系统配置助手。请根据用户的一句话描述，生成对应的系统配置。
+            只返回 JSON 格式结果，不要包含任何解释。
+            可生成的配置类型及字段如下：
+            - TASK: 任务配置。字段：taskName(任务名称)、taskCode(任务编码)、description(描述)、triggerType(CRON/ONCE)、triggerConfig(cron表达式或执行时间)、taskType(SQL/CRAWL)、status(ENABLE/DISABLE)
+            - NOTIFICATION_RULE: 通知规则。字段：eventType(TASK_COMPLETED/TASK_SUCCESS/TASK_FAILURE)、channel(EMAIL/WECOM_APP/WECOM_BOT/WECOM_INTELLIGENT_BOT/DINGTALK/FEISHU/SLACK/WEBHOOK)、taskCode(关联任务编码)、configCode(通知配置编码)、enabled(1/0)
+            - CRAWL: 网页爬取配置。字段：name(名称)、url(目标URL)、method(GET/POST)、cronExpression(定时表达式)、status(ENABLE/DISABLE)
+            返回格式：{"type":"TASK","config":{"taskName":"...",...},"summary":"配置说明"}
+            如果无法识别，返回 {"type":"UNKNOWN","config":{},"summary":"无法识别配置意图"}。
             """;
 
     private final AiConfigService aiConfigService;
@@ -194,6 +225,116 @@ public class AiAssistantService {
             return "AI 回复失败，请稍后再试。";
         }
         return response.getContent();
+    }
+
+    /**
+     * 根据原始表结构生成结构化的数据字典文档
+     */
+    public String generateSchemaDoc(String rawSchema) {
+        AiConfig config = aiConfigService.getDefaultConfig();
+        if (config == null) {
+            return rawSchema;
+        }
+
+        List<AiMessage> messages = new ArrayList<>();
+        messages.add(AiMessage.system(SYSTEM_PROMPT_SCHEMA_DOC));
+        messages.add(AiMessage.user(rawSchema));
+
+        AiClient client = aiClientFactory.createClient(config);
+        AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+        if (!response.isSuccess()) {
+            log.error("Generate schema doc failed: {}", response.getErrorMessage());
+            return rawSchema;
+        }
+        return response.getContent();
+    }
+
+    /**
+     * 根据数据字典文档和用户问题生成 SQL
+     */
+    public SqlGenerateResult generateSql(String schemaDoc, String userQuestion) {
+        AiConfig config = aiConfigService.getDefaultConfig();
+        if (config == null) {
+            return SqlGenerateResult.fail("未配置默认 AI");
+        }
+
+        StringBuilder userPrompt = new StringBuilder();
+        userPrompt.append("数据库结构文档：\n").append(schemaDoc).append("\n\n");
+        userPrompt.append("用户问题：").append(userQuestion).append("\n\n");
+        userPrompt.append("请生成 SQL。");
+
+        List<AiMessage> messages = new ArrayList<>();
+        messages.add(AiMessage.system(SYSTEM_PROMPT_SQL_GENERATE));
+        messages.add(AiMessage.user(userPrompt.toString()));
+
+        AiClient client = aiClientFactory.createClient(config);
+        AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+        if (!response.isSuccess()) {
+            log.error("Generate SQL failed: {}", response.getErrorMessage());
+            return SqlGenerateResult.fail(response.getErrorMessage());
+        }
+        return parseSqlGenerateResult(response.getContent());
+    }
+
+    /**
+     * 根据用户一句话生成系统配置
+     */
+    public NaturalConfigResult generateConfig(String userInput) {
+        AiConfig config = aiConfigService.getDefaultConfig();
+        if (config == null) {
+            return new NaturalConfigResult("UNKNOWN", new JSONObject(), "未配置默认 AI");
+        }
+
+        List<AiMessage> messages = new ArrayList<>();
+        messages.add(AiMessage.system(SYSTEM_PROMPT_NATURAL_CONFIG));
+        messages.add(AiMessage.user(userInput));
+
+        AiClient client = aiClientFactory.createClient(config);
+        AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+        if (!response.isSuccess()) {
+            log.error("Generate config failed: {}", response.getErrorMessage());
+            return new NaturalConfigResult("UNKNOWN", new JSONObject(), response.getErrorMessage());
+        }
+        return parseNaturalConfigResult(response.getContent());
+    }
+
+    private SqlGenerateResult parseSqlGenerateResult(String content) {
+        try {
+            String json = extractJson(content);
+            JSONObject obj = JSON.parseObject(json);
+            SqlGenerateResult result = new SqlGenerateResult();
+            result.setSql(obj.getString("sql"));
+            result.setExplanation(obj.getString("explanation"));
+            JSONObject params = obj.getJSONObject("params");
+            if (params != null) {
+                params.forEach((k, v) -> result.getParams().put(k, v != null ? v.toString() : ""));
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("Parse SQL generate result failed: {}", content, e);
+            return SqlGenerateResult.fail("解析 SQL 结果失败");
+        }
+    }
+
+    private NaturalConfigResult parseNaturalConfigResult(String content) {
+        try {
+            String json = extractJson(content);
+            JSONObject obj = JSON.parseObject(json);
+            String type = obj.getString("type");
+            JSONObject config = obj.getJSONObject("config");
+            String summary = obj.getString("summary");
+            return new NaturalConfigResult(
+                    StringUtils.hasText(type) ? type : "UNKNOWN",
+                    config != null ? config : new JSONObject(),
+                    StringUtils.hasText(summary) ? summary : ""
+            );
+        } catch (Exception e) {
+            log.error("Parse natural config result failed: {}", content, e);
+            return new NaturalConfigResult("UNKNOWN", new JSONObject(), "解析配置结果失败");
+        }
+    }
+
+    public record NaturalConfigResult(String type, JSONObject config, String summary) {
     }
 
     private IntentResult parseIntentJson(String content) {
