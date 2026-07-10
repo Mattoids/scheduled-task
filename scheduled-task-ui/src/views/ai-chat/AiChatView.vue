@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, nextTick } from "vue";
+import { ref, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import {
   chatWithAssistant,
   autoConfigureByNaturalLanguage,
@@ -37,6 +39,11 @@ const scrollToBottom = () => {
       messageContainer.value.scrollTop = messageContainer.value.scrollHeight;
     }
   });
+};
+
+const renderMarkdown = (content: string) => {
+  const raw = marked.parse(content || "", { breaks: true, gfm: true }) as string;
+  return DOMPurify.sanitize(raw);
 };
 
 const handleSend = async () => {
@@ -143,7 +150,12 @@ onMounted(() => {
         >
           <div class="message-avatar">{{ msg.role === "user" ? "我" : "AI" }}</div>
           <div class="message-content">
-            <pre>{{ msg.content }}</pre>
+            <pre v-if="msg.role === 'user'">{{ msg.content }}</pre>
+            <div
+              v-else
+              class="markdown-body"
+              v-html="renderMarkdown(msg.content)"
+            />
           </div>
         </div>
         <div v-if="loading" class="message message-assistant">
@@ -322,6 +334,110 @@ onMounted(() => {
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.markdown-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--el-text-color-primary);
+}
+
+.markdown-body :first-child {
+  margin-top: 0;
+}
+
+.markdown-body :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p {
+  margin: 0 0 8px;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 12px 0 8px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.markdown-body h1 { font-size: 20px; }
+.markdown-body h2 { font-size: 18px; }
+.markdown-body h3 { font-size: 16px; }
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { font-size: 14px; }
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.markdown-body li {
+  margin: 4px 0;
+}
+
+.markdown-body code {
+  padding: 2px 6px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+}
+
+.markdown-body pre {
+  padding: 12px;
+  background: #f4f4f5;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 4px solid var(--el-border-color);
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 0 4px 4px 0;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--el-border-color);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: var(--el-fill-color-light);
+  font-weight: 600;
+}
+
+.markdown-body a {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
 }
 
 .chat-input {
