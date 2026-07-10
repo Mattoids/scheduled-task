@@ -32,9 +32,10 @@ public class AiAssistantService {
             - TRIGGER_TASK: 手动触发任务。参数：taskId 或 taskName，可选 timeRange（如 昨天、上周、本月）
             - VIEW_LOGS: 查看执行日志。参数：taskId、status(SUCCESS/FAILED/RUNNING)、date(如 today/yesterday/2024-01-01)
             - CREATE_TASK: 创建任务。参数：taskName、triggerType(CRON/ONCE)、triggerConfig、sqlCodes(可选，逗号分隔的 SQL 编码)
-            - QUERY_DATA: 查询 SQL 数据。参数：keyword(数据主题关键词，如 道达尔渠道数据)、chartType(可选：line/bar/pie)、timeRange(时间描述，如 上个月)、channel(渠道/品牌等)
+            - QUERY_DATA: 查询 SQL 数据。参数：keyword(数据主题关键词，如 道达尔渠道数据)、datasource(可选，数据源名称，当用户明确指定要在某个数据源/数据库中查询时填写其名称，如 销售库、生产库)、chartType(可选：line/bar/pie)、timeRange(时间描述，如 上个月)、channel(渠道/品牌等)
             - UNKNOWN: 无法识别
             返回格式：{"action":"VIEW_TASKS","params":{"keyword":"门店"},"summary":"查看与门店相关的任务"}
+            示例：用户"在销售库中查询上个月销售额前 10 的门店" -> {"action":"QUERY_DATA","params":{"datasource":"销售库","keyword":"销售额前 10 的门店","timeRange":"上个月"},"summary":"在销售库查询销售排行"}
             """;
 
     private static final String SYSTEM_PROMPT_EXTRACT_PARAMS = """
@@ -71,18 +72,28 @@ public class AiAssistantService {
             2. 每张表的名称、业务用途推断、字段列表（字段名、类型、是否可空、备注）、主键信息。
             3. 表与表之间可能存在的关联关系推断。
             请使用 Markdown 格式输出，便于后续 AI 对话检索使用。
+
+            忠实性要求（防止后续生成 SQL 时漂移）：
+            - 必须逐字保留原始的表名、字段名、字段类型、是否可空、字段备注与主键信息，严禁新增、删除、改名或合并任何表/字段。
+            - 业务用途、表间关联属于“推断”，请用“（推断）”明确标注，且不得用推断结果覆盖或替换真实结构；无法判断时留空，不要编造。
+            - 若原始信息中已含字段备注，请原样保留，不要改写为其它含义。
             """;
 
     private static final String SYSTEM_PROMPT_SQL_GENERATE = """
-            你是一名 SQL 专家。请根据提供的数据库结构文档以及用户的自然语言问题，生成一条可执行的 SQL 查询语句。
-            只返回 JSON 格式结果，不要包含任何解释。
+            你是一名严谨的 SQL 专家。请严格依据提供的数据库结构文档以及用户的自然语言问题，生成一条可执行的 SQL 查询语句。
+            只返回 JSON 格式结果，不要包含任何解释、不要输出 Markdown 代码块。
             返回格式：{"sql":"SELECT ...","params":{},"explanation":"简要说明","chartType":"","chartTitle":""}
-            注意：
-            1. 仅生成 SELECT 查询，禁止生成 INSERT/UPDATE/DELETE/DROP/ALTER 等变更语句。
-            2. SQL 中的参数请使用 ${name} 占位符，并在 params 中提供默认值。
-            3. 如果用户要求用图表展示（如柱状图、折线图、饼图等），请在 chartType 中返回图表类型：bar/line/pie/area/scatter/stacked_bar/doughnut；并在 chartTitle 中返回图表标题。
-            4. 如果用户没有要求图表，chartType 和 chartTitle 请留空字符串。
-            5. 如果无法生成，请返回 {"sql":"","params":{},"explanation":"无法生成 SQL","chartType":"","chartTitle":""}。
+
+            必须严格遵守的约束（防止 SQL 漂移）：
+            1. 只能使用数据库结构文档中明确出现过的表名和字段名，且必须与文档中的拼写、大小写完全一致；严禁凭空捏造、推测或使用文档之外的表/字段。
+            2. 字段后的“备注”仅用于理解业务含义，SQL 中必须使用真实的英文字段名，不要把中文备注当作字段名。
+            3. 需要表连接时，只能基于文档中可明确判断的关系（同名外键、文档标注的主键/外键）；无法确定连接条件时宁可不连接或返回空 SQL，不要臆造关联字段。
+            4. 如果用户问题所需的数据在文档中找不到对应的表或字段，必须返回 sql 为空字符串，并在 explanation 中说明“文档中缺少 XX 表/字段”，绝对不要用相近名字替代。
+            5. 仅生成 SELECT 查询，禁止生成 INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE 等任何变更语句。
+            6. SQL 中的运行时参数请使用 ${name} 占位符，并在 params 中提供默认值；表名/字段名本身不要参数化。
+            7. 标识符如与数据库关键字冲突，请用反引号（MySQL）或相应引号包裹。
+            8. 如果用户要求用图表展示（如柱状图、折线图、饼图等），请在 chartType 中返回图表类型：bar/line/pie/area/scatter/stacked_bar/doughnut，并在 chartTitle 中返回图表标题；否则 chartType 和 chartTitle 留空字符串。
+            9. 如果无法生成，请返回 {"sql":"","params":{},"explanation":"无法生成 SQL 的原因","chartType":"","chartTitle":""}。
             """;
 
     private static final String SYSTEM_PROMPT_NATURAL_CONFIG = """
@@ -269,19 +280,37 @@ public class AiAssistantService {
         }
 
         List<AiMessage> messages = new ArrayList<>();
-        messages.add(AiMessage.system(SYSTEM_PROMPT_SQL_GENERATE));
+        // 仅保留一条 system 消息并置于首位（兼容 SenseNova 等要求 system 必须在开头的厂商），
+        // 历史上下文以 user/assistant 轮次形式跟在用户消息之后，避免在 user 之后再插入 system。
+        StringBuilder systemPrompt = new StringBuilder(SYSTEM_PROMPT_SQL_GENERATE);
+        boolean hasHistory = history != null && !history.isEmpty();
+        if (hasHistory) {
+            systemPrompt.append("\n\n另外，以下是与当前用户的连续对话记录，生成 SQL 时请结合上下文理解用户意图（如指代、补充条件、延续上次查询）。");
+        }
+        messages.add(AiMessage.system(systemPrompt.toString()));
         messages.add(AiMessage.user("数据库结构文档：\n" + schemaDoc));
-        if (history != null && !history.isEmpty()) {
-            messages.add(AiMessage.system("以下是与当前用户的连续对话记录，生成 SQL 时请结合上下文理解用户意图。"));
+        if (hasHistory) {
             messages.addAll(history);
         }
         messages.add(AiMessage.user("用户问题：" + userQuestion + "\n\n请生成 SQL。"));
 
+        // 降低随机性，避免模型编造表/字段，提升对数据字典的遵循度
+        AiChatRequest request = AiChatRequest.of(config.getModel(), messages);
+        request.setTemperature(0.1);
         AiClient client = aiClientFactory.createClient(config);
-        AiChatResponse response = client.chat(AiChatRequest.of(config.getModel(), messages));
+        AiChatResponse response = client.chat(request);
         if (!response.isSuccess()) {
             log.error("Generate SQL failed: {}", response.getErrorMessage());
             return SqlGenerateResult.fail(response.getErrorMessage());
+        }
+        // 部分小模型在复杂问题下偶发返回空 content，重试一次以提高稳定性
+        if (!StringUtils.hasText(response.getContent())) {
+            log.warn("AI SQL 生成首次返回空内容，尝试重试一次");
+            response = client.chat(request);
+            if (!response.isSuccess()) {
+                log.error("Generate SQL retry failed: {}", response.getErrorMessage());
+                return SqlGenerateResult.fail(response.getErrorMessage());
+            }
         }
         return parseSqlGenerateResult(response.getContent());
     }
@@ -309,9 +338,17 @@ public class AiAssistantService {
     }
 
     private SqlGenerateResult parseSqlGenerateResult(String content) {
+        String json = extractJson(content);
+        if (!StringUtils.hasText(json)) {
+            log.warn("AI SQL 生成响应为空，原始内容: {}", truncate(content));
+            return SqlGenerateResult.fail("AI 未返回有效的 SQL 生成结果（响应为空）");
+        }
         try {
-            String json = extractJson(content);
             JSONObject obj = JSON.parseObject(json);
+            if (obj == null) {
+                log.warn("AI SQL 生成响应非 JSON，原始内容: {}", truncate(content));
+                return SqlGenerateResult.fail("AI 未返回有效的 SQL 生成结果（响应非 JSON）");
+            }
             SqlGenerateResult result = new SqlGenerateResult();
             result.setSql(obj.getString("sql"));
             result.setExplanation(obj.getString("explanation"));
@@ -323,15 +360,23 @@ public class AiAssistantService {
             }
             return result;
         } catch (Exception e) {
-            log.error("Parse SQL generate result failed: {}", content, e);
+            log.warn("解析 AI SQL 生成结果失败，原始内容: {}", truncate(content), e);
             return SqlGenerateResult.fail("解析 SQL 结果失败");
         }
     }
 
     private NaturalConfigResult parseNaturalConfigResult(String content) {
+        String json = extractJson(content);
+        if (!StringUtils.hasText(json)) {
+            log.warn("AI 配置生成响应为空，原始内容: {}", truncate(content));
+            return new NaturalConfigResult("UNKNOWN", new JSONObject(), "AI 未返回有效结果");
+        }
         try {
-            String json = extractJson(content);
             JSONObject obj = JSON.parseObject(json);
+            if (obj == null) {
+                log.warn("AI 配置生成响应非 JSON，原始内容: {}", truncate(content));
+                return new NaturalConfigResult("UNKNOWN", new JSONObject(), "AI 未返回有效结果");
+            }
             String type = obj.getString("type");
             JSONObject config = obj.getJSONObject("config");
             String summary = obj.getString("summary");
@@ -341,7 +386,7 @@ public class AiAssistantService {
                     StringUtils.hasText(summary) ? summary : ""
             );
         } catch (Exception e) {
-            log.error("Parse natural config result failed: {}", content, e);
+            log.warn("解析 AI 配置生成结果失败，原始内容: {}", truncate(content), e);
             return new NaturalConfigResult("UNKNOWN", new JSONObject(), "解析配置结果失败");
         }
     }
@@ -350,10 +395,18 @@ public class AiAssistantService {
     }
 
     private IntentResult parseIntentJson(String content) {
+        String json = extractJson(content);
+        if (!StringUtils.hasText(json)) {
+            log.warn("AI 意图识别响应为空，原始内容: {}", truncate(content));
+            return unrecognized("AI 未返回有效结果");
+        }
         IntentResult result = new IntentResult();
         try {
-            String json = extractJson(content);
             JSONObject obj = JSON.parseObject(json);
+            if (obj == null) {
+                log.warn("AI 意图识别响应非 JSON，原始内容: {}", truncate(content));
+                return unrecognized("AI 未返回有效结果");
+            }
             result.setAction(obj.getString("action"));
             result.setSummary(obj.getString("summary"));
             JSONObject params = obj.getJSONObject("params");
@@ -362,7 +415,7 @@ public class AiAssistantService {
             }
             result.setRecognized(!"UNKNOWN".equalsIgnoreCase(result.getAction()));
         } catch (Exception e) {
-            log.error("Parse intent json failed: {}", content, e);
+            log.warn("解析 AI 意图识别结果失败，原始内容: {}", truncate(content), e);
             return unrecognized("解析失败");
         }
         return result;
@@ -377,9 +430,17 @@ public class AiAssistantService {
     }
 
     private NotificationContent parseNotificationJson(String content, String fallbackSubject, String fallbackBody) {
+        String json = extractJson(content);
+        if (!StringUtils.hasText(json)) {
+            log.warn("AI 通知优化响应为空，原始内容: {}", truncate(content));
+            return new NotificationContent(fallbackSubject, fallbackBody);
+        }
         try {
-            String json = extractJson(content);
             JSONObject obj = JSON.parseObject(json);
+            if (obj == null) {
+                log.warn("AI 通知优化响应非 JSON，原始内容: {}", truncate(content));
+                return new NotificationContent(fallbackSubject, fallbackBody);
+            }
             String subject = obj.getString("subject");
             String body = obj.getString("body");
             return new NotificationContent(
@@ -387,7 +448,7 @@ public class AiAssistantService {
                     StringUtils.hasText(body) ? body : fallbackBody
             );
         } catch (Exception e) {
-            log.error("Parse notification json failed: {}", content, e);
+            log.warn("解析 AI 通知优化结果失败，原始内容: {}", truncate(content), e);
             return new NotificationContent(fallbackSubject, fallbackBody);
         }
     }
@@ -401,6 +462,13 @@ public class AiAssistantService {
             trimmed = trimmed.replaceAll("^```(json)?\\s*", "").replaceAll("\\s*```$", "");
         }
         return trimmed.trim();
+    }
+
+    private String truncate(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= 2000 ? value : value.substring(0, 2000) + "...(truncated)";
     }
 
     public record NotificationContent(String subject, String body) {

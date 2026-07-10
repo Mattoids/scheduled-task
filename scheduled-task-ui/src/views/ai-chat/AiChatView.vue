@@ -30,7 +30,14 @@ const configResult = ref("")
 
 const loadDatasourceOptions = async () => {
   const res = await listDatasource();
-  datasourceOptions.value = res.records || [];
+  datasourceOptions.value = (res.records || []).filter((d) => d.status === 1);
+  // 默认选中第一个可用数据源，使对话自动基于该数据源的数据字典生成 SQL、执行并返回结果
+  if (selectedDatasourceId.value === undefined && datasourceOptions.value.length > 0) {
+    const firstId = datasourceOptions.value[0].id;
+    if (firstId != null) {
+      selectedDatasourceId.value = firstId;
+    }
+  }
 };
 
 const scrollToBottom = () => {
@@ -126,7 +133,7 @@ onMounted(() => {
         <el-select
           v-show="activeMode === 'chat'"
           v-model="selectedDatasourceId"
-          placeholder="选择数据源（可选，选择后可基于表结构对话）"
+          placeholder="选择数据源（将基于其数据字典自动生成 SQL）"
           clearable
           style="width: 320px"
         >

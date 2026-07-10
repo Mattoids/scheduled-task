@@ -1,9 +1,15 @@
 package com.mattoid.scheduled.ai;
 
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
@@ -13,6 +19,11 @@ import java.util.stream.Collectors;
 
 @Slf4j
 public class OpenAiCompatibleClient implements AiClient {
+
+    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+    /** 瞬态错误（5xx/429/超时）的最大尝试次数：首次 + 1 次重试 */
+    private static final int MAX_ATTEMPTS = 2;
+    private static final long RETRY_BACKOFF_MS = 1500L;
 
     private final String baseUrl;
     private final String apiKey;
@@ -24,9 +35,13 @@ public class OpenAiCompatibleClient implements AiClient {
         this.baseUrl = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "https://api.openai.com/v1";
         this.apiKey = apiKey;
         this.defaultModel = defaultModel;
-        this.timeoutSeconds = timeoutSeconds != null ? timeoutSeconds : 60;
-        this.restTemplate = new RestTemplate();
-        this.restTemplate.getMessageConverters().add(new org.springframework.http.converter.StringHttpMessageConverter());
+        int timeout = timeoutSeconds != null && timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
+        this.timeoutSeconds = timeout;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(timeout * 1000);
+        requestFactory.setReadTimeout(timeout * 1000);
+        this.restTemplate = new RestTemplate(requestFactory);
+        this.restTemplate.getMessageConverters().add(new StringHttpMessageConverter());
     }
 
     @Override
@@ -51,30 +66,76 @@ public class OpenAiCompatibleClient implements AiClient {
             headers.setBearerAuth(apiKey);
         }
 
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+                return parseResponse(response.getBody());
+            } catch (HttpStatusCodeException e) {
+                int status = e.getStatusCode().value();
+                boolean retryable = status == 429 || status >= 500;
+                log.warn("AI 上游返回 HTTP {}（第 {}/{} 次）{}", status, attempt, MAX_ATTEMPTS,
+                        retryable && attempt < MAX_ATTEMPTS ? "，将重试" : "");
+                if (retryable && attempt < MAX_ATTEMPTS) {
+                    sleep(RETRY_BACKOFF_MS);
+                    continue;
+                }
+                return AiChatResponse.error(buildHttpErrorMessage(status));
+            } catch (ResourceAccessException e) {
+                // 连接/读取超时等网络异常
+                log.warn("AI 请求网络异常（第 {}/{} 次）：{}", attempt, MAX_ATTEMPTS, e.getMessage());
+                if (attempt < MAX_ATTEMPTS) {
+                    sleep(RETRY_BACKOFF_MS);
+                    continue;
+                }
+                return AiChatResponse.error("AI 请求超时或网络异常，请稍后重试");
+            } catch (Exception e) {
+                log.error("OpenAI compatible API call failed: {}", url, e);
+                return AiChatResponse.error("AI 调用失败: " + e.getMessage());
+            }
+        }
+        return AiChatResponse.error("AI 调用失败");
+    }
+
+    private String buildHttpErrorMessage(int status) {
+        return switch (status) {
+            case 401, 403 -> "AI 鉴权失败，请检查 API Key";
+            case 429 -> "AI 请求过于频繁，请稍后重试";
+            case 500, 502, 503, 504 -> "AI 服务暂时不可用（上游 HTTP " + status + "），请稍后重试";
+            default -> "AI 调用失败（HTTP " + status + "）";
+        };
+    }
+
+    private void sleep(long millis) {
         try {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.POST,
-                    new HttpEntity<>(body, headers),
-                    String.class
-            );
-            return parseResponse(response.getBody());
-        } catch (Exception e) {
-            log.error("OpenAI compatible API call failed: {}", url, e);
-            return AiChatResponse.error("AI 调用失败: " + e.getMessage());
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
     private AiChatResponse parseResponse(String json) {
         try {
             JSONObject root = JSON.parseObject(json);
+            if (root == null) {
+                log.warn("AI 响应为空或非 JSON，原始响应: {}", truncate(json));
+                return AiChatResponse.error("AI 响应解析失败");
+            }
             if (root.containsKey("error")) {
                 JSONObject error = root.getJSONObject("error");
-                return AiChatResponse.error(error.getString("message"));
+                return AiChatResponse.error(error != null ? error.getString("message") : "AI 返回错误");
             }
-            JSONObject choice = root.getJSONArray("choices").getJSONObject(0);
-            JSONObject message = choice.getJSONObject("message");
-            String content = message.getString("content");
+            JSONArray choices = root.getJSONArray("choices");
+            if (choices == null || choices.isEmpty()) {
+                log.warn("AI 响应缺少 choices，原始响应: {}", truncate(json));
+                return AiChatResponse.error("AI 未返回有效结果");
+            }
+            JSONObject message = choices.getJSONObject(0).getJSONObject("message");
+            String content = message != null ? message.getString("content") : null;
+            if (!StringUtils.hasText(content)) {
+                // 便于排查兼容厂商（如 SenseNova）返回结构差异或 content 为空的情况
+                log.warn("AI 响应 message.content 为空，原始响应: {}", truncate(json));
+            }
 
             AiChatResponse response = new AiChatResponse();
             response.setContent(content);
@@ -87,8 +148,15 @@ public class OpenAiCompatibleClient implements AiClient {
             }
             return response;
         } catch (Exception e) {
-            log.error("Parse AI response failed: {}", json, e);
+            log.error("Parse AI response failed: {}", truncate(json), e);
             return AiChatResponse.error("解析 AI 响应失败");
         }
+    }
+
+    private String truncate(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= 2000 ? value : value.substring(0, 2000) + "...(truncated)";
     }
 }

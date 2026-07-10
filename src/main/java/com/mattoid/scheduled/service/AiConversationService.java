@@ -98,6 +98,14 @@ public class AiConversationService {
                                 .eq(AiConversation::getSessionId, sessionId))
                 : null;
         if (conversation != null) {
+            // 允许在已有会话中绑定或切换数据源：自动重新解析该数据源最新的 SCHEMA 文档，
+            // 这样「先创建会话、后选择数据源」或「会话中途切换数据源」都能正确进入 SQL 生成流程。
+            if (datasourceId != null && !datasourceId.equals(conversation.getDatasourceId())) {
+                conversation.setDatasourceId(datasourceId);
+                AiKnowledgeDoc doc = aiKnowledgeDocService.getLatestByDatasource(datasourceId, "SCHEMA");
+                conversation.setDocId(doc != null ? doc.getId() : null);
+                aiConversationMapper.updateById(conversation);
+            }
             return conversation;
         }
         conversation = new AiConversation();
@@ -135,8 +143,14 @@ public class AiConversationService {
 
         String schemaDoc = loadSchemaDoc(conversation);
         ChatReplyResult result;
-        if (StringUtils.hasText(schemaDoc) && conversation.getDatasourceId() != null) {
-            result = handleSqlChat(conversation.getDatasourceId(), schemaDoc, userMessage, messages, channel);
+        if (conversation.getDatasourceId() != null) {
+            if (StringUtils.hasText(schemaDoc)) {
+                result = handleSqlChat(conversation.getDatasourceId(), schemaDoc, userMessage, messages, channel);
+            } else {
+                // 已绑定数据源但尚未生成数据字典：明确引导用户去同步，而不是降级成泛泛闲聊。
+                result = new ChatReplyResult("当前数据源尚未生成数据字典文档，无法据此生成 SQL。"
+                        + "请先在「数据源管理」中对该数据源执行「同步表结构」并生成数据字典后重试。");
+            }
         } else {
             result = new ChatReplyResult(handleGenericChat(userMessage, messages, channel));
         }
@@ -242,9 +256,14 @@ public class AiConversationService {
 
         List<AiMessage> requestMessages = new ArrayList<>();
         String systemPrompt = channel == ReplyChannel.WECOM ? SYSTEM_PROMPT_SQL_SUMMARY_WECOM : SYSTEM_PROMPT_SQL_SUMMARY_WEB;
+        boolean hasHistory = history != null && !history.isEmpty();
+        // 仅保留一条 system 消息并置于首位（兼容 SenseNova 等要求 system 必须在开头的厂商），
+        // 历史上下文以 user/assistant 轮次形式跟在后面。
+        if (hasHistory) {
+            systemPrompt += "\n\n另外，以下是与当前用户的连续对话记录，总结时请结合上下文理解用户意图（如指代、延续上次查询）。";
+        }
         requestMessages.add(AiMessage.system(systemPrompt));
-        if (history != null && !history.isEmpty()) {
-            requestMessages.add(AiMessage.system("以下是对话历史，总结时请结合上下文理解用户意图。"));
+        if (hasHistory) {
             requestMessages.addAll(history);
         }
 

@@ -4,12 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.dto.IntentResult;
+import com.mattoid.scheduled.dto.SqlGenerateResult;
+import com.mattoid.scheduled.entity.AiKnowledgeDoc;
+import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.entity.TaskConfig;
 import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.AiKnowledgeDocService;
 import com.mattoid.scheduled.service.ChartGenerationService;
+import com.mattoid.scheduled.service.DatasourceConfigService;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskExecutionService;
 import com.mattoid.scheduled.service.TaskSqlConfigService;
@@ -28,6 +33,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,6 +44,11 @@ public class WeComCommandHandler {
     private static final int PAGE_SIZE = 10;
     private static final int TOP_TASKS_COUNT = 3;
 
+    /**
+     * 通过数据源名称查询的前缀，例如："数据源：销售库 上个月销售额前 10 的门店"。
+     */
+    private static final Pattern DATASOURCE_PREFIX_PATTERN = Pattern.compile("^数据源\\s*[:：]\\s*(\\S+)(?:\\s+(.*))?$", Pattern.DOTALL);
+
     private final TaskConfigService taskConfigService;
     private final TaskExecutionService taskExecutionService;
     private final TaskLogMapper taskLogMapper;
@@ -44,6 +56,8 @@ public class WeComCommandHandler {
     private final SqlExecutor sqlExecutor;
     private final TaskSqlConfigService taskSqlConfigService;
     private final ChartGenerationService chartGenerationService;
+    private final DatasourceConfigService datasourceConfigService;
+    private final AiKnowledgeDocService aiKnowledgeDocService;
 
     public WeComCommandHandler(TaskConfigService taskConfigService,
                                TaskExecutionService taskExecutionService,
@@ -51,7 +65,9 @@ public class WeComCommandHandler {
                                AiAssistantService aiAssistantService,
                                SqlExecutor sqlExecutor,
                                TaskSqlConfigService taskSqlConfigService,
-                               ChartGenerationService chartGenerationService) {
+                               ChartGenerationService chartGenerationService,
+                               DatasourceConfigService datasourceConfigService,
+                               AiKnowledgeDocService aiKnowledgeDocService) {
         this.taskConfigService = taskConfigService;
         this.taskExecutionService = taskExecutionService;
         this.taskLogMapper = taskLogMapper;
@@ -59,6 +75,8 @@ public class WeComCommandHandler {
         this.sqlExecutor = sqlExecutor;
         this.taskSqlConfigService = taskSqlConfigService;
         this.chartGenerationService = chartGenerationService;
+        this.datasourceConfigService = datasourceConfigService;
+        this.aiKnowledgeDocService = aiKnowledgeDocService;
     }
 
     public CommandResult handle(WxCpXmlMessage message, Long configId) {
@@ -130,6 +148,14 @@ public class WeComCommandHandler {
 
     private CommandResult handleAiFallback(String content) {
         try {
+            // 优先识别"数据源：名称 问题"前缀，按指定数据源执行自然语言查询，不依赖 AI 意图识别
+            DatasourcePrefix prefix = extractDatasourcePrefix(content);
+            if (prefix != null) {
+                if (!StringUtils.hasText(prefix.question())) {
+                    return new CommandResult("请在数据源名称后补充要查询的问题，例如：数据源：" + prefix.name() + " 上个月销售额前 10 的门店");
+                }
+                return handleQueryDataByDatasource(prefix.name(), prefix.question(), Collections.emptyMap());
+            }
             IntentResult intent = aiAssistantService.parseIntent(content);
             if (intent != null && intent.isRecognized()) {
                 return executeIntent(intent, content);
@@ -270,6 +296,12 @@ public class WeComCommandHandler {
     }
 
     private CommandResult handleQueryDataIntent(Map<String, String> params, String originalContent) {
+        // 当 AI 意图识别出数据源名称时，直接在该数据源上按自然语言生成并执行 SQL
+        String dsName = params != null ? params.get("datasource") : null;
+        if (StringUtils.hasText(dsName)) {
+            return handleQueryDataByDatasource(dsName.trim(), originalContent, params);
+        }
+
         String keyword = params.get("keyword");
         if (!StringUtils.hasText(keyword)) {
             keyword = originalContent;
@@ -318,6 +350,149 @@ public class WeComCommandHandler {
             log.error("SQL 查询失败: sqlId={}, sqlName={}", config.getId(), config.getSqlName(), e);
             return new CommandResult("查询失败: " + e.getMessage() + "\nSQL: " + config.getSqlName());
         }
+    }
+
+    /**
+     * 在指定数据源（按名称选择）上，基于已同步的数据字典由 AI 生成只读 SQL 并执行，返回企业微信纯文本摘要。
+     */
+    private CommandResult handleQueryDataByDatasource(String dsName, String question, Map<String, String> intentParams) {
+        if (!StringUtils.hasText(dsName)) {
+            return new CommandResult("请指定数据源名称，例如：数据源：销售库 查询上个月销售额前 10 的门店");
+        }
+
+        List<DatasourceConfig> matches = findDatasourcesByName(dsName);
+        if (matches.isEmpty()) {
+            return new CommandResult("未找到名称包含 \"" + dsName + "\" 的已启用数据源，请检查名称或先在管理后台创建并启用数据源。");
+        }
+        if (matches.size() > 1) {
+            StringBuilder sb = new StringBuilder("找到多个匹配的数据源，请使用更精确的名称：\n");
+            for (DatasourceConfig ds : matches) {
+                sb.append(ds.getId()).append(". ").append(ds.getName());
+                if (StringUtils.hasText(ds.getDatabaseName())) {
+                    sb.append(" (").append(ds.getDatabaseName()).append(")");
+                }
+                sb.append("\n");
+            }
+            return new CommandResult(sb.toString());
+        }
+
+        DatasourceConfig ds = matches.get(0);
+        AiKnowledgeDoc doc = aiKnowledgeDocService.getLatestByDatasource(ds.getId(), "SCHEMA");
+        String schemaDoc = aiKnowledgeDocService.readContent(doc);
+        if (!StringUtils.hasText(schemaDoc)) {
+            return new CommandResult("数据源 \"" + ds.getName() + "\" 尚未同步数据字典，请先在管理后台的【数据源】中执行\"同步数据字典\"，然后再查询。");
+        }
+
+        String userQuestion = StringUtils.hasText(question) ? question : dsName;
+        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userQuestion);
+        if (!StringUtils.hasText(sqlResult.getSql())) {
+            return new CommandResult("未能根据数据字典生成 SQL：" + sqlResult.getExplanation());
+        }
+
+        List<Map<String, Object>> rows;
+        try {
+            SqlExecutor.validateReadOnlySql(sqlResult.getSql());
+            Map<String, Object> execParams = new HashMap<>(sqlResult.getParams());
+            rows = sqlExecutor.executeQuery(ds.getId(), sqlResult.getSql(), execParams);
+        } catch (Exception e) {
+            log.error("数据源查询执行失败: datasource={}, sql={}", ds.getName(), sqlResult.getSql(), e);
+            return new CommandResult("查询失败：" + e.getMessage() + "\nSQL：" + sqlResult.getSql());
+        }
+
+        if (rows.isEmpty()) {
+            return new CommandResult("查询完成，未返回数据。\n数据源：" + ds.getName() + "\nSQL：" + sqlResult.getSql());
+        }
+
+        File chartFile = null;
+        String chartType = intentParams != null ? intentParams.get("chartType") : null;
+        if (!StringUtils.hasText(chartType)) {
+            chartType = sqlResult.getChartType();
+        }
+        if (StringUtils.hasText(chartType)) {
+            try {
+                String chartTitle = StringUtils.hasText(sqlResult.getChartTitle()) ? sqlResult.getChartTitle() : ds.getName();
+                chartFile = chartGenerationService.generateChart(rows, chartType, chartTitle);
+            } catch (Exception e) {
+                log.error("生成图表失败: type={}", chartType, e);
+            }
+        }
+
+        String summary = buildFreeFormSummary(ds, sqlResult.getSql(), rows);
+        return new CommandResult(summary, chartFile);
+    }
+
+    private String buildFreeFormSummary(DatasourceConfig ds, String sql, List<Map<String, Object>> rows) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("查询结果\n");
+        sb.append("数据源：").append(ds.getName()).append("\n");
+        sb.append("SQL：").append(sql).append("\n");
+        sb.append("行数：").append(rows.size()).append("\n");
+        int previewLimit = Math.min(rows.size(), 10);
+        List<String> columns = new ArrayList<>(rows.get(0).keySet());
+        sb.append("预览（前 ").append(previewLimit).append(" 行）：\n");
+        for (int i = 0; i < previewLimit; i++) {
+            Map<String, Object> row = rows.get(i);
+            for (String col : columns) {
+                sb.append(col).append(":").append(row.get(col)).append("  ");
+            }
+            sb.append("\n");
+        }
+        if (rows.size() > previewLimit) {
+            sb.append("...");
+        }
+        return sb.toString();
+    }
+
+    private DatasourcePrefix extractDatasourcePrefix(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+        Matcher matcher = DATASOURCE_PREFIX_PATTERN.matcher(content.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        return new DatasourcePrefix(matcher.group(1), matcher.group(2));
+    }
+
+    private record DatasourcePrefix(String name, String question) {
+    }
+
+    private List<DatasourceConfig> findDatasourcesByName(String name) {
+        if (!StringUtils.hasText(name)) {
+            return Collections.emptyList();
+        }
+        String clean = name.replaceAll("[\\p{P}\\s]+", "").trim();
+        List<DatasourceConfig> all = datasourceConfigService.lambdaQuery()
+                .eq(DatasourceConfig::getStatus, 1)
+                .list();
+
+        List<DatasourceConfig> exact = new ArrayList<>();
+        for (DatasourceConfig ds : all) {
+            String dsName = ds.getName();
+            if (dsName == null) {
+                continue;
+            }
+            String dsClean = dsName.replaceAll("[\\p{P}\\s]+", "").trim();
+            if (name.equalsIgnoreCase(dsName) || clean.equalsIgnoreCase(dsClean)) {
+                exact.add(ds);
+            }
+        }
+        if (!exact.isEmpty()) {
+            return exact;
+        }
+
+        List<DatasourceConfig> fuzzy = new ArrayList<>();
+        for (DatasourceConfig ds : all) {
+            String dsName = ds.getName();
+            if (dsName == null) {
+                continue;
+            }
+            String dsClean = dsName.replaceAll("[\\p{P}\\s]+", "").trim();
+            if (containsIgnoreCase(dsName, name) || containsIgnoreCase(dsClean, clean)) {
+                fuzzy.add(ds);
+            }
+        }
+        return fuzzy;
     }
 
     private List<TaskSqlConfig> findMatchingSqlConfigs(String keyword) {
@@ -672,6 +847,7 @@ public class WeComCommandHandler {
                 "运行{任务名称}任务 - 按名称手动运行任务\n" +
                 "运行 {任务名称} {时间范围} - 按指定时间范围运行任务，例如：运行 销售日报 昨天\n" +
                 "查询 {数据关键词} [折线图/柱状图/饼状图] - 直接查询 SQL 数据\n" +
+                "数据源：{数据源名称} {查询问题} - 在指定数据源中按自然语言查询（需先同步数据字典），例如：数据源：销售库 上个月销售额前 10 的门店\n" +
                 "创建任务 任务名|任务编码|CRON表达式|sqlId1,sqlId2 - 创建任务";
     }
 }

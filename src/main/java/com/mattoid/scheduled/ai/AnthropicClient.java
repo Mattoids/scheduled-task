@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
@@ -14,6 +15,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AnthropicClient implements AiClient {
 
+    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+
     private final String baseUrl;
     private final String apiKey;
     private final String defaultModel;
@@ -23,7 +26,11 @@ public class AnthropicClient implements AiClient {
         this.baseUrl = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "https://api.anthropic.com/v1";
         this.apiKey = apiKey;
         this.defaultModel = defaultModel;
-        this.restTemplate = new RestTemplate();
+        int timeout = timeoutSeconds != null && timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(timeout * 1000);
+        requestFactory.setReadTimeout(timeout * 1000);
+        this.restTemplate = new RestTemplate(requestFactory);
     }
 
     @Override
