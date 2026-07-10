@@ -3,14 +3,19 @@ package com.mattoid.scheduled.controller;
 import com.mattoid.scheduled.dto.CommandResult;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComCommandHandler;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.cp.bean.message.WxCpXmlMessage;
 import me.chanjar.weixin.cp.util.crypto.WxCpCryptUtil;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RestController
@@ -19,11 +24,24 @@ public class WeComCallbackController {
 
     private final WeComAppManager weComAppManager;
     private final WeComCommandHandler weComCommandHandler;
+    private final Executor taskExecutor;
+
+    /**
+     * 回调消息去重缓存：企业微信在 5 秒内未收到响应会重推同一条消息（最多 3 次），
+     * 用 MsgId（无 MsgId 时用发送方+时间+内容兜底）做幂等，避免重复回复。
+     * TTL 10 分钟远大于企微重试窗口，上限防止内存无限增长。
+     */
+    private final Cache<String, Boolean> dedupeCache = CacheBuilder.newBuilder()
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .maximumSize(10_000)
+            .build();
 
     public WeComCallbackController(WeComAppManager weComAppManager,
-                                   WeComCommandHandler weComCommandHandler) {
+                                   WeComCommandHandler weComCommandHandler,
+                                   @Qualifier("taskExecutor") Executor taskExecutor) {
         this.weComAppManager = weComAppManager;
         this.weComCommandHandler = weComCommandHandler;
+        this.taskExecutor = taskExecutor;
     }
 
     @GetMapping("/{configId}")
@@ -70,13 +88,34 @@ public class WeComCallbackController {
             WxCpXmlMessage message = weComAppManager.parseMessage(configId, actualSignature, timestamp, nonce, body);
             log.info("企业微信消息解析成功: configId={}, fromUser={}, msgType={}, content={}, eventKey={}",
                     configId, message.getFromUserName(), message.getMsgType(), message.getContent(), message.getEventKey());
+
+            String dedupeKey = buildDedupeKey(configId, message);
+            if (dedupeCache.getIfPresent(dedupeKey) != null) {
+                log.warn("企业微信重复回调，已忽略: configId={}, key={}", configId, dedupeKey);
+                return "success";
+            }
+            dedupeCache.put(dedupeKey, Boolean.TRUE);
+
+            // 异步处理 + 主动回复，立即返回 success，避免触发企业微信 5 秒超时重推导致重复回复。
+            taskExecutor.execute(() -> processAndReply(configId, message));
+            return "success";
+        } catch (Exception e) {
+            log.error("企业微信消息处理失败: configId={}", configId, e);
+            return "success";
+        }
+    }
+
+    /**
+     * 异步执行业务处理并通过主动消息接口回复用户。已在回调线程中完成 MsgId 去重，
+     * 此处不再回退到被动回复（HTTP 响应早已结束），主动接口失败仅记录日志。
+     */
+    private void processAndReply(Long configId, WxCpXmlMessage message) {
+        try {
             CommandResult result = weComCommandHandler.handle(message, configId);
             log.info("企业微信消息处理完成: configId={}, text={}, hasImage={}", configId,
                     result != null ? result.getText() : null,
                     result != null && result.hasImage());
             String reply = result != null && result.hasText() ? result.getText() : null;
-
-            // 优先使用主动消息接口回复用户，失败时回退到被动回复
             try {
                 if (StringUtils.hasText(reply)) {
                     weComAppManager.sendText(configId, message.getFromUserName(), reply);
@@ -86,20 +125,21 @@ public class WeComCallbackController {
                     weComAppManager.sendImage(configId, message.getFromUserName(), result.getImageFile());
                     log.info("企业微信主动回复图片消息发送成功: configId={}, toUser={}", configId, message.getFromUserName());
                 }
-                return "success";
             } catch (Exception sendEx) {
-                log.error("企业微信主动回复消息发送失败，尝试被动回复: configId={}", configId, sendEx);
-                if (!StringUtils.hasText(reply)) {
-                    return "success";
-                }
-                String encrypted = weComAppManager.encryptReply(configId, reply,
-                        message.getFromUserName(), message.getToUserName(), timestamp, nonce);
-                log.info("企业微信被动回复消息已生成: configId={}", configId);
-                return encrypted;
+                log.error("企业微信主动回复发送失败: configId={}, toUser={}", configId, message.getFromUserName(), sendEx);
             }
         } catch (Exception e) {
             log.error("企业微信消息处理失败: configId={}", configId, e);
-            return "success";
         }
+    }
+
+    /** 构造去重 key：优先用 MsgId，事件类等无 MsgId 的消息用发送方+时间+类型+内容兜底。 */
+    private String buildDedupeKey(Long configId, WxCpXmlMessage message) {
+        Long msgId = message.getMsgId();
+        if (msgId != null) {
+            return configId + ":" + msgId;
+        }
+        return configId + ":" + message.getFromUserName() + ":" + message.getCreateTime()
+                + ":" + message.getMsgType() + ":" + message.getContent() + ":" + message.getEventKey();
     }
 }
