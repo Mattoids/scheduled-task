@@ -36,6 +36,24 @@ public class SqlExecutor {
     }
 
     private static final Pattern SQL_PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
+    private static final Pattern SQL_COMMENT_PATTERN = Pattern.compile("(?s)/\\*.*?\\*/|--[^\\r\\n]*");
+    private static final Pattern SQL_NON_READ_ONLY_PATTERN = Pattern.compile(
+            "\\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|REPLACE|GRANT|REVOKE|EXEC|EXECUTE|CALL|LOAD)\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    public static void validateReadOnlySql(String sql) {
+        if (!org.springframework.util.StringUtils.hasText(sql)) {
+            throw new IllegalArgumentException("SQL 内容为空");
+        }
+        String stripped = SQL_COMMENT_PATTERN.matcher(sql).replaceAll(" ");
+        String trimmed = stripped.trim();
+        if (!trimmed.regionMatches(true, 0, "SELECT", 0, 6)) {
+            throw new IllegalArgumentException("AI 对话仅允许执行 SELECT 查询语句");
+        }
+        if (SQL_NON_READ_ONLY_PATTERN.matcher(trimmed).find()) {
+            throw new IllegalArgumentException("AI 对话禁止执行包含 INSERT/UPDATE/DELETE/DROP/ALTER 等变更关键字的 SQL");
+        }
+    }
 
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql) throws Exception {
         return executeQuery(datasourceId, sql, java.util.Collections.emptyMap());

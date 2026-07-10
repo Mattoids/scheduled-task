@@ -55,7 +55,14 @@ public class AssistantController {
         if (request == null || !hasText(request.getMessage())) {
             return Result.error("消息不能为空");
         }
-        return Result.ok(aiConversationService.chat(request.getSessionId(), request.getDatasourceId(), request.getMessage()));
+        AiConversationService.ReplyChannel channel = AiConversationService.ReplyChannel.WEB;
+        if (hasText(request.getChannel())) {
+            try {
+                channel = AiConversationService.ReplyChannel.valueOf(request.getChannel().toUpperCase());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return Result.ok(aiConversationService.chat(request.getSessionId(), request.getDatasourceId(), request.getMessage(), channel));
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -103,6 +110,7 @@ public class AssistantController {
         private String sessionId;
         private Long datasourceId;
         private String message;
+        private String channel;
     }
 
     @Data

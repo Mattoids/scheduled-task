@@ -34,7 +34,7 @@ import java.util.UUID;
 @Service
 public class AiConversationService {
 
-    private static final String SYSTEM_PROMPT_SQL_SUMMARY = """
+    private static final String SYSTEM_PROMPT_SQL_SUMMARY_WEB = """
             你是一名数据分析助手。请根据用户的原始问题、生成的 SQL 以及执行结果，给出简洁、准确的中文回复。
             回复要求：
             1. 使用 Markdown 格式回复。
@@ -43,6 +43,26 @@ public class AiConversationService {
             4. 不要重复 SQL。
             5. 如果执行失败或没有数据，请说明原因并给出建议。
             """;
+
+    private static final String SYSTEM_PROMPT_SQL_SUMMARY_WECOM = """
+            你是一名数据分析助手。请根据用户的原始问题、生成的 SQL 以及执行结果，给出简洁、准确的中文回复。
+            回复要求：
+            1. 使用纯文本回复，不要使用 Markdown、表格、图片等富文本格式。
+            2. 如果结果是数据表格，请用文字分行列出关键数据，每行一个记录，字段用冒号分隔。
+            3. 如果结果是单值或汇总统计，直接给出结论。
+            4. 不要重复 SQL。
+            5. 如果执行失败或没有数据，请说明原因并给出建议。
+            """;
+
+    public enum ReplyChannel {
+        WEB, WECOM
+    }
+
+    public record ChatReplyResult(String text, File imageFile) {
+        public ChatReplyResult(String text) {
+            this(text, null);
+        }
+    }
 
     private final AiConversationMapper aiConversationMapper;
     private final AiKnowledgeDocService aiKnowledgeDocService;
@@ -94,62 +114,84 @@ public class AiConversationService {
     }
 
     public AiConversation chat(String sessionId, Long datasourceId, String userMessage) {
+        return chat(sessionId, datasourceId, userMessage, ReplyChannel.WEB);
+    }
+
+    public AiConversation chat(String sessionId, Long datasourceId, String userMessage, ReplyChannel channel) {
+        ChatReplyResult result = chatWithResult(sessionId, datasourceId, userMessage, channel);
         AiConversation conversation = getOrCreate(sessionId, datasourceId);
         List<AiMessage> messages = loadMessages(conversation);
-
         messages.add(AiMessage.user(userMessage));
-
-        String schemaDoc = loadSchemaDoc(conversation);
-        String reply;
-
-        if (StringUtils.hasText(schemaDoc) && conversation.getDatasourceId() != null) {
-            reply = handleSqlChat(conversation.getDatasourceId(), schemaDoc, userMessage, messages);
-        } else {
-            reply = handleGenericChat(userMessage, messages);
-        }
-
-        messages.add(AiMessage.assistant(reply));
+        messages.add(AiMessage.assistant(result.text()));
         conversation.setMessages(JSON.toJSONString(messages));
         aiConversationMapper.updateById(conversation);
         return conversation;
     }
 
-    private String handleSqlChat(Long datasourceId, String schemaDoc, String userMessage, List<AiMessage> messages) {
+    public ChatReplyResult chatWithResult(String sessionId, Long datasourceId, String userMessage, ReplyChannel channel) {
+        AiConversation conversation = getOrCreate(sessionId, datasourceId);
+        List<AiMessage> messages = loadMessages(conversation);
+        messages.add(AiMessage.user(userMessage));
+
+        String schemaDoc = loadSchemaDoc(conversation);
+        ChatReplyResult result;
+        if (StringUtils.hasText(schemaDoc) && conversation.getDatasourceId() != null) {
+            result = handleSqlChat(conversation.getDatasourceId(), schemaDoc, userMessage, messages, channel);
+        } else {
+            result = new ChatReplyResult(handleGenericChat(userMessage, messages, channel));
+        }
+        return result;
+    }
+
+    private ChatReplyResult handleSqlChat(Long datasourceId, String schemaDoc, String userMessage, List<AiMessage> messages, ReplyChannel channel) {
         List<AiMessage> history = messages.size() > 1 ? messages.subList(0, messages.size() - 1) : java.util.Collections.emptyList();
         SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, history);
         if (!StringUtils.hasText(sqlResult.getSql())) {
-            return "未能根据数据字典生成 SQL：" + sqlResult.getExplanation();
+            return new ChatReplyResult("未能根据数据字典生成 SQL：" + sqlResult.getExplanation());
         }
 
         List<Map<String, Object>> rows;
         String executeInfo;
         try {
+            SqlExecutor.validateReadOnlySql(sqlResult.getSql());
             Map<String, Object> params = new HashMap<>(sqlResult.getParams());
             rows = sqlExecutor.executeQuery(datasourceId, sqlResult.getSql(), params);
             executeInfo = "查询成功，返回 " + rows.size() + " 条数据。";
         } catch (Exception e) {
             log.error("AI 生成 SQL 执行失败: {}", sqlResult.getSql(), e);
-            return "生成的 SQL 执行失败：" + e.getMessage() + "\n\nSQL：" + sqlResult.getSql();
+            return new ChatReplyResult("SQL 执行失败：" + e.getMessage() + "\n\nSQL：" + sqlResult.getSql());
         }
 
         if (StringUtils.hasText(sqlResult.getChartType()) && !rows.isEmpty()) {
-            String chartUrl = generateChartImage(rows, sqlResult.getChartType(), sqlResult.getChartTitle());
-            if (chartUrl != null) {
-                return "已为您生成图表：\n\n![" + (sqlResult.getChartTitle() != null ? sqlResult.getChartTitle() : "数据图表") + "](" + chartUrl + ")";
+            File chartFile = generateChartFile(rows, sqlResult.getChartType(), sqlResult.getChartTitle());
+            if (chartFile != null) {
+                String chartUrl = saveChartFile(chartFile);
+                if (chartUrl != null) {
+                    String text = channel == ReplyChannel.WECOM
+                            ? "已为您生成图表，请查看图片。"
+                            : "已为您生成图表：\n\n![" + (sqlResult.getChartTitle() != null ? sqlResult.getChartTitle() : "数据图表") + "](" + chartUrl + ")";
+                    return new ChatReplyResult(text, chartFile);
+                }
             }
             executeInfo += "（图表生成失败，已返回数据摘要）";
         }
 
-        return summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, history);
+        return new ChatReplyResult(summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, history, channel));
     }
 
-    private String handleGenericChat(String userMessage, List<AiMessage> messages) {
+    private String handleGenericChat(String userMessage, List<AiMessage> messages, ReplyChannel channel) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
             return "未配置默认 AI，无法回复。";
         }
+        String systemPrompt = StringUtils.hasText(config.getSystemPrompt()) ? config.getSystemPrompt() : "你是智能助手。";
+        if (channel == ReplyChannel.WECOM) {
+            systemPrompt += " 请注意：当前回复将发送到企业微信，请使用纯文本，不要使用 Markdown、表格或图片。";
+        } else {
+            systemPrompt += " 请注意：当前回复将在网页对话中展示，可以使用 Markdown 格式。";
+        }
         List<AiMessage> requestMessages = new ArrayList<>();
-        requestMessages.add(AiMessage.system(StringUtils.hasText(config.getSystemPrompt()) ? config.getSystemPrompt() : "你是智能助手。"));
+        requestMessages.add(AiMessage.system(systemPrompt));
         requestMessages.addAll(messages);
 
         AiClient client = aiClientFactory.createClient(config);
@@ -161,12 +203,20 @@ public class AiConversationService {
         return response.getContent();
     }
 
-    private String generateChartImage(List<Map<String, Object>> rows, String chartType, String chartTitle) {
+    private File generateChartFile(List<Map<String, Object>> rows, String chartType, String chartTitle) {
         try {
-            File chartFile = chartGenerationService.generateChart(rows, chartType, chartTitle);
-            if (chartFile == null || !chartFile.exists()) {
-                return null;
-            }
+            return chartGenerationService.generateChart(rows, chartType, chartTitle);
+        } catch (Exception e) {
+            log.error("生成图表失败: type={}, title={}", chartType, chartTitle, e);
+            return null;
+        }
+    }
+
+    private String saveChartFile(File chartFile) {
+        if (chartFile == null || !chartFile.exists()) {
+            return null;
+        }
+        try {
             String dateFolder = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
             String fileName = UUID.randomUUID().toString().substring(0, 8) + ".png";
             Path targetDir = Paths.get(uploadPath, "ai-charts", dateFolder);
@@ -175,26 +225,24 @@ public class AiConversationService {
             }
             Path targetFile = targetDir.resolve(fileName);
             Files.copy(chartFile.toPath(), targetFile, StandardCopyOption.REPLACE_EXISTING);
-            if (!chartFile.delete()) {
-                log.warn("临时图表文件删除失败: {}", chartFile.getAbsolutePath());
-            }
             return "/storage/ai-charts/" + dateFolder + "/" + fileName;
         } catch (Exception e) {
-            log.error("生成图表图片失败: type={}, title={}", chartType, chartTitle, e);
+            log.error("保存图表文件失败: {}", chartFile.getAbsolutePath(), e);
             return null;
         }
     }
 
     private String summarizeSqlResult(String userMessage, SqlGenerateResult sqlResult,
                                       List<Map<String, Object>> rows, String executeInfo,
-                                      List<AiMessage> history) {
+                                      List<AiMessage> history, ReplyChannel channel) {
         AiConfig config = aiConfigService.getDefaultConfig();
         if (config == null) {
             return executeInfo + "\n\nSQL：" + sqlResult.getSql() + "\n\n结果：\n" + JSON.toJSONString(rows);
         }
 
         List<AiMessage> requestMessages = new ArrayList<>();
-        requestMessages.add(AiMessage.system(SYSTEM_PROMPT_SQL_SUMMARY));
+        String systemPrompt = channel == ReplyChannel.WECOM ? SYSTEM_PROMPT_SQL_SUMMARY_WECOM : SYSTEM_PROMPT_SQL_SUMMARY_WEB;
+        requestMessages.add(AiMessage.system(systemPrompt));
         if (history != null && !history.isEmpty()) {
             requestMessages.add(AiMessage.system("以下是对话历史，总结时请结合上下文理解用户意图。"));
             requestMessages.addAll(history);
