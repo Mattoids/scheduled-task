@@ -65,8 +65,9 @@ public class SqlExecutor {
         }
         Map<String, Object> safeParams = params != null ? params : java.util.Collections.emptyMap();
         String processedSql = processSqlVariables(sql, safeParams);
+        log.info("执行查询 SQL: datasourceId={}, sql={}", datasourceId, processedSql);
         if (!processedSql.equals(sql)) {
-            log.debug("SQL 变量替换后: {}", processedSql);
+            log.debug("SQL 变量替换前: {}", sql);
         }
         DataSource dataSource = datasourceConfigService.getDataSource(datasourceId);
         try (Connection conn = dataSource.getConnection();
