@@ -390,12 +390,19 @@ public class WeComIntelligentBotClient {
     /**
      * 通过回调里携带的 response_url（含一次性 response_code）投递回复。
      * 企业微信智能机器人长链采用「长连接收、HTTP 回」模型：WebSocket 上发 aibot_respond_msg 只会被 ACK、
-     * 不会把消息投递到用户会话；必须对该 response_url 发起 HTTP POST，body 为 {msgtype,text:{content}}。
+     * 不会把消息投递到用户会话；必须对该 response_url 发起 HTTP POST，body 为流式帧
+     * {msgtype:"stream", stream:{id, content, finish:true}}（用 msgtype=text 会被 errcode 40008 拒收）。
      */
     private void sendReplyViaResponseUrl(String responseUrl, String content, Long configId, String fromUser) {
+        // 智能机器人（aibot）回复以流式帧投递：一次性答复用单帧 finish=true 结束即可。
+        // 用 msgtype=text 会被企业微信以 errcode 40008 invalid message type 拒收。
+        Map<String, Object> stream = new java.util.LinkedHashMap<>();
+        stream.put("id", UUID.randomUUID().toString().replace("-", ""));
+        stream.put("content", content);
+        stream.put("finish", true);
         Map<String, Object> body = new java.util.LinkedHashMap<>();
-        body.put("msgtype", "text");
-        body.put("text", Map.of("content", content));
+        body.put("msgtype", "stream");
+        body.put("stream", stream);
         String json;
         try {
             json = objectMapper.writeValueAsString(body);
