@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
+import java.io.IOException;
 
 @Slf4j
 @Service
@@ -119,8 +120,15 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
         AiKnowledgeDoc existing = aiKnowledgeDocService.getLatestByDatasource(datasourceId, "SCHEMA");
         String filePath;
         if (existing != null && StringUtils.hasText(existing.getFilePath())) {
-            aiKnowledgeDocStorageService.writeToPath(existing.getFilePath(), docContent);
-            filePath = existing.getFilePath();
+            try {
+                aiKnowledgeDocStorageService.writeToPath(existing.getFilePath(), docContent);
+                filePath = existing.getFilePath();
+            } catch (IOException e) {
+                // 旧路径可能来自其他运行环境（例如 Linux 容器里的 /root/...），
+                // 本机不可写时回退到默认存储目录重新生成，并用新路径更新记录完成自愈。
+                log.warn("数据字典原路径不可写，回退到默认存储目录重新生成: {}", existing.getFilePath(), e);
+                filePath = aiKnowledgeDocStorageService.save(datasourceId, "SCHEMA", docContent);
+            }
         } else {
             filePath = aiKnowledgeDocStorageService.save(datasourceId, "SCHEMA", docContent);
         }
