@@ -289,12 +289,13 @@ public class WeComIntelligentBotClient {
 
                         String content = "";
                         if ("text".equals(msgType)) {
-                            content = (String) body.getOrDefault("content", "");
+                            content = extractTextContent(body);
                         } else if ("markdown".equals(msgType)) {
-                            content = objectMapper.writeValueAsString(body.get("markdown"));
+                            Object md = body.get("markdown");
+                            content = md != null ? objectMapper.writeValueAsString(md) : "";
                         }
 
-                        String fromUser = (String) body.getOrDefault("from", "");
+                        String fromUser = extractFromUser(body);
                         log.info("智能机器人长链收到消息: configId={}, msgType={}, fromUser={}, content={}",
                                 configId, msgType, fromUser, truncate(content, 200));
 
@@ -506,6 +507,34 @@ public class WeComIntelligentBotClient {
             errmsg = (String) msg.get("errmsg");
         }
         return errmsg;
+    }
+
+    /**
+     * 从回调 body 中提取文本内容。企业微信智能机器人长链回调文本位于 body.text.content（text 为对象），
+     * 而非 body.content；这里优先取 text.content，兼容兜底 body.content。
+     */
+    private String extractTextContent(Map<String, Object> body) {
+        Object text = body.get("text");
+        if (text instanceof Map<?, ?> m) {
+            Object c = m.get("content");
+            if (c != null) {
+                return c.toString();
+            }
+        }
+        Object direct = body.get("content");
+        return direct != null ? direct.toString() : "";
+    }
+
+    /**
+     * 从回调 body 中提取发送者 userid。from 字段为对象 { "userid": "xxx" }，不能直接强转 String。
+     */
+    private String extractFromUser(Map<String, Object> body) {
+        Object from = body.get("from");
+        if (from instanceof Map<?, ?> m) {
+            Object uid = m.get("userid");
+            return uid != null ? uid.toString() : "";
+        }
+        return from != null ? from.toString() : "";
     }
 
     /**
