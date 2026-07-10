@@ -20,18 +20,15 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
 
     private final DynamicDataSourceManager dataSourceManager;
     private final DatasourceSchemaService datasourceSchemaService;
-    private final AiAssistantService aiAssistantService;
     private final AiKnowledgeDocService aiKnowledgeDocService;
     private final AiKnowledgeDocStorageService aiKnowledgeDocStorageService;
 
     public DatasourceConfigService(DynamicDataSourceManager dataSourceManager,
                                    DatasourceSchemaService datasourceSchemaService,
-                                   AiAssistantService aiAssistantService,
                                    AiKnowledgeDocService aiKnowledgeDocService,
                                    AiKnowledgeDocStorageService aiKnowledgeDocStorageService) {
         this.dataSourceManager = dataSourceManager;
         this.datasourceSchemaService = datasourceSchemaService;
-        this.aiAssistantService = aiAssistantService;
         this.aiKnowledgeDocService = aiKnowledgeDocService;
         this.aiKnowledgeDocStorageService = aiKnowledgeDocStorageService;
     }
@@ -109,15 +106,14 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
             config.setDriverClass(resolveDriverClass(config.getDbType()));
         }
 
+        // 数据字典必须完整覆盖全库表结构：直接落库 extractSchema 的完整结果，
+        // 不再经 AI「整理」改写——AI 受 maxTokens 限制且可能总结/丢表，会导致文档不全、无法据此检索数据。
         String rawSchema = datasourceSchemaService.extractSchema(config);
         int tableCount = parseTableCount(rawSchema);
-        String docContent = aiAssistantService.generateSchemaDoc(rawSchema);
-        if (!StringUtils.hasText(docContent) && StringUtils.hasText(rawSchema)) {
-            docContent = rawSchema;
+        if (!StringUtils.hasText(rawSchema)) {
+            throw new IllegalStateException("未能从数据源读取到任何表结构，请确认数据库包含表或账号权限足够");
         }
-        if (!StringUtils.hasText(docContent)) {
-            throw new IllegalStateException("无法生成数据字典内容，请检查 AI 配置或数据源是否包含表结构");
-        }
+        String docContent = rawSchema;
 
         // 一个数据源只保留一条数据字典：已存在则覆盖原文件并更新记录，否则新建。
         AiKnowledgeDoc existing = aiKnowledgeDocService.getLatestByDatasource(datasourceId, "SCHEMA");
