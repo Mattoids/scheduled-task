@@ -100,7 +100,7 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public AiKnowledgeDoc syncSchema(Long datasourceId) throws Exception {
+    public SyncOutcome syncSchema(Long datasourceId) throws Exception {
         DatasourceConfig config = getById(datasourceId);
         if (config == null) {
             throw new IllegalArgumentException("数据源不存在");
@@ -110,6 +110,7 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
         }
 
         String rawSchema = datasourceSchemaService.extractSchema(config);
+        int tableCount = parseTableCount(rawSchema);
         String docContent = aiAssistantService.generateSchemaDoc(rawSchema);
         if (!StringUtils.hasText(docContent) && StringUtils.hasText(rawSchema)) {
             docContent = rawSchema;
@@ -118,16 +119,53 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
             throw new IllegalStateException("无法生成数据字典内容，请检查 AI 配置或数据源是否包含表结构");
         }
 
-        String filePath = aiKnowledgeDocStorageService.save(datasourceId, "SCHEMA", docContent);
+        // 一个数据源只保留一条数据字典：已存在则覆盖原文件并更新记录，否则新建。
+        AiKnowledgeDoc existing = aiKnowledgeDocService.getLatestByDatasource(datasourceId, "SCHEMA");
+        String filePath;
+        if (existing != null && StringUtils.hasText(existing.getFilePath())) {
+            aiKnowledgeDocStorageService.writeToPath(existing.getFilePath(), docContent);
+            filePath = existing.getFilePath();
+        } else {
+            filePath = aiKnowledgeDocStorageService.save(datasourceId, "SCHEMA", docContent);
+        }
 
-        AiKnowledgeDoc doc = new AiKnowledgeDoc();
-        doc.setDatasourceId(datasourceId);
-        doc.setDocType("SCHEMA");
-        doc.setTitle(config.getName() + " 数据字典");
-        doc.setFilePath(filePath);
-        doc.setStatus(1);
-        aiKnowledgeDocService.save(doc);
-        return doc;
+        AiKnowledgeDoc doc;
+        if (existing != null) {
+            doc = existing;
+            doc.setTitle(config.getName() + " 数据字典");
+            doc.setFilePath(filePath);
+            doc.setStatus(1);
+            aiKnowledgeDocService.updateById(doc);
+        } else {
+            doc = new AiKnowledgeDoc();
+            doc.setDatasourceId(datasourceId);
+            doc.setDocType("SCHEMA");
+            doc.setTitle(config.getName() + " 数据字典");
+            doc.setFilePath(filePath);
+            doc.setStatus(1);
+            aiKnowledgeDocService.save(doc);
+        }
+        return new SyncOutcome(doc, tableCount);
+    }
+
+    /** 从原始表结构文本中解析「表数量: N」，用于同步日志展示；解析失败返回 0。 */
+    private int parseTableCount(String rawSchema) {
+        if (!StringUtils.hasText(rawSchema)) {
+            return 0;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("表数量:\\s*(\\d+)").matcher(rawSchema);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    /** 同步结果：生成的数据字典文档 + 同步到的表数量。 */
+    public record SyncOutcome(AiKnowledgeDoc doc, int tableCount) {
     }
 
     private void applySshAuthType(DatasourceConfig config, DatasourceConfig existing) {

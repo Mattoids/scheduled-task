@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 import type { PageQuery, PageResult } from '@/types'
-import type { AiKnowledgeDoc, DatasourceConfig } from '@/types/entity'
+import type { AiKnowledgeDoc, DatasourceConfig, DatasourceSchemaSyncLog } from '@/types/entity'
 import type { TestConnectionResult } from '@/types'
 
 export const pageDatasource = (params: PageQuery) => {
@@ -36,5 +36,14 @@ export const testDatasourceConfig = (data: DatasourceConfig) => {
 }
 
 export const syncDatasourceSchema = (id: number) => {
-  return request.post<AiKnowledgeDoc>(`/datasource/${id}/sync-schema`)
+  // 同步可能耗时较久（元数据采集 + AI 生成数据字典），单独放宽到 10 分钟
+  return request.post<AiKnowledgeDoc>(`/datasource/${id}/sync-schema`, null, { timeout: 600000 })
+}
+
+export const pageDatasourceSyncLogs = (id: number, params: PageQuery) => {
+  return request.get<PageResult<DatasourceSchemaSyncLog>>(`/datasource/${id}/sync-logs`, { params })
+}
+
+export const getSchemaDocContent = (id: number, docId: number) => {
+  return request.get<string>(`/datasource/${id}/schema-docs/${docId}/content`)
 }

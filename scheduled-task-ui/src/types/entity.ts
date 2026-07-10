@@ -230,6 +230,22 @@ export interface DatasourceConfig {
   createTime?: string
 }
 
+export interface DatasourceSchemaSyncLog {
+  id?: number
+  datasourceId?: number
+  datasourceName?: string
+  status?: 'RUNNING' | 'SUCCESS' | 'FAIL'
+  tableCount?: number
+  docId?: number
+  docTitle?: string
+  errorMessage?: string
+  durationMs?: number
+  startTime?: string
+  endTime?: string
+  createTime?: string
+  updateTime?: string
+}
+
 export interface EmailConfig {
   id?: number
   configName: string

@@ -65,7 +65,8 @@ public class DynamicDataSourceManager {
         hikariConfig.setPassword(CryptoUtil.decryptIfNeeded(config.getPassword()));
         hikariConfig.setMaximumPoolSize(3);
         hikariConfig.setMinimumIdle(1);
-        hikariConfig.setConnectionTimeout(30000);
+        // 连接超时提高到 60s，避免 SSH 隧道建立或网络较慢时建连过早失败
+        hikariConfig.setConnectionTimeout(60000);
         hikariConfig.setIdleTimeout(600000);
         hikariConfig.setMaxLifetime(1800000);
         hikariConfig.setPoolName("ds-pool-" + id);

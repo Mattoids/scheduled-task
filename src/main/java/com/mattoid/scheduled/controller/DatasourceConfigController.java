@@ -10,7 +10,10 @@ import com.mattoid.scheduled.common.TestConnectionResult;
 import com.mattoid.scheduled.dto.PageQuery;
 import com.mattoid.scheduled.entity.AiKnowledgeDoc;
 import com.mattoid.scheduled.entity.DatasourceConfig;
+import com.mattoid.scheduled.entity.DatasourceSchemaSyncLog;
+import com.mattoid.scheduled.service.AiKnowledgeDocService;
 import com.mattoid.scheduled.service.DatasourceConfigService;
+import com.mattoid.scheduled.service.DatasourceSchemaSyncLogService;
 import com.mattoid.scheduled.util.CryptoUtil;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
@@ -21,9 +24,15 @@ import org.springframework.web.bind.annotation.*;
 public class DatasourceConfigController {
 
     private final DatasourceConfigService datasourceConfigService;
+    private final DatasourceSchemaSyncLogService datasourceSchemaSyncLogService;
+    private final AiKnowledgeDocService aiKnowledgeDocService;
 
-    public DatasourceConfigController(DatasourceConfigService datasourceConfigService) {
+    public DatasourceConfigController(DatasourceConfigService datasourceConfigService,
+                                      DatasourceSchemaSyncLogService datasourceSchemaSyncLogService,
+                                      AiKnowledgeDocService aiKnowledgeDocService) {
         this.datasourceConfigService = datasourceConfigService;
+        this.datasourceSchemaSyncLogService = datasourceSchemaSyncLogService;
+        this.aiKnowledgeDocService = aiKnowledgeDocService;
     }
 
     @PreAuthorize("hasAuthority('datasource:view')")
@@ -84,7 +93,34 @@ public class DatasourceConfigController {
     @PreAuthorize("hasAuthority('datasource:edit')")
     @PostMapping("/{id}/sync-schema")
     public Result<AiKnowledgeDoc> syncSchema(@PathVariable Long id) throws Exception {
-        return Result.ok(datasourceConfigService.syncSchema(id));
+        return Result.ok(datasourceSchemaSyncLogService.syncSchemaTracked(id));
+    }
+
+    @PreAuthorize("hasAuthority('datasource:view')")
+    @GetMapping("/{id}/sync-logs")
+    public Result<PageResult<DatasourceSchemaSyncLog>> syncLogs(@PathVariable Long id, PageQuery query) {
+        Page<DatasourceSchemaSyncLog> page = datasourceSchemaSyncLogService.pageByDatasource(id, query.getCurrent(), query.getSize());
+        return Result.ok(PageUtil.convert(page));
+    }
+
+    @PreAuthorize("hasAuthority('datasource:view')")
+    @GetMapping("/{id}/sync-logs/{logId}")
+    public Result<DatasourceSchemaSyncLog> syncLogDetail(@PathVariable Long id, @PathVariable Long logId) {
+        DatasourceSchemaSyncLog log = datasourceSchemaSyncLogService.getById(logId);
+        if (log == null || !id.equals(log.getDatasourceId())) {
+            return Result.error("同步记录不存在");
+        }
+        return Result.ok(log);
+    }
+
+    @PreAuthorize("hasAuthority('datasource:view')")
+    @GetMapping("/{id}/schema-docs/{docId}/content")
+    public Result<String> schemaDocContent(@PathVariable Long id, @PathVariable Long docId) {
+        AiKnowledgeDoc doc = aiKnowledgeDocService.getById(docId);
+        if (doc == null || !id.equals(doc.getDatasourceId())) {
+            return Result.error("数据字典文档不存在");
+        }
+        return Result.ok(aiKnowledgeDocService.readContent(doc));
     }
 
     private void decryptSensitive(DatasourceConfig config) {

@@ -63,4 +63,19 @@ public class AiKnowledgeDocStorageService {
             return null;
         }
     }
+
+    /** 覆盖写入指定路径，用于同一数据源重复同步时更新其唯一的数据字典文件。 */
+    public void writeToPath(String filePath, String content) throws IOException {
+        if (!StringUtils.hasText(filePath)) {
+            throw new IllegalArgumentException("文档路径不能为空");
+        }
+        if (!StringUtils.hasText(content)) {
+            throw new IllegalArgumentException("文档内容不能为空");
+        }
+        Path path = Paths.get(filePath);
+        if (path.getParent() != null && !Files.exists(path.getParent())) {
+            Files.createDirectories(path.getParent());
+        }
+        Files.writeString(path, content, StandardCharsets.UTF_8);
+    }
 }
