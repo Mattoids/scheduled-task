@@ -86,3 +86,10 @@ export namespace AiAssistantService {
     summary: string
   }
 }
+
+export interface AiAutoConfigResult {
+  success: boolean
+  type?: string
+  id?: number
+  message: string
+}

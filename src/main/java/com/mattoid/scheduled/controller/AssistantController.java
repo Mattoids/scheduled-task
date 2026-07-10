@@ -4,6 +4,7 @@ import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.dto.IntentResult;
 import com.mattoid.scheduled.entity.AiConversation;
 import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.AiAutoConfigService;
 import com.mattoid.scheduled.service.AiConversationService;
 import lombok.Data;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,11 +16,14 @@ public class AssistantController {
 
     private final AiAssistantService aiAssistantService;
     private final AiConversationService aiConversationService;
+    private final AiAutoConfigService aiAutoConfigService;
 
     public AssistantController(AiAssistantService aiAssistantService,
-                               AiConversationService aiConversationService) {
+                               AiConversationService aiConversationService,
+                               AiAutoConfigService aiAutoConfigService) {
         this.aiAssistantService = aiAssistantService;
         this.aiConversationService = aiConversationService;
+        this.aiAutoConfigService = aiAutoConfigService;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -61,6 +65,15 @@ public class AssistantController {
             return Result.error("内容不能为空");
         }
         return Result.ok(aiAssistantService.generateConfig(request.getContent()));
+    }
+
+    @PreAuthorize("hasAuthority('task:create')")
+    @PostMapping("/auto-configure")
+    public Result<AiAutoConfigService.AutoConfigResult> autoConfigure(@RequestBody GenerateConfigRequest request) throws Exception {
+        if (request == null || !hasText(request.getContent())) {
+            return Result.error("内容不能为空");
+        }
+        return Result.ok(aiAutoConfigService.autoConfigure(request.getContent()));
     }
 
     private boolean hasText(String str) {
