@@ -11,6 +11,8 @@ public class SqlGenerateResult {
     private String sql;
     private Map<String, String> params = new HashMap<>();
     private String explanation;
+    private String chartType;
+    private String chartTitle;
 
     public static SqlGenerateResult fail(String message) {
         SqlGenerateResult result = new SqlGenerateResult();

@@ -13,9 +13,17 @@ import com.mattoid.scheduled.entity.AiKnowledgeDoc;
 import com.mattoid.scheduled.mapper.AiConversationMapper;
 import com.mattoid.scheduled.task.SqlExecutor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,19 +48,25 @@ public class AiConversationService {
     private final AiConfigService aiConfigService;
     private final AiClientFactory aiClientFactory;
     private final SqlExecutor sqlExecutor;
+    private final ChartGenerationService chartGenerationService;
+
+    @Value("${report.upload.path:${user.home}/scheduled-task/uploads}")
+    private String uploadPath;
 
     public AiConversationService(AiConversationMapper aiConversationMapper,
                                  AiKnowledgeDocService aiKnowledgeDocService,
                                  AiAssistantService aiAssistantService,
                                  AiConfigService aiConfigService,
                                  AiClientFactory aiClientFactory,
-                                 SqlExecutor sqlExecutor) {
+                                 SqlExecutor sqlExecutor,
+                                 ChartGenerationService chartGenerationService) {
         this.aiConversationMapper = aiConversationMapper;
         this.aiKnowledgeDocService = aiKnowledgeDocService;
         this.aiAssistantService = aiAssistantService;
         this.aiConfigService = aiConfigService;
         this.aiClientFactory = aiClientFactory;
         this.sqlExecutor = sqlExecutor;
+        this.chartGenerationService = chartGenerationService;
     }
 
     public AiConversation getOrCreate(String sessionId, Long datasourceId) {
@@ -115,6 +129,14 @@ public class AiConversationService {
             return "生成的 SQL 执行失败：" + e.getMessage() + "\n\nSQL：" + sqlResult.getSql();
         }
 
+        if (StringUtils.hasText(sqlResult.getChartType()) && !rows.isEmpty()) {
+            String chartUrl = generateChartImage(rows, sqlResult.getChartType(), sqlResult.getChartTitle());
+            if (chartUrl != null) {
+                return "已为您生成图表：\n\n![" + (sqlResult.getChartTitle() != null ? sqlResult.getChartTitle() : "数据图表") + "](" + chartUrl + ")";
+            }
+            executeInfo += "（图表生成失败，已返回数据摘要）";
+        }
+
         return summarizeSqlResult(userMessage, sqlResult, rows, executeInfo);
     }
 
@@ -134,6 +156,30 @@ public class AiConversationService {
             return "AI 回复失败：" + response.getErrorMessage();
         }
         return response.getContent();
+    }
+
+    private String generateChartImage(List<Map<String, Object>> rows, String chartType, String chartTitle) {
+        try {
+            File chartFile = chartGenerationService.generateChart(rows, chartType, chartTitle);
+            if (chartFile == null || !chartFile.exists()) {
+                return null;
+            }
+            String dateFolder = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String fileName = UUID.randomUUID().toString().substring(0, 8) + ".png";
+            Path targetDir = Paths.get(uploadPath, "ai-charts", dateFolder);
+            if (!Files.exists(targetDir)) {
+                Files.createDirectories(targetDir);
+            }
+            Path targetFile = targetDir.resolve(fileName);
+            Files.copy(chartFile.toPath(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+            if (!chartFile.delete()) {
+                log.warn("临时图表文件删除失败: {}", chartFile.getAbsolutePath());
+            }
+            return "/storage/ai-charts/" + dateFolder + "/" + fileName;
+        } catch (Exception e) {
+            log.error("生成图表图片失败: type={}, title={}", chartType, chartTitle, e);
+            return null;
+        }
     }
 
     private String summarizeSqlResult(String userMessage, SqlGenerateResult sqlResult,

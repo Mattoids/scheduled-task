@@ -403,6 +403,13 @@ onMounted(() => {
   background: transparent;
 }
 
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
 .markdown-body blockquote {
   margin: 8px 0;
   padding: 4px 12px;

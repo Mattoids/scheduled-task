@@ -76,11 +76,13 @@ public class AiAssistantService {
     private static final String SYSTEM_PROMPT_SQL_GENERATE = """
             你是一名 SQL 专家。请根据提供的数据库结构文档以及用户的自然语言问题，生成一条可执行的 SQL 查询语句。
             只返回 JSON 格式结果，不要包含任何解释。
-            返回格式：{"sql":"SELECT ...","params":{},"explanation":"简要说明"}
+            返回格式：{"sql":"SELECT ...","params":{},"explanation":"简要说明","chartType":"","chartTitle":""}
             注意：
             1. 仅生成 SELECT 查询，禁止生成 INSERT/UPDATE/DELETE/DROP/ALTER 等变更语句。
             2. SQL 中的参数请使用 ${name} 占位符，并在 params 中提供默认值。
-            3. 如果无法生成，请返回 {"sql":"","params":{},"explanation":"无法生成 SQL"}。
+            3. 如果用户要求用图表展示（如柱状图、折线图、饼图等），请在 chartType 中返回图表类型：bar/line/pie/area/scatter/stacked_bar/doughnut；并在 chartTitle 中返回图表标题。
+            4. 如果用户没有要求图表，chartType 和 chartTitle 请留空字符串。
+            5. 如果无法生成，请返回 {"sql":"","params":{},"explanation":"无法生成 SQL","chartType":"","chartTitle":""}。
             """;
 
     private static final String SYSTEM_PROMPT_NATURAL_CONFIG = """
@@ -305,6 +307,8 @@ public class AiAssistantService {
             SqlGenerateResult result = new SqlGenerateResult();
             result.setSql(obj.getString("sql"));
             result.setExplanation(obj.getString("explanation"));
+            result.setChartType(obj.getString("chartType"));
+            result.setChartTitle(obj.getString("chartTitle"));
             JSONObject params = obj.getJSONObject("params");
             if (params != null) {
                 params.forEach((k, v) -> result.getParams().put(k, v != null ? v.toString() : ""));
