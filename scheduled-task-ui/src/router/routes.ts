@@ -70,16 +70,24 @@ export const menuRoutes: RouteRecordRaw[] = [
     meta: { title: '报表模板', icon: 'Files', permission: 'template:view' },
   },
   {
-    path: '/ai-config',
-    name: 'AiConfig',
-    component: () => import('@/views/ai-config/AiConfigList.vue'),
-    meta: { title: 'AI 配置', icon: 'Cpu', permission: 'system:user' },
-  },
-  {
-    path: '/ai-chat',
-    name: 'AiChat',
-    component: () => import('@/views/ai-chat/AiChatView.vue'),
-    meta: { title: 'AI 助手', icon: 'ChatDotRound', permission: 'task:view' },
+    path: '/ai',
+    name: 'Ai',
+    redirect: '/ai/chat',
+    meta: { title: 'AI 助手', icon: 'ChatDotRound', permission: null },
+    children: [
+      {
+        path: '/ai/chat',
+        name: 'AiChat',
+        component: () => import('@/views/ai-chat/AiChatView.vue'),
+        meta: { title: 'AI 助手', permission: 'task:view' },
+      },
+      {
+        path: '/ai/config',
+        name: 'AiConfig',
+        component: () => import('@/views/ai-config/AiConfigList.vue'),
+        meta: { title: 'AI 配置', permission: 'system:user' },
+      },
+    ],
   },
   {
     path: '/storage-config',
