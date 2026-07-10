@@ -108,6 +108,12 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
 
         String rawSchema = datasourceSchemaService.extractSchema(config);
         String docContent = aiAssistantService.generateSchemaDoc(rawSchema);
+        if (!StringUtils.hasText(docContent) && StringUtils.hasText(rawSchema)) {
+            docContent = rawSchema;
+        }
+        if (!StringUtils.hasText(docContent)) {
+            throw new IllegalStateException("无法生成数据字典内容，请检查 AI 配置或数据源是否包含表结构");
+        }
 
         AiKnowledgeDoc doc = new AiKnowledgeDoc();
         doc.setDatasourceId(datasourceId);
