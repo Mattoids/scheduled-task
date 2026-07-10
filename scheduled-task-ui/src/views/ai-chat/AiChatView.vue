@@ -50,7 +50,7 @@ const scrollToBottom = () => {
 
 const renderMarkdown = (content: string) => {
   const raw = marked.parse(content || "", { breaks: true, gfm: true }) as string;
-  return DOMPurify.sanitize(raw);
+  return DOMPurify.sanitize(raw, { ADD_TAGS: ["details", "summary"] });
 };
 
 const handleSend = async () => {
@@ -249,9 +249,9 @@ onMounted(() => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid var(--el-border-color);
+  border: 2px solid var(--el-border-color);
   border-radius: 8px;
-  padding: 16px;
+  padding: 20px 24px;
   background: #fafafa;
   margin-bottom: 16px;
 }
@@ -387,7 +387,8 @@ onMounted(() => {
 .markdown-body ul,
 .markdown-body ol {
   margin: 8px 0;
-  padding-left: 20px;
+  padding-left: 18px;
+  list-style-position: inside;
 }
 
 .markdown-body li {
@@ -465,6 +466,56 @@ onMounted(() => {
 
 .markdown-body a:hover {
   text-decoration: underline;
+}
+
+.markdown-body details.sql-block {
+  margin: 14px 0 2px;
+}
+
+.markdown-body details.sql-block summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding-top: 10px;
+  margin-top: 12px;
+  border-top: 1px solid var(--el-border-color);
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  user-select: none;
+  list-style: none;
+}
+
+.markdown-body details.sql-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-body details.sql-block summary::after {
+  content: "▾";
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  transition: transform 0.15s ease;
+}
+
+.markdown-body details.sql-block[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.markdown-body details.sql-block pre {
+  margin: 10px 0 0;
+  padding: 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: #f6f8fa;
+  overflow-x: auto;
+}
+
+.markdown-body details.sql-block pre code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: transparent;
+  white-space: pre;
 }
 
 .chat-input {

@@ -159,7 +159,10 @@ public class AiConversationService {
 
     private ChatReplyResult handleSqlChat(Long datasourceId, String schemaDoc, String userMessage, List<AiMessage> messages, ReplyChannel channel) {
         List<AiMessage> history = messages.size() > 1 ? messages.subList(0, messages.size() - 1) : java.util.Collections.emptyList();
-        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, history);
+        // 默认每次查询独立、不带上下文，避免无关问题之间相互污染；
+        // 仅当用户话像是承接上文（追问/补条件/换图表等）时才把历史喂给模型，防止记忆丢失。
+        List<AiMessage> aiHistory = isContextDependent(userMessage) ? history : java.util.Collections.emptyList();
+        SqlGenerateResult sqlResult = aiAssistantService.generateSql(schemaDoc, userMessage, aiHistory);
         if (!StringUtils.hasText(sqlResult.getSql())) {
             return new ChatReplyResult("未能根据数据字典生成 SQL：" + sqlResult.getExplanation());
         }
@@ -184,13 +187,45 @@ public class AiConversationService {
                     String text = channel == ReplyChannel.WECOM
                             ? "已为您生成图表，请查看图片。"
                             : "已为您生成图表：\n\n![" + (sqlResult.getChartTitle() != null ? sqlResult.getChartTitle() : "数据图表") + "](" + chartUrl + ")";
-                    return new ChatReplyResult(text, chartFile);
+                    return new ChatReplyResult(appendSqlBlock(text, sqlResult.getSql(), channel), chartFile);
                 }
             }
             executeInfo += "（图表生成失败，已返回数据摘要）";
         }
 
-        return new ChatReplyResult(summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, history, channel));
+        String summary = summarizeSqlResult(userMessage, sqlResult, rows, executeInfo, aiHistory, channel);
+        return new ChatReplyResult(appendSqlBlock(summary, sqlResult.getSql(), channel));
+    }
+
+    /**
+     * Web 端在回复末尾追加一段默认折叠、点击展开的 SQL 代码块；
+     * 企业微信等纯文本渠道不追加，避免 Markdown/富文本无法展示。
+     * 这里直接输出 HTML（而非 Markdown 代码围栏），是因为 marked 不会解析 HTML 块内部的围栏语法；
+     * SQL 中的 &lt;、&gt;、&amp; 需转义以免破坏 HTML 结构。
+     */
+    private String appendSqlBlock(String text, String sql, ReplyChannel channel) {
+        if (channel != ReplyChannel.WEB || !StringUtils.hasText(sql)) {
+            return text;
+        }
+        return text + "\n\n<details class=\"sql-block\"><summary>执行 SQL</summary>"
+                + "<pre><code class=\"language-sql\">" + escapeHtml(sql) + "</code></pre></details>";
+    }
+
+    private String escapeHtml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /**
+     * 判断一句话是否依赖上下文（追问、补充条件、切换展示等）。
+     * 命中则返回 true，需要把对话历史一起发给模型；否则视为一次全新的独立查询。
+     * 误判为「依赖上下文」的代价仅是带上历史（已保证 system 单条置顶，安全），
+     * 因此整体策略偏向命中，优先保证不丢记忆。
+     */
+    private static final java.util.regex.Pattern CONTEXT_DEPENDENT_PATTERN = java.util.regex.Pattern.compile(
+            "刚才|上面|上一个|前一个|上次|再|也|还|继续|再来|换个|换成|改成|换种|加上|去掉|不要|排除|只看|只查|排序|升序|降序|导出|饼图|柱状图|折线图|呢$");
+
+    private boolean isContextDependent(String userMessage) {
+        return StringUtils.hasText(userMessage) && CONTEXT_DEPENDENT_PATTERN.matcher(userMessage).find();
     }
 
     private String handleGenericChat(String userMessage, List<AiMessage> messages, ReplyChannel channel) {
