@@ -2,6 +2,10 @@
 
 基于 Spring Boot 3 + MyBatis-Plus + Quartz + Spring Security + JWT 的定时任务报表系统，支持 SQL 任务、网页爬取任务、多数据源、SSH 隧道、图表生成、通知推送、RBAC 权限控制等能力。
 
+## 文档
+
+- [使用手册](docs/USER_MANUAL.md) — 面向最终用户的图文操作指南，涵盖所有功能模块的使用说明和系统页面截图
+
 ## 核心功能
 
 - **任务调度**：支持 CRON 周期任务与一次性任务，基于 Quartz JDBC JobStore 持久化
