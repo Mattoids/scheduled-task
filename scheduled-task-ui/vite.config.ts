@@ -21,6 +21,10 @@ export default defineConfig({
         target: 'http://localhost:1236',
         changeOrigin: true,
       },
+      '/wecom-proxy': {
+        target: 'http://localhost:1236',
+        changeOrigin: true,
+      },
     },
   },
 })

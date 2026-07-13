@@ -8,6 +8,7 @@ import com.mattoid.scheduled.service.notify.WebhookClient;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
 import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
+import com.mattoid.scheduled.service.wecom.WeComIpSyncService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
@@ -26,7 +27,8 @@ class NotificationConfigServiceTest {
                 mock(DingTalkClient.class),
                 mock(FeishuClient.class),
                 mock(SlackClient.class),
-                mock(WebhookClient.class)
+                mock(WebhookClient.class),
+                mock(WeComIpSyncService.class)
         );
     }
 

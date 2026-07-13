@@ -122,7 +122,11 @@ public class InitDataRunner implements CommandLineRunner {
                 createPermission(50L, "taskCrawl:view", "网页爬取配置查看", "MENU", 0L, 140),
                 createPermission(51L, "taskCrawl:create", "网页爬取配置创建", "BUTTON", 50L, 141),
                 createPermission(52L, "taskCrawl:edit", "网页爬取配置编辑", "BUTTON", 50L, 142),
-                createPermission(53L, "taskCrawl:delete", "网页爬取配置删除", "BUTTON", 50L, 143)
+                createPermission(53L, "taskCrawl:delete", "网页爬取配置删除", "BUTTON", 50L, 143),
+                createPermission(54L, "wecomAdmin:view", "企业应用管理查看", "MENU", 0L, 150),
+                createPermission(55L, "wecomAdmin:create", "企业应用管理创建", "BUTTON", 54L, 151),
+                createPermission(56L, "wecomAdmin:edit", "企业应用管理编辑", "BUTTON", 54L, 152),
+                createPermission(57L, "wecomAdmin:delete", "企业应用管理删除", "BUTTON", 54L, 153)
         );
         for (SysPermission permission : permissions) {
             if (sysPermissionMapper.selectById(permission.getId()) == null) {

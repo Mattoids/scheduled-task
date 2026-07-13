@@ -304,6 +304,10 @@ export interface WeComAppConfig {
   proxyUrl?: string
   status?: number
   menuJson?: string
+  autoSyncIp?: boolean
+  adminCookie?: string
+  syncIntervalMinutes?: number
+  ipDetectionUrl?: string
   createTime?: string
   updateTime?: string
 }
@@ -386,6 +390,38 @@ export interface NotificationConfig {
   configType: NotificationChannel
   configJson: any
   status?: number
+  createTime?: string
+  updateTime?: string
+}
+
+export interface WeComIpSyncLog {
+  id?: number
+  configId?: number
+  configName?: string
+  triggerType?: 'MANUAL' | 'AUTO'
+  status?: 'SUCCESS' | 'FAIL'
+  detectedIp?: string
+  ipSource?: string
+  oldIps?: string
+  newIps?: string
+  failReason?: string
+  message?: string
+  durationMs?: number
+  startTime?: string
+  endTime?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface WeComAdminAccount {
+  id?: number
+  accountName: string
+  adminCookie?: string
+  cookieConfigured?: boolean
+  status?: number
+  keepAliveEnabled?: boolean
+  lastKeepAliveTime?: string
+  lastKeepAliveResult?: string
   createTime?: string
   updateTime?: string
 }

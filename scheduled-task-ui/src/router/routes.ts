@@ -49,6 +49,18 @@ export const menuRoutes: RouteRecordRaw[] = [
         component: () => import('@/views/notification-config/NotificationConfigList.vue'),
         meta: { title: '通知配置', permission: 'notificationConfig:view' },
       },
+      {
+        path: '/notification/ip-sync-log',
+        name: 'WeComIpSyncLog',
+        component: () => import('@/views/notification-config/WeComIpSyncLogList.vue'),
+        meta: { title: 'IP 同步日志', permission: 'notificationConfig:view' },
+      },
+      {
+        path: '/wecom-admin',
+        name: 'WeComAdminAccount',
+        component: () => import('@/views/wecom-admin/WeComAdminAccountList.vue'),
+        meta: { title: '企业微信管理', permission: 'wecomAdmin:view' },
+      },
     ],
   },
   {

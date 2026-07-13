@@ -22,4 +22,27 @@ public class WeComAppConfig extends BaseEntity {
     private String proxyUrl;
     private Integer status;
     private String menuJson;
+
+    /** 是否启用自动同步可信 IP */
+    private Boolean autoSyncIp;
+
+    /** 关联的企业微信管理账户 ID（用于 IP 同步时获取 Cookie） */
+    private Long adminAccountId;
+
+    /** 企业微信管理后台 Cookie（AES 加密存储，向后兼容；优先使用 adminAccountId） */
+    private String adminCookie;
+
+    /** IP 同步间隔（分钟），默认 10 */
+    private Integer syncIntervalMinutes;
+
+    /** IP 检测源 URL，支持预设站点或自定义地址 */
+    private String ipDetectionUrl;
+
+    /**
+     * 应用管理页 URL（可选）。
+     * 新版企业微信后台的应用详情 URL 使用内部注册 ID 而非 agentId，
+     * 形如 https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/5629502132772163。
+     * 留空则按 agentId 拼接（兼容旧版后台）。
+     */
+    private String appManageUrl;
 }

@@ -13,9 +13,11 @@ import com.mattoid.scheduled.service.notify.WebhookClient;
 import com.mattoid.scheduled.service.wecom.WeComAppManager;
 import com.mattoid.scheduled.service.wecom.WeComBotClient;
 import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
+import com.mattoid.scheduled.service.wecom.WeComIpSyncService;
 import com.mattoid.scheduled.util.CryptoUtil;
 import jakarta.mail.MessagingException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -23,6 +25,7 @@ import org.springframework.util.StringUtils;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -36,6 +39,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
     private final FeishuClient feishuClient;
     private final SlackClient slackClient;
     private final WebhookClient webhookClient;
+    private final WeComIpSyncService weComIpSyncService;
 
     public NotificationConfigService(WeComAppManager weComAppManager,
                                      WeComBotClient weComBotClient,
@@ -43,7 +47,8 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
                                      DingTalkClient dingTalkClient,
                                      FeishuClient feishuClient,
                                      SlackClient slackClient,
-                                     WebhookClient webhookClient) {
+                                     WebhookClient webhookClient,
+                                     @Lazy WeComIpSyncService weComIpSyncService) {
         this.weComAppManager = weComAppManager;
         this.weComBotClient = weComBotClient;
         this.weComIntelligentBotClient = weComIntelligentBotClient;
@@ -51,6 +56,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         this.feishuClient = feishuClient;
         this.slackClient = slackClient;
         this.webhookClient = webhookClient;
+        this.weComIpSyncService = weComIpSyncService;
     }
 
     @Override
@@ -59,7 +65,44 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
         entity.setConfigJson(encryptSecrets(entity.getConfigType(), entity.getConfigJson()));
         boolean result = super.saveOrUpdate(entity);
         syncIntelligentBotConnection(entity);
+        triggerFirstIpSync(entity);
         return result;
+    }
+
+    /**
+     * 保存配置后，若开启了自动同步 IP 且配置了 Cookie，异步触发首次同步。
+     */
+    private void triggerFirstIpSync(NotificationConfig entity) {
+        if (entity == null || entity.getId() == null
+                || !"WECOM_APP".equals(entity.getConfigType())
+                || entity.getStatus() == null || entity.getStatus() != 1) {
+            return;
+        }
+        try {
+            Map<?, ?> map = objectMapper.readValue(entity.getConfigJson(), Map.class);
+            Object autoSync = map.get("autoSyncIp");
+            Object cookie = map.get("adminCookie");
+            Object accountId = map.get("adminAccountId");
+            boolean enabled = Boolean.TRUE.equals(autoSync)
+                    || "true".equals(String.valueOf(autoSync));
+            boolean hasCookie = (cookie != null && StringUtils.hasText(String.valueOf(cookie)))
+                    || accountId != null;
+            if (!enabled || !hasCookie) {
+                return;
+            }
+            Long configId = entity.getId();
+            log.info("保存配置后触发首次 IP 同步: configId={}", configId);
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Object> syncResult = weComIpSyncService.syncIpWhitelist(configId);
+                    log.info("首次 IP 同步完成: configId={}, result={}", configId, syncResult.get("message"));
+                } catch (Exception e) {
+                    log.error("首次 IP 同步异常: configId={}", configId, e);
+                }
+            });
+        } catch (Exception e) {
+            log.debug("解析配置 JSON 触发首次同步失败: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -135,7 +178,10 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
             switch (configType) {
                 case "EMAIL" -> decryptField(map, "password");
-                case "WECOM_APP" -> decryptField(map, "secret");
+                case "WECOM_APP" -> {
+                    decryptField(map, "secret");
+                    decryptField(map, "adminCookie");
+                }
                 case "WECOM_INTELLIGENT_BOT" -> {
                     String mode = (String) map.get("mode");
                     if ("CALLBACK".equals(mode)) {
@@ -183,7 +229,10 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
             Map<String, Object> map = objectMapper.readValue(configJson, Map.class);
             switch (configType) {
                 case "EMAIL" -> encryptField(map, "password");
-                case "WECOM_APP" -> encryptField(map, "secret");
+                case "WECOM_APP" -> {
+                    encryptField(map, "secret");
+                    encryptField(map, "adminCookie");
+                }
                 case "WECOM_INTELLIGENT_BOT" -> {
                     String mode = (String) map.get("mode");
                     if ("CALLBACK".equals(mode)) {
