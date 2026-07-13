@@ -31,6 +31,7 @@ public class ChartGenerationService {
     private static final int MEDIUM_CATEGORIES_THRESHOLD = 12;
     private static final int MAX_MERGED_LABEL_LENGTH = 20;
     private static final Color TRANSPARENT = new Color(0, 0, 0, 0);
+    private static final Color DEFAULT_BACKGROUND = Color.WHITE;
 
     /**
      * 根据二维表数据生成图表 PNG 文件。
@@ -67,7 +68,8 @@ public class ChartGenerationService {
      * @param title            图表标题
      * @param autoMerge        分类过多时是否自动合并相邻数据
      * @param labelRotation    X 轴标签旋转角度：AUTO / 0 / 45 / 90
-     * @param backgroundColor  图表背景色，支持 #RRGGBB / #RRGGBBAA / transparent；留空/透明表示透明背景
+     * @param backgroundColor  图表背景色，支持 #RRGGBB / #RRGGBBAA / rgb() / rgba() / transparent；
+     *                         留空或解析失败时默认白色；显式 transparent 或 alpha=0 表示透明背景
      * @return 生成的 PNG 文件，若数据不满足要求则返回 null
      */
     public File generateChart(List<Map<String, Object>> data, String chartType, String title,
@@ -318,22 +320,30 @@ public class ChartGenerationService {
     }
 
     /**
-     * 解析颜色字符串：支持 #RRGGBB、#RGB、#RRGGBBAA、#RGBA、rgb()、rgba() 以及 transparent；
-     * 空值或无法解析时返回透明色。
+     * 解析颜色字符串：支持 #RRGGBB、#RGB、#RRGGBBAA、#RGBA、rgb()、rgba() 以及 transparent。
+     * <p>语义：
+     * <ul>
+     *   <li>空值 / 解析失败 → 默认白色（适用于 AI 对话、Dashboard、企业微信机器人等未显式配色的场景）；</li>
+     *   <li>字符串 {@code "transparent"}（不区分大小写）或 rgba 的 alpha=0 → 透明；</li>
+     *   <li>其它合法颜色 → 解析后返回。</li>
+     * </ul>
      */
     private Color parseColor(String colorStr) {
-        if (!StringUtils.hasText(colorStr) || "transparent".equalsIgnoreCase(colorStr.trim())) {
-            return TRANSPARENT;
+        if (!StringUtils.hasText(colorStr)) {
+            return DEFAULT_BACKGROUND;
         }
         String trimmed = colorStr.trim();
+        if ("transparent".equalsIgnoreCase(trimmed)) {
+            return TRANSPARENT;
+        }
         try {
             if (trimmed.toLowerCase().startsWith("rgb")) {
                 return parseRgbColor(trimmed);
             }
             return parseHexColor(trimmed);
         } catch (IllegalArgumentException e) {
-            log.warn("图表背景色解析失败: {}", colorStr);
-            return TRANSPARENT;
+            log.warn("图表背景色解析失败，使用默认白色: {}", colorStr);
+            return DEFAULT_BACKGROUND;
         }
     }
 

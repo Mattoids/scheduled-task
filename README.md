@@ -333,7 +333,7 @@ SQL 结果中包含 `_sheet_name` 列时，按该列值拆分为多个 sheet，�
 | `chartTitle` | 标题，留空使用 SQL 名称 |
 | `chartAutoMerge` | 分类过多时自动合并相邻数据 |
 | `chartLabelRotation` | X 轴标签旋转：`AUTO` / `0` / `45` / `90` |
-| `chartBackgroundColor` | 背景色，支持透明 |
+| `chartBackgroundColor` | 背景色。留空默认白色；显式 `transparent` 或 alpha=0 表示透明 |
 
 图表使用方式：
 

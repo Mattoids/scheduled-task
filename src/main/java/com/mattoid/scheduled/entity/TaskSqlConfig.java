@@ -58,7 +58,7 @@ public class TaskSqlConfig extends BaseEntity {
     private String chartLabelRotation;
 
     /**
-     * 图表背景色，留空/透明表示使用透明背景
+     * 图表背景色。留空时默认白色；显式 "transparent" 或 alpha=0 的颜色表示透明背景。
      */
     private String chartBackgroundColor;
 
