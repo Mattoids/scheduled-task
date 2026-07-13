@@ -35,6 +35,19 @@ export const syncWeComMenu = () => {
   return request.post<Array<{ configId: number; success: boolean; errorMessage?: string }>>('/task/sync-wecom-menu')
 }
 
+export interface CronPreviewResponse {
+  valid: boolean
+  message: string
+  normalizedCron?: string
+  executions: string[]
+}
+
+export const previewCron = (cron: string, count = 10) => {
+  return request.get<CronPreviewResponse>('/task/cron/preview', {
+    params: { cron, count },
+  })
+}
+
 export const listTaskLogs = (taskId: number, params: PageQuery) => {
   return request.get<PageResult<TaskLog>>(`/task/${taskId}/logs`, { params })
 }

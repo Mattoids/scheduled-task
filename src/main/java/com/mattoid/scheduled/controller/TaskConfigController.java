@@ -14,11 +14,22 @@ import com.mattoid.scheduled.entity.TaskLog;
 import com.mattoid.scheduled.mapper.TaskLogMapper;
 import com.mattoid.scheduled.service.TaskConfigService;
 import com.mattoid.scheduled.service.TaskDependencyService;
+import com.mattoid.scheduled.task.TaskSchedulerService;
+import org.quartz.CronExpression;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.text.ParseException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TimeZone;
 
 @RestController
 @RequestMapping("/api/task")
@@ -57,6 +68,57 @@ public class TaskConfigController {
         result.setSize(page.getSize());
         result.setRecords(page.getRecords());
         return Result.ok(result);
+    }
+
+    /**
+     * Cron 预览：使用 Quartz 的 {@link CronExpression} 在规范化后的表达式上计算接下来的触发时间，
+     * 与 {@link TaskSchedulerService} 实际注册到调度器的结果严格一致（包括 Quartz 1=周日 的星期映射）。
+     */
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/cron/preview")
+    public Result<Map<String, Object>> previewCron(@RequestParam String cron,
+                                                   @RequestParam(defaultValue = "10") int count) {
+        if (count < 1) count = 1;
+        if (count > 50) count = 50;
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("executions", List.of());
+
+        String normalized = TaskSchedulerService.normalizeCronExpression(cron);
+        if (normalized == null) {
+            data.put("valid", false);
+            data.put("message", "Cron 表达式应为 5/6/7 个字段");
+            return Result.ok(data);
+        }
+        data.put("normalizedCron", normalized);
+
+        CronExpression expression;
+        try {
+            expression = new CronExpression(normalized);
+            expression.setTimeZone(TimeZone.getDefault());
+        } catch (ParseException e) {
+            data.put("valid", false);
+            data.put("message", "Cron 表达式无效：" + e.getMessage());
+            return Result.ok(data);
+        }
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        ZoneId zone = ZoneId.systemDefault();
+        List<String> executions = new ArrayList<>();
+        Date cursor = new Date();
+        for (int i = 0; i < count; i++) {
+            Date next = expression.getNextValidTimeAfter(cursor);
+            if (next == null) {
+                break;
+            }
+            executions.add(LocalDateTime.ofInstant(next.toInstant(), zone).format(formatter));
+            cursor = next;
+        }
+
+        data.put("valid", true);
+        data.put("message", executions.isEmpty() ? "Cron 表达式有效，但在未来无可计算触发时间" : "Cron 表达式有效");
+        data.put("executions", executions);
+        return Result.ok(data);
     }
 
     @PreAuthorize("hasAuthority('task:view')")

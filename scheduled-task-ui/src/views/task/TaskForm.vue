@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, nextTick } from "vue";
 import { ElMessage } from "element-plus";
-import { createTask, getTask, updateTask } from "@/api/task";
+import { createTask, getTask, updateTask, previewCron } from "@/api/task";
 import { listTaskSql } from "@/api/taskSql";
 import { listTaskCrawl } from "@/api/taskCrawl";
 import type {
@@ -10,7 +10,6 @@ import type {
   TaskSqlConfig,
   TaskWebCrawlConfig,
 } from "@/types/entity";
-import { validateCron, getNextExecutions } from "@/utils/cron";
 
 interface Props {
   visible: boolean;
@@ -120,11 +119,13 @@ const sqlTreeData = computed(() => {
 });
 
 const cronPreviewVisible = ref(false);
+const cronPreviewLoading = ref(false);
 const cronPreviewResult = ref<string[]>([]);
 const cronPreviewValid = ref(false);
 const cronPreviewMessage = ref("");
+const cronPreviewNormalized = ref("");
 
-const handlePreviewCron = () => {
+const handlePreviewCron = async () => {
   if (form.value.triggerType !== "CRON") {
     ElMessage.warning("仅 CRON 触发类型支持预览");
     return;
@@ -135,25 +136,23 @@ const handlePreviewCron = () => {
     return;
   }
 
-  const validation = validateCron(cron);
-  cronPreviewValid.value = validation.valid;
-  cronPreviewMessage.value = validation.message;
-  if (!validation.valid) {
-    cronPreviewResult.value = [];
-    cronPreviewVisible.value = true;
-    return;
-  }
-
-  const executions = getNextExecutions(cron, 10);
-  if (!executions) {
-    cronPreviewValid.value = false;
-    cronPreviewMessage.value = "Cron 表达式格式无效";
-    cronPreviewResult.value = [];
-    cronPreviewVisible.value = true;
-    return;
-  }
-  cronPreviewResult.value = executions;
+  cronPreviewLoading.value = true;
   cronPreviewVisible.value = true;
+  cronPreviewResult.value = [];
+  cronPreviewNormalized.value = "";
+  try {
+    const res = await previewCron(cron.trim(), 10);
+    cronPreviewValid.value = res.valid;
+    cronPreviewMessage.value = res.message;
+    cronPreviewNormalized.value = res.normalizedCron ?? "";
+    cronPreviewResult.value = res.executions ?? [];
+  } catch (e: any) {
+    cronPreviewValid.value = false;
+    cronPreviewMessage.value = e?.message || "Cron 预览请求失败";
+    cronPreviewResult.value = [];
+  } finally {
+    cronPreviewLoading.value = false;
+  }
 };
 
 const treeSelectRef = ref();
@@ -606,34 +605,65 @@ onMounted(() => {
   <!-- Cron Preview Dialog -->
   <el-dialog
     v-model="cronPreviewVisible"
-    title="Cron 预览"
-    width="520px"
+    title="Cron 预览（按服务器 Quartz 实际调度结果计算）"
+    width="560px"
   >
-    <el-alert
-      :type="cronPreviewValid ? 'success' : 'error'"
-      :title="cronPreviewValid ? 'Cron 表达式有效' : 'Cron 表达式无效'"
-      :description="cronPreviewMessage"
-      show-icon
-      closable="false"
-      style="margin-bottom: 16px"
-    />
-    <el-table
-      v-if="cronPreviewValid && cronPreviewResult.length > 0"
-      :data="cronPreviewResult"
-      border
-      size="small"
-      style="width: 100%"
-    >
-      <el-table-column type="index" label="序号" width="70" align="center" />
-      <el-table-column label="执行时间">
-        <template #default="{ row }">
-          <code style="font-size: 13px">{{ row }}</code>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-empty
-      v-if="cronPreviewValid && cronPreviewResult.length === 0"
-      description="未找到未来执行时间"
-    />
+    <div v-loading="cronPreviewLoading">
+      <el-alert
+        v-if="!cronPreviewLoading"
+        :type="cronPreviewValid ? 'success' : 'error'"
+        :title="cronPreviewValid ? 'Cron 表达式有效' : 'Cron 表达式无效'"
+        :description="cronPreviewMessage"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+      <div v-if="cronPreviewNormalized" class="cron-preview-normalized">
+        <span class="cron-preview-normalized-label">服务器实际解析：</span>
+        <code>{{ cronPreviewNormalized }}</code>
+      </div>
+      <el-table
+        v-if="cronPreviewValid && cronPreviewResult.length > 0"
+        :data="cronPreviewResult"
+        border
+        size="small"
+        style="width: 100%"
+      >
+        <el-table-column type="index" label="序号" width="70" align="center" />
+        <el-table-column label="下次触发时间">
+          <template #default="{ row }">
+            <code style="font-size: 13px">{{ row }}</code>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty
+        v-if="!cronPreviewLoading && cronPreviewValid && cronPreviewResult.length === 0"
+        description="未找到未来触发时间"
+      />
+    </div>
   </el-dialog>
 </template>
+
+<style scoped>
+.cron-preview-normalized {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  font-size: 13px;
+  color: #374151;
+}
+
+.cron-preview-normalized-label {
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.cron-preview-normalized code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  color: #4338ca;
+}
+</style>

@@ -26,6 +26,8 @@ import java.io.FileInputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -127,6 +129,21 @@ public class DashboardController {
         }).collect(Collectors.toList()));
 
         return Result.ok(stats);
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @GetMapping("/server-time")
+    public Result<Map<String, Object>> serverTime() {
+        ZoneId zone = ZoneId.systemDefault();
+        ZonedDateTime now = ZonedDateTime.now(zone);
+        Map<String, Object> data = new HashMap<>();
+        // 毫秒级时间戳，前端用它配合 RTT/2 做网络延迟补偿
+        data.put("serverTimeMillis", System.currentTimeMillis());
+        // IANA 时区 ID（如 Asia/Shanghai），前端用 Intl 按此时区渲染
+        data.put("timeZone", zone.getId());
+        // UTC 偏移（如 +08:00），前端格式化为 UTC+8 展示
+        data.put("utcOffset", now.getOffset().getId());
+        return Result.ok(data);
     }
 
     @PreAuthorize("hasAuthority('task:view')")

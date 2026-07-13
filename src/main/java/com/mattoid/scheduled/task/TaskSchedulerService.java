@@ -127,7 +127,7 @@ public class TaskSchedulerService {
      * 将常见 Cron 表达式规范化为 Quartz 可识别的格式。
      * Quartz 不允许同时指定 day-of-month 和 day-of-week，需将其中一个替换为 '?'。
      */
-    static String normalizeCronExpression(String expression) {
+    public static String normalizeCronExpression(String expression) {
         if (expression == null) {
             return null;
         }
