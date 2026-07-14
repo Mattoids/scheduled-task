@@ -150,6 +150,20 @@ const successRate = computed(() =>
     : 0,
 );
 
+const chromiumStatus = computed(() => {
+  if (appStore.chromiumLoading) {
+    return { text: "检测中...", type: "info", color: "#909399" };
+  }
+  if (appStore.chromiumAvailable === true) {
+    return { text: "Chromium 内核已安装", type: "success", color: "#10b981" };
+  }
+  return {
+    text: "Chromium 内核未安装（扫码登录、IP 同步不可用）",
+    type: "danger",
+    color: "#ef4444",
+  };
+});
+
 const loadStats = async () => {
   loading.value = true;
   try {
@@ -345,6 +359,33 @@ onUnmounted(() => {
               <div class="stat-label">{{ item.title }}</div>
             </div>
             <el-icon class="stat-arrow" :size="18"><ArrowRight /></el-icon>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <div class="section-title" style="margin-top: 28px">系统环境</div>
+    <el-row :gutter="20">
+      <el-col :span="24" :xs="24">
+        <el-card class="env-card" shadow="never">
+          <div class="env-content">
+            <div
+              class="env-dot"
+              :style="{
+                backgroundColor: chromiumStatus.color + '20',
+                color: chromiumStatus.color,
+              }"
+            >
+              <el-icon :size="24">
+                <component :is="appStore.chromiumAvailable === true ? CircleCheck : CircleClose" />
+              </el-icon>
+            </div>
+            <div class="env-info">
+              <div class="env-title">Chromium 内核状态</div>
+              <div class="env-desc" :style="{ color: chromiumStatus.color }">
+                {{ chromiumStatus.text }}
+              </div>
+            </div>
           </div>
         </el-card>
       </el-col>
@@ -741,6 +782,44 @@ onUnmounted(() => {
   gap: 24px;
   color: #6b7280;
   font-size: 14px;
+}
+
+.env-card {
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+  margin-bottom: 20px;
+}
+
+.env-card :deep(.el-card__body) {
+  padding: 18px 20px;
+}
+
+.env-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.env-dot {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.env-title {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.env-desc {
+  font-size: 15px;
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {

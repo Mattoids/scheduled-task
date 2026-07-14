@@ -18,6 +18,8 @@ import { useAppStore } from "@/stores/app";
 const appStore = useAppStore();
 appStore.setBreadcrumb([{ title: "通知管理" }, { title: "企业微信管理" }]);
 
+const chromiumReady = computed(() => appStore.chromiumAvailable === true);
+
 const { current, size, total, records, buildQuery, setPageResult, reset } =
   usePagination();
 const loading = ref(false);
@@ -420,7 +422,18 @@ onUnmounted(() => {
             type="warning"
             size="small"
             v-permission="'wecomAdmin:edit'"
+            v-if="chromiumReady"
             @click="handleUpdateCookie(row)"
+            >更新Cookie</el-button
+          >
+          <el-button
+            link
+            type="warning"
+            size="small"
+            v-permission="'wecomAdmin:edit'"
+            v-else
+            disabled
+            title="Chromium 内核未安装，无法扫码更新 Cookie"
             >更新Cookie</el-button
           >
           <el-button
@@ -472,10 +485,13 @@ onUnmounted(() => {
             :rows="3"
             :placeholder="dialogMode === 'create' ? '可直接粘贴 Cookie，或点击下方按钮扫码获取' : '留空则不修改 Cookie；粘贴新 Cookie 或扫码更新'"
           />
-          <div style="margin-top: 8px; display: flex; gap: 8px;">
-            <el-button size="small" @click="handleFetchCookie">
+          <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+            <el-button size="small" @click="handleFetchCookie" v-if="chromiumReady">
               扫码获取 Cookie
             </el-button>
+            <el-tag v-else type="danger" size="small" effect="plain">
+              Chromium 内核未安装，无法扫码，请手动粘贴 Cookie
+            </el-tag>
             <el-button size="small" :loading="cookieChecking" @click="handleCheckCookie">
               检测 Cookie 有效性
             </el-button>

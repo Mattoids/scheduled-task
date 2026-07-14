@@ -5,6 +5,7 @@ import com.mattoid.scheduled.entity.NotificationConfig;
 import com.mattoid.scheduled.entity.WeComAppConfig;
 import com.mattoid.scheduled.entity.WeComIpSyncLog;
 import com.mattoid.scheduled.mapper.NotificationConfigMapper;
+import com.mattoid.scheduled.service.BrowserCapabilityService;
 import com.mattoid.scheduled.util.CryptoUtil;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Cookie;
@@ -77,6 +78,7 @@ public class WeComIpSyncService {
     private final NotificationConfigMapper notificationConfigMapper;
     private final WeComIpSyncLogService weComIpSyncLogService;
     private final WeComAdminAccountService weComAdminAccountService;
+    private final BrowserCapabilityService browserCapabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 共享 Playwright 实例（线程安全，懒加载） */
@@ -93,10 +95,12 @@ public class WeComIpSyncService {
 
     public WeComIpSyncService(NotificationConfigMapper notificationConfigMapper,
                               WeComIpSyncLogService weComIpSyncLogService,
-                              WeComAdminAccountService weComAdminAccountService) {
+                              WeComAdminAccountService weComAdminAccountService,
+                              BrowserCapabilityService browserCapabilityService) {
         this.notificationConfigMapper = notificationConfigMapper;
         this.weComIpSyncLogService = weComIpSyncLogService;
         this.weComAdminAccountService = weComAdminAccountService;
+        this.browserCapabilityService = browserCapabilityService;
     }
 
     @PreDestroy
@@ -157,6 +161,9 @@ public class WeComIpSyncService {
      * 通过企业微信官方 /wwqrlogin API 获取二维码 key 与图片，返回 sessionId 和 Base64 图片数据。
      */
     public Map<String, String> generateLoginQrCode() {
+        if (!browserCapabilityService.isChromiumAvailable()) {
+            throw new RuntimeException("Chromium 内核未安装，无法使用扫码登录功能");
+        }
         try {
             String qrcodeKey = fetchQrCodeKey();
             String qrCodeBase64 = downloadImageAsBase64(buildQrImageUrl(qrcodeKey));
@@ -524,6 +531,12 @@ public class WeComIpSyncService {
      */
     public Map<String, Object> syncIpWhitelist(Long configId, String triggerType) {
         Map<String, Object> result = new HashMap<>();
+
+        if (!browserCapabilityService.isChromiumAvailable()) {
+            result.put("success", false);
+            result.put("message", "Chromium 内核未安装，无法同步可信 IP");
+            return result;
+        }
 
         // 加载配置（轻量操作，在创建日志前完成前置检查）
         NotificationConfig nc = notificationConfigMapper.selectById(configId);

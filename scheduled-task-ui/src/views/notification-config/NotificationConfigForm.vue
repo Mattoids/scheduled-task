@@ -3,6 +3,7 @@ import { ref, watch, computed, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Loading, CircleCheck } from "@element-plus/icons-vue";
+import { useAppStore } from "@/stores/app";
 import {
   createNotificationConfig,
   getNotificationConfig,
@@ -33,6 +34,9 @@ const loading = ref(false);
 const formRef = ref();
 
 const router = useRouter();
+const appStore = useAppStore();
+const chromiumReady = computed(() => appStore.chromiumAvailable === true);
+
 const goIpSyncLogs = () => {
   router.push("/notification/ip-sync-log");
 };
@@ -611,17 +615,23 @@ onUnmounted(() => {
         <el-divider content-position="left">可信 IP 自动同步</el-divider>
 
         <el-form-item label="自动同步 IP">
-          <el-switch
-            v-model="form.configJson.autoSyncIp"
-            active-text="开启"
-            inactive-text="关闭"
-          />
-          <div class="form-tip" style="margin-left: 12px; color: #909399; font-size: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <el-switch
+              v-model="form.configJson.autoSyncIp"
+              active-text="开启"
+              inactive-text="关闭"
+              :disabled="!chromiumReady"
+            />
+            <el-tag v-if="!chromiumReady" type="danger" size="small" effect="plain">
+              Chromium 内核未安装，自动同步不可用
+            </el-tag>
+          </div>
+          <div class="form-tip" style="margin-left: 0; margin-top: 6px; color: #909399; font-size: 12px;">
             开启后定时检测公网 IP 并同步到企业微信可信 IP 白名单
           </div>
         </el-form-item>
 
-        <template v-if="form.configJson.autoSyncIp">
+        <template v-if="form.configJson.autoSyncIp && chromiumReady">
           <el-form-item label="IP 检测源">
             <el-select v-model="ipSourceSelect" style="width: 100%" placeholder="选择 IP 检测网站">
               <el-option

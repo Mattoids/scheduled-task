@@ -14,12 +14,16 @@ import com.mattoid.scheduled.mapper.SysPermissionMapper;
 import com.mattoid.scheduled.mapper.SysRoleMapper;
 import com.mattoid.scheduled.mapper.SysUserMapper;
 import com.mattoid.scheduled.mapper.SysUserRoleMapper;
+import com.mattoid.scheduled.service.BrowserCapabilityService;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -31,17 +35,20 @@ public class SystemController {
     private final SysPermissionMapper sysPermissionMapper;
     private final SysUserRoleMapper sysUserRoleMapper;
     private final PasswordEncoder passwordEncoder;
+    private final BrowserCapabilityService browserCapabilityService;
 
     public SystemController(SysUserMapper sysUserMapper,
                             SysRoleMapper sysRoleMapper,
                             SysPermissionMapper sysPermissionMapper,
                             SysUserRoleMapper sysUserRoleMapper,
-                            PasswordEncoder passwordEncoder) {
+                            PasswordEncoder passwordEncoder,
+                            BrowserCapabilityService browserCapabilityService) {
         this.sysUserMapper = sysUserMapper;
         this.sysRoleMapper = sysRoleMapper;
         this.sysPermissionMapper = sysPermissionMapper;
         this.sysUserRoleMapper = sysUserRoleMapper;
         this.passwordEncoder = passwordEncoder;
+        this.browserCapabilityService = browserCapabilityService;
     }
 
     // ---- 用户 ----
@@ -122,9 +129,16 @@ public class SystemController {
     }
 
     // ---- 权限 ----
-    @PreAuthorize("hasAuthority('system:role')")
-    @GetMapping("/permission/list")
-    public Result<List<SysPermission>> permissionList() {
-        return Result.ok(sysPermissionMapper.selectList(null));
+    /**
+     * 检测系统是否具备 Chromium 内核（Playwright 可用）。
+     * 企业微信可信 IP 同步、扫码登录等功能依赖该内核。
+     */
+    @GetMapping("/chromium")
+    public Result<Map<String, Object>> chromiumStatus() {
+        boolean available = browserCapabilityService.isChromiumAvailable();
+        Map<String, Object> data = new HashMap<>();
+        data.put("available", available);
+        data.put("message", available ? "Chromium 内核已安装" : "Chromium 内核未安装，扫码登录与 IP 同步功能不可用");
+        return Result.ok(data);
     }
 }

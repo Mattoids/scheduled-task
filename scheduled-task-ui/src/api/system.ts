@@ -38,6 +38,15 @@ export const deleteRole = (id: number) => {
   return request.delete<void>(`/system/role/${id}`)
 }
 
+export interface ChromiumStatusResult {
+  available: boolean
+  message: string
+}
+
+export const checkChromium = () => {
+  return request.get<ChromiumStatusResult>('/system/chromium')
+}
+
 export const listPermission = () => {
   return request.get<SysPermission[]>('/system/permission/list')
 }

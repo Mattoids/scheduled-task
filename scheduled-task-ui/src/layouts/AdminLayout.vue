@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
@@ -88,6 +88,10 @@ const handlePasswordSubmit = async () => {
 const toggleSidebar = () => {
   appStore.toggleSidebar();
 };
+
+onMounted(() => {
+  appStore.loadChromiumStatus();
+});
 </script>
 
 <template>
