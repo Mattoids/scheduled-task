@@ -13,6 +13,7 @@ import {
   Refresh,
   Warning,
   ArrowRight,
+  Loading,
 } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { getDashboardStats, getServerTime } from "@/api/dashboard";
@@ -150,18 +151,30 @@ const successRate = computed(() =>
     : 0,
 );
 
-const chromiumStatus = computed(() => {
-  if (appStore.chromiumLoading) {
-    return { text: "检测中...", type: "info", color: "#909399" };
+const dependencyStatusList = computed(() => {
+  if (appStore.dependenciesLoading) {
+    return [
+      {
+        name: "系统依赖检测中",
+        available: null as boolean | null,
+        message: "正在检测系统依赖，请稍候...",
+      },
+    ];
   }
-  if (appStore.chromiumAvailable === true) {
-    return { text: "Chromium 内核已安装", type: "success", color: "#10b981" };
+  if (appStore.dependencies.length === 0) {
+    return [
+      {
+        name: "系统依赖检测失败",
+        available: false,
+        message: "无法获取系统依赖状态，企业微信相关功能不可用",
+      },
+    ];
   }
-  return {
-    text: "Chromium 内核未安装（扫码登录、IP 同步不可用）",
-    type: "danger",
-    color: "#ef4444",
-  };
+  return appStore.dependencies.map((d) => ({
+    name: d.name,
+    available: d.available,
+    message: d.message,
+  }));
 });
 
 const loadStats = async () => {
@@ -366,24 +379,59 @@ onUnmounted(() => {
 
     <div class="section-title" style="margin-top: 28px">系统环境</div>
     <el-row :gutter="20">
-      <el-col :span="24" :xs="24">
+      <el-col
+        v-for="dep in dependencyStatusList"
+        :key="dep.name"
+        :span="8"
+        :xs="24"
+        :sm="24"
+        :md="8"
+      >
         <el-card class="env-card" shadow="never">
           <div class="env-content">
             <div
               class="env-dot"
               :style="{
-                backgroundColor: chromiumStatus.color + '20',
-                color: chromiumStatus.color,
+                backgroundColor:
+                  (dep.available === true
+                    ? '#10b981'
+                    : dep.available === false
+                      ? '#ef4444'
+                      : '#909399') + '20',
+                color:
+                  dep.available === true
+                    ? '#10b981'
+                    : dep.available === false
+                      ? '#ef4444'
+                      : '#909399',
               }"
             >
               <el-icon :size="24">
-                <component :is="appStore.chromiumAvailable === true ? CircleCheck : CircleClose" />
+                <component
+                  :is="
+                    dep.available === true
+                      ? CircleCheck
+                      : dep.available === false
+                        ? CircleClose
+                        : Loading
+                  "
+                />
               </el-icon>
             </div>
             <div class="env-info">
-              <div class="env-title">Chromium 内核状态</div>
-              <div class="env-desc" :style="{ color: chromiumStatus.color }">
-                {{ chromiumStatus.text }}
+              <div class="env-title">{{ dep.name }}</div>
+              <div
+                class="env-desc"
+                :style="{
+                  color:
+                    dep.available === true
+                      ? '#10b981'
+                      : dep.available === false
+                        ? '#ef4444'
+                        : '#909399',
+                }"
+              >
+                {{ dep.message }}
               </div>
             </div>
           </div>

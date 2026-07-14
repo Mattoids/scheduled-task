@@ -1,1 +1,0 @@
-import{h as e}from"./index-Brnt0l-y.js";var t=()=>e.post(`/wecom-ip-sync/qr-code`,null,{timeout:6e4}),n=t=>e.get(`/wecom-ip-sync/login-status/${t}`),r=t=>e.get(`/wecom-ip-sync/logs`,{params:t}),i=t=>e.post(`/wecom-ip-sync/check-cookie`,t,{timeout:6e4});export{r as i,n,t as r,i as t};

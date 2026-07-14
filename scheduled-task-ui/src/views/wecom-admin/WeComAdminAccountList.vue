@@ -18,7 +18,7 @@ import { useAppStore } from "@/stores/app";
 const appStore = useAppStore();
 appStore.setBreadcrumb([{ title: "通知管理" }, { title: "企业微信管理" }]);
 
-const chromiumReady = computed(() => appStore.chromiumAvailable === true);
+const chromiumReady = computed(() => appStore.dependenciesReady);
 
 const { current, size, total, records, buildQuery, setPageResult, reset } =
   usePagination();

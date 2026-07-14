@@ -18,7 +18,7 @@ const activeMenu = computed(() => route.path);
 const isMenuVisible = (route: RouteRecordRaw) => {
   const perm = route.meta?.permission as string | null;
   if (perm && !userStore.hasPermission(perm)) return false;
-  if (route.meta?.requiresChromium && appStore.chromiumAvailable !== true) return false;
+  if (route.meta?.requiresChromium && !appStore.dependenciesReady) return false;
   return true;
 };
 
@@ -105,7 +105,7 @@ const toggleSidebar = () => {
 };
 
 onMounted(() => {
-  appStore.loadChromiumStatus();
+  appStore.loadDependencies();
 });
 </script>
 

@@ -47,6 +47,17 @@ export const checkChromium = () => {
   return request.get<ChromiumStatusResult>('/system/chromium')
 }
 
+export interface DependencyItem {
+  key: string
+  name: string
+  available: boolean
+  message: string
+}
+
+export const checkDependencies = () => {
+  return request.get<DependencyItem[]>('/system/dependencies')
+}
+
 export const listPermission = () => {
   return request.get<SysPermission[]>('/system/permission/list')
 }

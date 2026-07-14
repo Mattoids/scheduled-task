@@ -15,6 +15,7 @@ import com.mattoid.scheduled.mapper.SysRoleMapper;
 import com.mattoid.scheduled.mapper.SysUserMapper;
 import com.mattoid.scheduled.mapper.SysUserRoleMapper;
 import com.mattoid.scheduled.service.BrowserCapabilityService;
+import com.mattoid.scheduled.service.DependencyCheckService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -36,19 +37,22 @@ public class SystemController {
     private final SysUserRoleMapper sysUserRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final BrowserCapabilityService browserCapabilityService;
+    private final DependencyCheckService dependencyCheckService;
 
     public SystemController(SysUserMapper sysUserMapper,
                             SysRoleMapper sysRoleMapper,
                             SysPermissionMapper sysPermissionMapper,
                             SysUserRoleMapper sysUserRoleMapper,
                             PasswordEncoder passwordEncoder,
-                            BrowserCapabilityService browserCapabilityService) {
+                            BrowserCapabilityService browserCapabilityService,
+                            DependencyCheckService dependencyCheckService) {
         this.sysUserMapper = sysUserMapper;
         this.sysRoleMapper = sysRoleMapper;
         this.sysPermissionMapper = sysPermissionMapper;
         this.sysUserRoleMapper = sysUserRoleMapper;
         this.passwordEncoder = passwordEncoder;
         this.browserCapabilityService = browserCapabilityService;
+        this.dependencyCheckService = dependencyCheckService;
     }
 
     // ---- 用户 ----
@@ -140,5 +144,13 @@ public class SystemController {
         data.put("available", available);
         data.put("message", available ? "Chromium 内核已安装" : "Chromium 内核未安装，扫码登录与 IP 同步功能不可用");
         return Result.ok(data);
+    }
+
+    /**
+     * 检测企业微信相关功能所需的全部依赖项。
+     */
+    @GetMapping("/dependencies")
+    public Result<List<DependencyCheckService.DependencyItem>> dependencies() {
+        return Result.ok(dependencyCheckService.checkDependencies());
     }
 }

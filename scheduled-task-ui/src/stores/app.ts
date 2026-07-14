@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import { checkChromium } from '@/api/system'
+import { ref, computed } from 'vue'
+import { checkDependencies, type DependencyItem } from '@/api/system'
 
 export const useAppStore = defineStore('app', () => {
   const sidebarCollapsed = ref(false)
   const breadcrumb = ref<{ title: string; path?: string }[]>([])
-  const chromiumAvailable = ref<boolean | null>(null)
-  const chromiumLoading = ref(false)
+  const dependencies = ref<DependencyItem[]>([])
+  const dependenciesLoading = ref(false)
 
   const toggleSidebar = () => {
     sidebarCollapsed.value = !sidebarCollapsed.value
@@ -16,26 +16,38 @@ export const useAppStore = defineStore('app', () => {
     breadcrumb.value = items
   }
 
-  const loadChromiumStatus = async () => {
-    if (chromiumLoading.value) return
-    chromiumLoading.value = true
+  const chromiumAvailable = computed(() => {
+    const item = dependencies.value.find((d) => d.key === 'chromium')
+    return item?.available ?? null
+  })
+
+  const dependenciesReady = computed(() => {
+    if (dependenciesLoading.value) return false
+    if (dependencies.value.length === 0) return false
+    return dependencies.value.every((d) => d.available)
+  })
+
+  const loadDependencies = async () => {
+    if (dependenciesLoading.value) return
+    dependenciesLoading.value = true
     try {
-      const res = await checkChromium()
-      chromiumAvailable.value = res.available
+      dependencies.value = await checkDependencies()
     } catch {
-      chromiumAvailable.value = false
+      dependencies.value = []
     } finally {
-      chromiumLoading.value = false
+      dependenciesLoading.value = false
     }
   }
 
   return {
     sidebarCollapsed,
     breadcrumb,
+    dependencies,
+    dependenciesLoading,
     chromiumAvailable,
-    chromiumLoading,
+    dependenciesReady,
     toggleSidebar,
     setBreadcrumb,
-    loadChromiumStatus,
+    loadDependencies,
   }
 })

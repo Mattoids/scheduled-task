@@ -35,7 +35,7 @@ const formRef = ref();
 
 const router = useRouter();
 const appStore = useAppStore();
-const chromiumReady = computed(() => appStore.chromiumAvailable === true);
+const chromiumReady = computed(() => appStore.dependenciesReady);
 
 const goIpSyncLogs = () => {
   router.push("/notification/ip-sync-log");
