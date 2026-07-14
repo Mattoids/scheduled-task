@@ -176,16 +176,34 @@ public class DependencyInstallService {
     }
 
     /**
-     * 解析当前运行jar文件路径。
-     * 从 fat jar 运行时 getLocation() 返回 jar:file:/...，需通过 JarURLConnection 取外层 jar。
+     * 解析当前运行 jar 文件路径。
+     * 优先读取 java.class.path（Spring Boot fat jar 运行时通常只有 executable jar 一个条目），
+     * 失败时再回退到 ProtectionDomain 的 code source。
      */
     private File resolveExecutableCodeSource() throws Exception {
+        String classPath = System.getProperty("java.class.path");
+        if (classPath != null && !classPath.isBlank()) {
+            String firstEntry = classPath.split(File.pathSeparator)[0];
+            File jarFile = new File(firstEntry);
+            if (jarFile.isFile() && jarFile.getName().endsWith(".jar")) {
+                return jarFile;
+            }
+        }
+
         URL codeSource = getClass().getProtectionDomain().getCodeSource().getLocation();
         if ("jar".equals(codeSource.getProtocol())) {
             JarURLConnection connection = (JarURLConnection) codeSource.openConnection();
-            return new File(connection.getJarFileURL().toURI());
+            URL jarFileUrl = connection.getJarFileURL();
+            // 某些 Spring Boot nested jar 场景 getJarFileURL() 可能仍是 nested: 等 scheme，
+            // 此时只能兜底用 java.class.path 或抛异常
+            if ("file".equals(jarFileUrl.getProtocol())) {
+                return new File(jarFileUrl.toURI());
+            }
         }
-        return new File(codeSource.toURI());
+        if ("file".equals(codeSource.getProtocol())) {
+            return new File(codeSource.toURI());
+        }
+        throw new IllegalStateException("无法解析可执行 jar 路径，codeSource=" + codeSource);
     }
 
     /**
