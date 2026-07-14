@@ -15,20 +15,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV SPRING_PROFILES_ACTIVE=prod
 
 # Database (application-prod.yml)
-ENV MYSQL_HOST=mysql-5-7-cluster-master
+ENV MYSQL_HOST=mysql
 ENV MYSQL_PORT=3306
 ENV MYSQL_DB=scheduled_task
 ENV MYSQL_USER=root
-ENV MYSQL_PASSWORD=mysql_E8HEYi
+ENV MYSQL_PASSWORD=123456
 
 # Security (application.yml)
 ENV JWT_SECRET=scheduled-task-secret-key-change-in-production
 ENV SCHEDULED_TASK_AES_KEY=ScheduledTask#01
-ENV API_KEY=
+ENV API_KEY=Tn2Y*ggwolgQ5iVIt4JHl!ZzQNEelF*b
 
 # CORS (application-prod.yml)
-ENV CORS_ALLOWED_ORIGINS=https://scheduled.mattoid.cn:55554,https://scheduled.mattoid.cn:55555,https://scheduled.mattoid.cn:55556
+ENV CORS_ALLOWED_ORIGINS=https://127.0.0.1:1236
 
-COPY scheduled-task-*.jar app.jar
+COPY app.jar app.jar
 EXPOSE 1236
 ENTRYPOINT ["java", "-jar", "app.jar"]

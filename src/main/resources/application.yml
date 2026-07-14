@@ -5,7 +5,7 @@ spring:
   application:
     name: scheduled-task
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   sql:
     init:
       mode: never
@@ -47,7 +47,7 @@ report:
     knowledge-doc:
       path: ${user.home}/scheduled-task/ai-knowledge-docs
   api:
-    key: ${API_KEY:}
+    key: ${API_KEY:Tn2Y*ggwolgQ5iVIt4JHl!ZzQNEelF*b}
   default:
     page-size: 20
 
