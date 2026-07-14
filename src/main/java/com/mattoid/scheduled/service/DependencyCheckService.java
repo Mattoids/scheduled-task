@@ -96,8 +96,8 @@ public class DependencyCheckService {
             items.add(new DependencyItem("chromium", "Chromium 内核", false, true,
                     "Chromium 内核无法启动，缺少以下系统共享库"));
             for (String lib : missingLibs) {
-                items.add(new DependencyItem("lib:" + lib, lib, false, true,
-                        "未找到该共享库，请安装对应的系统依赖"));
+                items.add(new DependencyItem("lib:" + lib, lib, false, false,
+                        "未找到该共享库，请点击上方「安装依赖」按钮统一安装"));
             }
         }
         return items;

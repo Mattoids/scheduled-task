@@ -562,7 +562,7 @@ onUnmounted(() => {
               :disabled="isInstalling"
               @click="startInstall(dep)"
             >
-              安装
+              安装依赖
             </el-button>
           </div>
         </el-card>
