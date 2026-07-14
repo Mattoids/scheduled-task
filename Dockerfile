@@ -10,6 +10,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
+# ---------- Environment variables (defaults from application.yml / application-prod.yml) ----------
+# Profile
+ENV SPRING_PROFILES_ACTIVE=prod
+
+# Database (application-prod.yml)
+ENV MYSQL_HOST=mysql-5-7-cluster-master
+ENV MYSQL_PORT=3306
+ENV MYSQL_DB=scheduled_task
+ENV MYSQL_USER=root
+ENV MYSQL_PASSWORD=mysql_E8HEYi
+
+# Security (application.yml)
+ENV JWT_SECRET=scheduled-task-secret-key-change-in-production
+ENV SCHEDULED_TASK_AES_KEY=ScheduledTask#01
+ENV API_KEY=
+
+# CORS (application-prod.yml)
+ENV CORS_ALLOWED_ORIGINS=https://scheduled.mattoid.cn:55554,https://scheduled.mattoid.cn:55555,https://scheduled.mattoid.cn:55556
+
 COPY scheduled-task-*.jar app.jar
 EXPOSE 1236
 ENTRYPOINT ["java", "-jar", "app.jar"]
