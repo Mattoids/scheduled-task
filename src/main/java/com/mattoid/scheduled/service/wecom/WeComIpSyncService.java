@@ -9,6 +9,7 @@ import com.mattoid.scheduled.util.CryptoUtil;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Cookie;
 import com.microsoft.playwright.options.WaitForSelectorState;
+import com.microsoft.playwright.options.WaitUntilState;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,8 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -43,6 +46,9 @@ public class WeComIpSyncService {
     private static final String WECOM_LOGIN_URL = "https://work.weixin.qq.com/wework_admin/loginpage_wx?from=myhome";
     private static final String WECOM_FRAME_URL = "https://work.weixin.qq.com/wework_admin/frame";
     private static final String WECOM_APP_URL_PREFIX = "https://work.weixin.qq.com/wework_admin/frame#apps/modApiApp/";
+    private static final String WECOM_QR_GET_KEY_URL = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/get_key";
+    private static final String WECOM_QR_CHECK_URL = "https://work.weixin.qq.com/wework_admin/wwqrlogin/check";
+    private static final String WECOM_QR_IMAGE_URL = "https://work.weixin.qq.com/wework_admin/wwqrlogin/mng/qrcode";
     private static final int QR_SESSION_TIMEOUT_SECONDS = 180;
     private static final int DEFAULT_SYNC_INTERVAL_MINUTES = 10;
 
@@ -67,18 +73,6 @@ public class WeComIpSyncService {
     );
 
     private static final Pattern IP_PATTERN = Pattern.compile("\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b");
-
-    /** 查找二维码的 CSS 选择器列表，按优先级排列 */
-    private static final List<String> QR_SELECTORS = List.of(
-            "img.qrcode_login_img",
-            "img[src*='qrcode']",
-            "img[src*='qr_code']",
-            ".qrcode img",
-            ".qrcode_login_img",
-            "img.login_qrcode_img",
-            ".login_qrcode_panel img",
-            ".wrp_code img"
-    );
 
     private final NotificationConfigMapper notificationConfigMapper;
     private final WeComIpSyncLogService weComIpSyncLogService;
@@ -107,10 +101,6 @@ public class WeComIpSyncService {
 
     @PreDestroy
     public void destroy() {
-        // 清理所有未关闭的 QR 会话
-        for (QrLoginSession session : qrSessions.values()) {
-            closeSession(session);
-        }
         qrSessions.clear();
         if (playwright != null) {
             try { playwright.close(); } catch (Exception ignored) {}
@@ -164,138 +154,87 @@ public class WeComIpSyncService {
 
     /**
      * 生成企业微信管理后台登录二维码。
-     * 返回 sessionId 和二维码 Base64 图片数据。
+     * 通过企业微信官方 /wwqrlogin API 获取二维码 key 与图片，返回 sessionId 和 Base64 图片数据。
      */
     public Map<String, String> generateLoginQrCode() {
-        Browser browser = null;
         try {
-            browser = createBrowser();
-            BrowserContext context = createContext(browser);
-            Page page = context.newPage();
+            String qrcodeKey = fetchQrCodeKey();
+            String qrCodeBase64 = downloadImageAsBase64(buildQrImageUrl(qrcodeKey));
 
-            page.navigate(WECOM_LOGIN_URL, new Page.NavigateOptions().setTimeout(30000));
-            page.waitForTimeout(3000);
-
-            log.info("[QR] 页面标题: {}, URL: {}", page.title(), page.url());
-
-            String qrBase64 = findAndCaptureQrCode(page);
-
-            if (qrBase64 == null) {
-                String pageTitle = page.title();
-                String currentUrl = page.url();
-                String pageSource = page.content();
-                log.error("[QR] 未找到二维码。标题: {}, URL: {}, 页面长度: {}",
-                        pageTitle, currentUrl, pageSource != null ? pageSource.length() : 0);
-                try {
-                    byte[] fullScreenshot = page.screenshot();
-                    String b64 = Base64.getEncoder().encodeToString(fullScreenshot);
-                    log.error("[QR] 全页截图(base64长度): {}", b64.length());
-                    Map<String, String> debugResult = new HashMap<>();
-                    debugResult.put("debug", "true");
-                    debugResult.put("pageTitle", pageTitle);
-                    debugResult.put("pageUrl", currentUrl);
-                    debugResult.put("debugScreenshot", "data:image/png;base64," + b64);
-                    closeBrowserQuietly(browser);
-                    return debugResult;
-                } catch (Exception ex) {
-                    log.error("[QR] 调试截图也失败", ex);
-                }
-                closeBrowserQuietly(browser);
-                throw new RuntimeException("未找到登录二维码，请检查网络或稍后重试");
-            }
-
-            // 保持 browser/context/page 存活，存到 session 中
             String sessionId = UUID.randomUUID().toString();
             QrLoginSession session = new QrLoginSession();
             session.sessionId = sessionId;
-            session.browser = browser;
-            session.context = context;
-            session.page = page;
+            session.qrcodeKey = qrcodeKey;
             session.createdAt = Instant.now();
             qrSessions.put(sessionId, session);
 
-            log.info("[QR] 二维码生成成功: sessionId={}, base64长度={}", sessionId, qrBase64.length());
+            log.info("[QR] 二维码生成成功: sessionId={}, qrcodeKey={}, base64长度={}", sessionId, qrcodeKey, qrCodeBase64.length());
 
             Map<String, String> result = new HashMap<>();
             result.put("sessionId", sessionId);
-            result.put("qrCodeBase64", qrBase64);
+            result.put("qrCodeBase64", qrCodeBase64);
             return result;
         } catch (RuntimeException e) {
-            if (browser != null) {
-                closeBrowserQuietly(browser);
-            }
             throw e;
         } catch (Exception e) {
             log.error("[QR] 生成企业微信登录二维码失败", e);
-            if (browser != null) {
-                closeBrowserQuietly(browser);
-            }
             throw new RuntimeException("生成二维码失败: " + e.getMessage());
         }
     }
 
     /**
-     * 在页面中查找二维码并截取为 Base64。
-     * 先尝试在 iframe 中查找，再尝试在主页面查找。
+     * 调用企业微信接口获取二维码 key。
      */
-    private String findAndCaptureQrCode(Page page) {
-        // 策略1: 在所有 frame 中查找
-        List<Frame> frames = page.frames();
-        log.info("[QR] 找到 {} 个 frame", frames.size());
-
-        for (int i = 0; i < frames.size(); i++) {
-            Frame frame = frames.get(i);
-            try {
-                Locator qrEl = findQrElement(frame);
-                if (qrEl != null) {
-                    byte[] screenshot = qrEl.screenshot();
-                    if (screenshot != null && screenshot.length > 200) {
-                        String base64 = "data:image/png;base64," + Base64.getEncoder().encodeToString(screenshot);
-                        log.info("[QR] 在 frame[{}] 中找到二维码", i);
-                        return base64;
-                    }
-                }
-            } catch (Exception e) {
-                log.debug("[QR] frame[{}] 中未找到二维码: {}", i, e.getMessage());
-            }
+    private String fetchQrCodeKey() {
+        long ts = System.currentTimeMillis();
+        String url = WECOM_QR_GET_KEY_URL + "?r=" + ts + "&login_type=login_admin";
+        Map<String, Object> data = callWeComJsonApi(url);
+        if (data == null || data.get("qrcode_key") == null) {
+            throw new RuntimeException("获取二维码 key 失败，接口未返回有效数据");
         }
-
-        // 策略2: 尝试截取登录区域
-        try {
-            Locator loginArea = page.locator(".login_panel, .login_qrcode_panel, .qrcode_login, .wrp_qrcode").first();
-            if (loginArea.isVisible()) {
-                byte[] screenshot = loginArea.screenshot();
-                if (screenshot != null && screenshot.length > 200) {
-                    log.info("[QR] 通过登录区域截图获取二维码");
-                    return "data:image/png;base64," + Base64.getEncoder().encodeToString(screenshot);
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[QR] 登录区域查找失败: {}", e.getMessage());
-        }
-
-        return null;
+        return data.get("qrcode_key").toString();
     }
 
     /**
-     * 在当前 frame 中使用多个选择器尝试查找二维码元素。
+     * 组装二维码图片 URL。
      */
-    private Locator findQrElement(Frame frame) {
-        for (String selector : QR_SELECTORS) {
-            try {
-                Locator el = frame.locator(selector).first();
-                if (el.isVisible(new Locator.IsVisibleOptions().setTimeout(1000))) {
-                    log.debug("[QR] 选择器 '{}' 命中", selector);
-                    return el;
+    private String buildQrImageUrl(String qrcodeKey) {
+        return WECOM_QR_IMAGE_URL + "?qrcode_key=" + URLEncoder.encode(qrcodeKey, StandardCharsets.UTF_8)
+                + "&login_type=login_admin";
+    }
+
+    /**
+     * 调用企业微信 JSON 接口并解析 data 字段。
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> callWeComJsonApi(String urlString) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) URI.create(urlString).toURL().openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("User-Agent",
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36");
+            conn.setRequestProperty("Referer", WECOM_LOGIN_URL);
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
+            int code = conn.getResponseCode();
+            try (InputStream is = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream()) {
+                if (is == null) {
+                    throw new RuntimeException("接口无响应: HTTP " + code);
                 }
-            } catch (Exception ignored) {}
+                String body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                Map<String, Object> result = objectMapper.readValue(body, Map.class);
+                return (Map<String, Object>) result.get("data");
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("调用企业微信接口失败: " + e.getMessage(), e);
         }
-        return null;
     }
 
     /**
      * 检查二维码登录状态。
-     * 用户扫码确认后，提取 Cookie 并返回。
+     * 通过企业微信 /wwqrlogin/check 接口轮询，支持返回 WAITING / SCANNED / LOGGED_IN / EXPIRED。
      */
     public Map<String, Object> checkLoginStatus(String sessionId) {
         Map<String, Object> result = new HashMap<>();
@@ -312,33 +251,103 @@ public class WeComIpSyncService {
         }
 
         try {
-            Page page = session.page;
-            String currentUrl = page.url();
-
-            if (currentUrl != null && currentUrl.contains("wework_admin/frame")) {
-                List<Cookie> cookies = session.context.cookies();
-                StringBuilder cookieStr = new StringBuilder();
-                for (Cookie cookie : cookies) {
-                    if (cookie.domain != null && cookie.domain.contains("work.weixin.qq.com")) {
-                        if (!cookieStr.isEmpty()) {
-                            cookieStr.append("; ");
-                        }
-                        cookieStr.append(cookie.name).append("=").append(cookie.value);
-                    }
-                }
-
-                result.put("status", "LOGGED_IN");
-                result.put("cookie", cookieStr.toString());
-                cleanupSession(sessionId);
+            long ts = System.currentTimeMillis();
+            String url = WECOM_QR_CHECK_URL + "?r=" + ts + "&status=&qrcode_key="
+                    + URLEncoder.encode(session.qrcodeKey, StandardCharsets.UTF_8);
+            Map<String, Object> data = callWeComJsonApi(url);
+            if (data == null || data.get("status") == null) {
+                result.put("status", "WAITING");
                 return result;
             }
 
-            result.put("status", "WAITING");
-            return result;
+            String status = data.get("status").toString();
+            switch (status) {
+                case "QRCODE_SCAN_NEVER":
+                    result.put("status", "WAITING");
+                    return result;
+                case "QRCODE_SCAN_ING":
+                    result.put("status", "SCANNED");
+                    return result;
+                case "QRCODE_SCAN_SUCC":
+                    String authCode = data.get("auth_code") != null ? data.get("auth_code").toString() : null;
+                    if (!StringUtils.hasText(authCode)) {
+                        log.warn("[QR] 状态为 SUCC 但未返回 auth_code, sessionId={}", sessionId);
+                        result.put("status", "WAITING");
+                        return result;
+                    }
+                    try {
+                        String cookie = extractCookieAfterAuth(session.qrcodeKey, authCode);
+                        cleanupSession(sessionId);
+                        result.put("status", "LOGGED_IN");
+                        result.put("cookie", cookie);
+                        return result;
+                    } catch (Exception e) {
+                        log.error("[QR] 扫码确认成功但提取 Cookie 失败, sessionId={}", sessionId, e);
+                        cleanupSession(sessionId);
+                        result.put("status", "EXPIRED");
+                        return result;
+                    }
+                case "QRCODE_SCAN_FAIL":
+                    cleanupSession(sessionId);
+                    result.put("status", "EXPIRED");
+                    return result;
+                default:
+                    log.warn("[QR] 未知扫码状态: {}, sessionId={}", status, sessionId);
+                    result.put("status", "WAITING");
+                    return result;
+            }
         } catch (Exception e) {
-            log.warn("检查登录状态异常: sessionId={}", sessionId, e);
+            log.warn("[QR] 检查登录状态异常: sessionId={}", sessionId, e);
             result.put("status", "WAITING");
             return result;
+        }
+    }
+
+    /**
+     * 使用 auth_code 完成登录，并用 Playwright 提取企业微信管理后台 Cookie。
+     */
+    private String extractCookieAfterAuth(String qrcodeKey, String authCode) {
+        Browser browser = null;
+        try {
+            browser = createBrowser();
+            BrowserContext context = createContext(browser);
+            Page page = context.newPage();
+
+            long r = (int) (Math.random() * 1000);
+            String loginUrl = WECOM_LOGIN_URL.split("\\?")[0]
+                    + "?_r=" + r
+                    + "&wwqrlogin=1"
+                    + "&auth_source=SOURCE_FROM_WEWORK"
+                    + "&code=" + URLEncoder.encode(authCode, StandardCharsets.UTF_8)
+                    + "&qrcode_key=" + URLEncoder.encode(qrcodeKey, StandardCharsets.UTF_8);
+
+            page.navigate(loginUrl, new Page.NavigateOptions().setTimeout(30000));
+            page.waitForURL(Pattern.compile(".*wework_admin/frame.*"),
+                    new Page.WaitForURLOptions().setTimeout(15000).setWaitUntil(WaitUntilState.NETWORKIDLE));
+
+            List<Cookie> cookies = context.cookies();
+            StringBuilder cookieStr = new StringBuilder();
+            for (Cookie cookie : cookies) {
+                if (cookie.domain != null && cookie.domain.contains("work.weixin.qq.com")) {
+                    if (!cookieStr.isEmpty()) {
+                        cookieStr.append("; ");
+                    }
+                    cookieStr.append(cookie.name).append("=").append(cookie.value);
+                }
+            }
+            String cookie = cookieStr.toString();
+            if (!StringUtils.hasText(cookie)) {
+                throw new RuntimeException("未提取到有效的企业微信 Cookie");
+            }
+            log.info("[QR] 登录成功并提取 Cookie, qrcodeKey={}, cookie长度={}", qrcodeKey, cookie.length());
+            return cookie;
+        } catch (Exception e) {
+            log.error("[QR] 使用 auth_code 提取 Cookie 失败: qrcodeKey={}", qrcodeKey, e);
+            throw new RuntimeException("登录确认成功，但提取 Cookie 失败: " + e.getMessage());
+        } finally {
+            if (browser != null) {
+                closeBrowserQuietly(browser);
+            }
         }
     }
 
@@ -1089,23 +1098,7 @@ public class WeComIpSyncService {
      * 清理二维码登录会话。
      */
     private void cleanupSession(String sessionId) {
-        QrLoginSession session = qrSessions.remove(sessionId);
-        if (session != null) {
-            closeSession(session);
-        }
-    }
-
-    private void closeSession(QrLoginSession session) {
-        if (session == null) return;
-        if (session.page != null) {
-            try { session.page.close(); } catch (Exception ignored) {}
-        }
-        if (session.context != null) {
-            try { session.context.close(); } catch (Exception ignored) {}
-        }
-        if (session.browser != null) {
-            try { session.browser.close(); } catch (Exception ignored) {}
-        }
+        qrSessions.remove(sessionId);
     }
 
     private void closeBrowserQuietly(Browser browser) {
@@ -1117,14 +1110,8 @@ public class WeComIpSyncService {
      */
     public void cleanupExpiredSessions() {
         Instant now = Instant.now();
-        qrSessions.entrySet().removeIf(entry -> {
-            QrLoginSession session = entry.getValue();
-            if (Duration.between(session.createdAt, now).getSeconds() > QR_SESSION_TIMEOUT_SECONDS) {
-                closeSession(session);
-                return true;
-            }
-            return false;
-        });
+        qrSessions.entrySet().removeIf(entry ->
+                Duration.between(entry.getValue().createdAt, now).getSeconds() > QR_SESSION_TIMEOUT_SECONDS);
     }
 
     // ==================== 免登录打开管理后台（有头浏览器） ====================
@@ -1169,9 +1156,7 @@ public class WeComIpSyncService {
     /** 二维码登录会话 */
     private static class QrLoginSession {
         String sessionId;
-        Browser browser;
-        BrowserContext context;
-        Page page;
+        String qrcodeKey;
         Instant createdAt;
     }
 }
