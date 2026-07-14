@@ -398,33 +398,6 @@ public class WeComIpSyncService {
     public record IpDetectResult(String ip, String source) {}
 
     /**
-     * 检查是否存在至少一个可访问的公网 IP 检测源。
-     */
-    public boolean isAnyIpSourceReachable() {
-        for (Map<String, String> source : PRESET_IP_SOURCES) {
-            String ip = fetchIpFromUrl(source.get("url"));
-            if (ip != null) {
-                log.info("[DependencyCheck] IP 检测源可用: {} ({})", source.get("label"), ip);
-                return true;
-            }
-        }
-        log.warn("[DependencyCheck] 无可用公网 IP 检测源");
-        return false;
-    }
-
-    /**
-     * 检查企业微信 QR 登录接口是否可达。
-     */
-    public boolean isWeComQrApiReachable() {
-        try {
-            return StringUtils.hasText(fetchQrCodeKey());
-        } catch (Exception e) {
-            log.warn("[DependencyCheck] 企业微信 QR 接口不可达: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    /**
      * 从指定 URL 获取公网 IP。
      * 支持只输入域名（自动补全 https:// 前缀）。
      */
