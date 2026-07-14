@@ -136,7 +136,7 @@ const handleCheckCookie = async () => {
 // ==================== 二维码登录 ====================
 const qrDialogVisible = ref(false);
 const qrCodeImage = ref("");
-const qrStatus = ref<"loading" | "waiting" | "success" | "expired" | "error">("loading");
+const qrStatus = ref<"loading" | "waiting" | "scanned" | "success" | "expired" | "error">("loading");
 const qrSessionId = ref("");
 const qrCountdown = ref(0);
 /** 扫码成功后的回调：新增时填入弹窗，更新 Cookie 时直接提交 */
@@ -194,6 +194,8 @@ const startQrPolling = () => {
         stopQrPolling();
         stopQrCountdown();
         await handleQrLoginSuccess(res.cookie);
+      } else if (res.status === "SCANNED") {
+        qrStatus.value = "scanned";
       } else if (res.status === "EXPIRED") {
         qrStatus.value = "expired";
         qrCountdown.value = 0;
@@ -545,6 +547,11 @@ onUnmounted(() => {
             <p style="color: #909399; font-size: 12px; margin-top: 4px;">
               扫码成功后 Cookie 将自动保存
             </p>
+          </div>
+          <div v-if="qrStatus === 'scanned'" style="margin-top: 16px;">
+            <el-icon :size="32" color="#e6a23c"><CircleCheck /></el-icon>
+            <p style="color: #e6a23c; font-size: 14px; margin-top: 4px;">扫码成功</p>
+            <p style="color: #606266; font-size: 12px; margin-top: 4px;">请在企业微信 App 中点击「确认登录」</p>
           </div>
           <div v-if="qrStatus === 'success'" style="margin-top: 16px;">
             <el-icon :size="32" color="#67c23a"><CircleCheck /></el-icon>

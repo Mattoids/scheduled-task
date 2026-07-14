@@ -149,7 +149,7 @@ Response: { sessionId: "uuid", qrCodeBase64: "data:image/png;base64,..." }
 
 ```
 GET /api/wecom-ip-sync/login-status/{sessionId}
-Response: { status: "WAITING" | "LOGGED_IN" | "EXPIRED", cookie?: "..." }
+Response: { status: "WAITING" | "SCANNED" | "LOGGED_IN" | "EXPIRED", cookie?: "..." }
 ```
 
 ### 4.3 手动触发同步

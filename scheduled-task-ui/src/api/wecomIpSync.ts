@@ -12,7 +12,7 @@ export interface QrCodeResult {
 }
 
 export interface LoginStatusResult {
-  status: 'WAITING' | 'LOGGED_IN' | 'EXPIRED'
+  status: 'WAITING' | 'SCANNED' | 'LOGGED_IN' | 'EXPIRED'
   cookie?: string
 }
 
