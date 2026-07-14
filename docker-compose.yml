@@ -20,7 +20,7 @@ services:
       start_period: 30s
 
   scheduled-task:
-    image: eclipse-temurin:17-jre-alpine
+    build: .
     container_name: scheduled-task-app
     ports:
       - "1236:1236"
