@@ -8,6 +8,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.net.JarURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -154,8 +155,7 @@ public class DependencyInstallService {
         String javaHome = System.getProperty("java.home");
         String javaBin = javaHome + File.separator + "bin" + File.separator + "java";
 
-        URL codeSource = getClass().getProtectionDomain().getCodeSource().getLocation();
-        File codeFile = new File(codeSource.toURI());
+        File codeFile = resolveExecutableCodeSource();
 
         List<String> cmd = new ArrayList<>();
         cmd.add(javaBin);
@@ -173,6 +173,19 @@ public class DependencyInstallService {
         }
         cmd.addAll(Arrays.asList(args));
         return cmd;
+    }
+
+    /**
+     * 解析当前运行jar文件路径。
+     * 从 fat jar 运行时 getLocation() 返回 jar:file:/...，需通过 JarURLConnection 取外层 jar。
+     */
+    private File resolveExecutableCodeSource() throws Exception {
+        URL codeSource = getClass().getProtectionDomain().getCodeSource().getLocation();
+        if ("jar".equals(codeSource.getProtocol())) {
+            JarURLConnection connection = (JarURLConnection) codeSource.openConnection();
+            return new File(connection.getJarFileURL().toURI());
+        }
+        return new File(codeSource.toURI());
     }
 
     /**
