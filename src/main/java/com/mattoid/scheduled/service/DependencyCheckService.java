@@ -1,10 +1,10 @@
 package com.mattoid.scheduled.service;
 
-import com.microsoft.playwright.Playwright;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -27,11 +27,14 @@ public class DependencyCheckService {
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
 
     private final BrowserCapabilityService browserCapabilityService;
+    private final PlaywrightBrowserLocator browserLocator;
 
     private final AtomicReference<CacheEntry> cache = new AtomicReference<>();
 
-    public DependencyCheckService(BrowserCapabilityService browserCapabilityService) {
+    public DependencyCheckService(BrowserCapabilityService browserCapabilityService,
+                                  PlaywrightBrowserLocator browserLocator) {
         this.browserCapabilityService = browserCapabilityService;
+        this.browserLocator = browserLocator;
     }
 
     /**
@@ -104,12 +107,12 @@ public class DependencyCheckService {
     }
 
     private String resolveChromiumExecutablePath() {
-        try (Playwright playwright = Playwright.create()) {
-            return playwright.chromium().executablePath();
-        } catch (Exception e) {
-            log.warn("[DependencyCheck] 无法定位 Chromium 可执行文件: {}", e.getMessage());
-            return null;
+        Path executable = browserLocator.findChromiumExecutable();
+        if (executable != null) {
+            return executable.toAbsolutePath().toString();
         }
+        log.warn("[DependencyCheck] 无法定位 Chromium 可执行文件");
+        return null;
     }
 
     private List<String> listMissingSharedLibraries(String executablePath) {

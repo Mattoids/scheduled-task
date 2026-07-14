@@ -265,6 +265,8 @@ interface DependencyStatusItem {
   installable: boolean
 }
 
+const VISIBLE_DEP_LIMIT = 5;
+
 const dependencyStatusList = computed<DependencyStatusItem[]>(() => {
   if (appStore.dependenciesLoading) {
     return [
@@ -296,6 +298,14 @@ const dependencyStatusList = computed<DependencyStatusItem[]>(() => {
     key: d.key,
   }));
 });
+
+const visibleDependencyList = computed<DependencyStatusItem[]>(() =>
+  dependencyStatusList.value.slice(0, VISIBLE_DEP_LIMIT),
+);
+
+const hiddenDependencyCount = computed(() =>
+  Math.max(0, dependencyStatusList.value.length - VISIBLE_DEP_LIMIT),
+);
 
 const loadStats = async () => {
   loading.value = true;
@@ -499,50 +509,32 @@ onUnmounted(() => {
 
     <div class="section-title" style="margin-top: 28px">系统环境</div>
     <el-row :gutter="20">
-      <el-col
-        v-for="dep in dependencyStatusList"
-        :key="dep.name"
-        :span="8"
-        :xs="24"
-        :sm="24"
-        :md="8"
-      >
-        <el-card class="env-card" shadow="never">
-          <div class="env-content">
+      <el-col :span="24">
+        <el-card
+          class="env-card env-card-large"
+          shadow="never"
+          :body-style="{ padding: '20px', height: '100%' }"
+        >
+          <div
+            class="env-panel"
+            :style="{
+              minHeight: visibleDependencyList.length >= 3 ? '270px' : 'auto',
+            }"
+          >
             <div
-              class="env-dot"
-              :style="{
-                backgroundColor:
-                  (dep.available === true
-                    ? '#10b981'
-                    : dep.available === false
-                      ? '#ef4444'
-                      : '#909399') + '20',
-                color:
-                  dep.available === true
-                    ? '#10b981'
-                    : dep.available === false
-                      ? '#ef4444'
-                      : '#909399',
-              }"
+              v-for="dep in visibleDependencyList"
+              :key="dep.key"
+              class="env-panel-item"
             >
-              <el-icon :size="24">
-                <component
-                  :is="
-                    dep.available === true
-                      ? CircleCheck
-                      : dep.available === false
-                        ? CircleClose
-                        : Loading
-                  "
-                />
-              </el-icon>
-            </div>
-            <div class="env-info">
-              <div class="env-title">{{ dep.name }}</div>
               <div
-                class="env-desc"
+                class="env-dot"
                 :style="{
+                  backgroundColor:
+                    (dep.available === true
+                      ? '#10b981'
+                      : dep.available === false
+                        ? '#ef4444'
+                        : '#909399') + '20',
                   color:
                     dep.available === true
                       ? '#10b981'
@@ -551,19 +543,48 @@ onUnmounted(() => {
                         : '#909399',
                 }"
               >
-                {{ dep.message }}
+                <el-icon :size="24">
+                  <component
+                    :is="
+                      dep.available === true
+                        ? CircleCheck
+                        : dep.available === false
+                          ? CircleClose
+                          : Loading
+                    "
+                  />
+                </el-icon>
               </div>
+              <div class="env-info">
+                <div class="env-title">{{ dep.name }}</div>
+                <div
+                  class="env-desc"
+                  :style="{
+                    color:
+                      dep.available === true
+                        ? '#10b981'
+                        : dep.available === false
+                          ? '#ef4444'
+                          : '#909399',
+                  }"
+                >
+                  {{ dep.message }}
+                </div>
+              </div>
+              <el-button
+                v-if="dep.installable && !dep.available && hasPermission('system:user')"
+                type="primary"
+                size="small"
+                :loading="installingKey === dep.key"
+                :disabled="isInstalling"
+                @click="startInstall(dep)"
+              >
+                安装依赖
+              </el-button>
             </div>
-            <el-button
-              v-if="dep.installable && !dep.available && hasPermission('system:user')"
-              type="primary"
-              size="small"
-              :loading="installingKey === dep.key"
-              :disabled="isInstalling"
-              @click="startInstall(dep)"
-            >
-              安装依赖
-            </el-button>
+            <div v-if="hiddenDependencyCount > 0" class="env-more">
+              还有 {{ hiddenDependencyCount }} 个依赖项未显示
+            </div>
           </div>
         </el-card>
       </el-col>
@@ -1032,6 +1053,61 @@ onUnmounted(() => {
 .env-info {
   flex: 1;
   min-width: 0;
+}
+
+.env-card-large {
+  margin-bottom: 20px;
+}
+
+.env-card-large :deep(.el-card__body) {
+  height: 100%;
+}
+
+.env-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 16px;
+  height: 100%;
+}
+
+.env-panel-item {
+  flex: 1 1 calc(33.333% - 16px);
+  min-width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+  border: 1px solid #e5e7eb;
+}
+
+.env-more {
+  width: 100%;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+@media (max-width: 768px) {
+  .dashboard-welcome {
+    flex-direction: column;
+  }
+
+  .stat-card {
+    margin-bottom: 16px;
+  }
+
+  .distribution-detail {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .env-panel-item {
+    flex: 1 1 100%;
+  }
 }
 
 .install-progress-body {
