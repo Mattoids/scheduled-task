@@ -1,9 +1,12 @@
 package com.mattoid.scheduled.service.wecom;
 
+import com.mattoid.scheduled.service.BrowserCapabilityService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 企业微信可信 IP 自动同步调度器。
@@ -15,9 +18,13 @@ import org.springframework.stereotype.Component;
 public class WeComIpSyncScheduler {
 
     private final WeComIpSyncService weComIpSyncService;
+    private final BrowserCapabilityService browserCapabilityService;
+    private final AtomicBoolean loggedUnavailable = new AtomicBoolean(false);
 
-    public WeComIpSyncScheduler(WeComIpSyncService weComIpSyncService) {
+    public WeComIpSyncScheduler(WeComIpSyncService weComIpSyncService,
+                                BrowserCapabilityService browserCapabilityService) {
         this.weComIpSyncService = weComIpSyncService;
+        this.browserCapabilityService = browserCapabilityService;
     }
 
     /**
@@ -26,6 +33,9 @@ public class WeComIpSyncScheduler {
      */
     @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     public void syncTrustedIps() {
+        if (!checkChromiumAvailable()) {
+            return;
+        }
         try {
             weComIpSyncService.syncAllEnabledConfigs();
         } catch (Exception e) {
@@ -38,10 +48,25 @@ public class WeComIpSyncScheduler {
      */
     @Scheduled(fixedDelay = 120_000, initialDelay = 60_000)
     public void cleanupExpiredSessions() {
+        if (!checkChromiumAvailable()) {
+            return;
+        }
         try {
             weComIpSyncService.cleanupExpiredSessions();
         } catch (Exception e) {
             log.error("清理过期二维码会话异常", e);
         }
+    }
+
+    private boolean checkChromiumAvailable() {
+        boolean available = browserCapabilityService.isChromiumAvailable();
+        if (!available) {
+            if (loggedUnavailable.compareAndSet(false, true)) {
+                log.warn("Chromium 内核未安装或不可用，跳过企业微信相关定时任务");
+            }
+            return false;
+        }
+        loggedUnavailable.set(false);
+        return true;
     }
 }

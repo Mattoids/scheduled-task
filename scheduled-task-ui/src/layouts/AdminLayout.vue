@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import type { RouteRecordRaw } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { useAppStore } from "@/stores/app";
@@ -14,11 +15,25 @@ const appStore = useAppStore();
 
 const activeMenu = computed(() => route.path);
 
+const isMenuVisible = (route: RouteRecordRaw) => {
+  const perm = route.meta?.permission as string | null;
+  if (perm && !userStore.hasPermission(perm)) return false;
+  if (route.meta?.requiresChromium && appStore.chromiumAvailable !== true) return false;
+  return true;
+};
+
 const visibleMenuRoutes = computed(() => {
-  return menuRoutes.filter((r) => {
-    const perm = r.meta?.permission as string | null;
-    return !perm || userStore.hasPermission(perm);
-  });
+  return menuRoutes
+    .filter(isMenuVisible)
+    .map((route) => {
+      if (route.children && route.children.length) {
+        const visibleChildren = route.children.filter(isMenuVisible);
+        if (visibleChildren.length === 0) return null;
+        return { ...route, children: visibleChildren } as RouteRecordRaw;
+      }
+      return route;
+    })
+    .filter((route): route is RouteRecordRaw => route !== null);
 });
 
 const passwordDialogVisible = ref(false);
