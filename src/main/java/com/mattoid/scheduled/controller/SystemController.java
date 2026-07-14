@@ -165,7 +165,7 @@ public class SystemController {
      * 目前仅支持 chromium。
      */
     @PreAuthorize("hasAuthority('system:user')")
-    @PostMapping("/dependencies/{key}/install")
+    @GetMapping("/dependencies/{key}/install")
     public SseEmitter installDependency(@PathVariable String key) {
         return dependencyInstallService.install(key);
     }
