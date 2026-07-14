@@ -17,9 +17,15 @@ import {
 } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { getDashboardStats, getServerTime } from "@/api/dashboard";
+import { installDependency, type InstallCompleteEvent } from "@/api/system";
+import { useUserStore } from "@/stores/user";
+import { usePermission } from "@/composables/usePermission";
 import type { DashboardStats, RecentTaskLog } from "@/types";
+import { ElMessage } from "element-plus";
 
 const appStore = useAppStore();
+const userStore = useUserStore();
+const { has: hasPermission } = usePermission();
 const router = useRouter();
 appStore.setBreadcrumb([{ title: "首页" }]);
 
@@ -151,13 +157,123 @@ const successRate = computed(() =>
     : 0,
 );
 
-const dependencyStatusList = computed(() => {
+const installDialogVisible = ref(false);
+const installDialogTitle = ref("安装依赖");
+const installProgress = ref(0);
+const installProgressStatus = ref("");
+const installLogs = ref<string[]>([]);
+const installAbortController = ref<AbortController | null>(null);
+const installingKey = ref<string | null>(null);
+
+const isInstalling = computed(() => !!installAbortController.value);
+
+const startInstall = (dep: DependencyStatusItem) => {
+  if (!dep.installable || dep.available) return;
+  if (!userStore.token) {
+    ElMessage.error("登录信息已过期，请重新登录");
+    return;
+  }
+
+  installDialogVisible.value = true;
+  installDialogTitle.value = `安装 ${dep.name}`;
+  installProgress.value = 0;
+  installProgressStatus.value = "";
+  installLogs.value = [];
+  installingKey.value = dep.key;
+
+  const controller = installDependency(dep.key, userStore.token, {
+    onOpen: () => {
+      installLogs.value.push("连接安装服务成功...");
+    },
+    onMessage: (event, data) => {
+      if (event === "message") {
+        const payload = data as { level?: string; message?: string };
+        installLogs.value.push(payload.message || String(data));
+      } else if (event === "progress") {
+        const payload = data as { phase?: string; percentage?: number };
+        if (payload.percentage != null) {
+          installProgress.value = Math.min(100, Math.max(0, payload.percentage));
+          installProgressStatus.value = payload.phase || "";
+        }
+      } else if (event === "phase") {
+        const payload = data as { phase?: string; message?: string };
+        if (payload.message) {
+          installLogs.value.push(`[阶段] ${payload.message}`);
+        }
+      } else if (event === "info" || event === "command") {
+        const payload = data as { message?: string; command?: string };
+        if (payload.message) {
+          installLogs.value.push(payload.message);
+        }
+        if (payload.command) {
+          installLogs.value.push(`$ ${payload.command}`);
+        }
+      } else if (event === "complete") {
+        const payload = data as InstallCompleteEvent;
+        installProgress.value = 100;
+        installProgressStatus.value = "completed";
+        ElMessage.success(payload.message || "安装完成");
+        if (payload.dependencies) {
+          appStore.dependencies = payload.dependencies;
+        } else {
+          appStore.loadDependencies();
+        }
+        closeInstallDialogSoon();
+      } else if (event === "error") {
+        const payload = data as { message?: string };
+        installProgressStatus.value = "exception";
+        ElMessage.error(payload.message || "安装失败");
+        closeInstallDialogSoon();
+      }
+    },
+    onError: (error) => {
+      installProgressStatus.value = "exception";
+      installLogs.value.push(`[错误] ${error.message}`);
+      ElMessage.error(error.message || "安装请求失败");
+      closeInstallDialogSoon();
+    },
+    onClose: () => {
+      installAbortController.value = null;
+      installingKey.value = null;
+    },
+  });
+
+  installAbortController.value = controller;
+};
+
+const closeInstallDialogSoon = () => {
+  setTimeout(() => {
+    installDialogVisible.value = false;
+    installAbortController.value?.abort();
+    installAbortController.value = null;
+    installingKey.value = null;
+  }, 1500);
+};
+
+const closeInstallDialog = () => {
+  installAbortController.value?.abort();
+  installAbortController.value = null;
+  installingKey.value = null;
+  installDialogVisible.value = false;
+};
+
+interface DependencyStatusItem {
+  key: string
+  name: string
+  available: boolean | null
+  message: string
+  installable: boolean
+}
+
+const dependencyStatusList = computed<DependencyStatusItem[]>(() => {
   if (appStore.dependenciesLoading) {
     return [
       {
         name: "系统依赖检测中",
         available: null as boolean | null,
         message: "正在检测系统依赖，请稍候...",
+        installable: false,
+        key: "loading",
       },
     ];
   }
@@ -167,6 +283,8 @@ const dependencyStatusList = computed(() => {
         name: "系统依赖检测失败",
         available: false,
         message: "无法获取系统依赖状态，企业微信相关功能不可用",
+        installable: false,
+        key: "error",
       },
     ];
   }
@@ -174,6 +292,8 @@ const dependencyStatusList = computed(() => {
     name: d.name,
     available: d.available,
     message: d.message,
+    installable: d.installable,
+    key: d.key,
   }));
 });
 
@@ -434,6 +554,16 @@ onUnmounted(() => {
                 {{ dep.message }}
               </div>
             </div>
+            <el-button
+              v-if="dep.installable && !dep.available && hasPermission('system:user')"
+              type="primary"
+              size="small"
+              :loading="installingKey === dep.key"
+              :disabled="isInstalling"
+              @click="startInstall(dep)"
+            >
+              安装
+            </el-button>
           </div>
         </el-card>
       </el-col>
@@ -637,6 +767,35 @@ onUnmounted(() => {
         description="暂无执行记录"
       />
     </el-card>
+    <el-dialog
+      v-model="installDialogVisible"
+      :title="installDialogTitle"
+      width="600px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      @close="closeInstallDialog"
+    >
+      <div class="install-progress-body">
+        <el-progress
+          :percentage="installProgress"
+          :status="installProgressStatus as any"
+          :stroke-width="16"
+          :format="(p: number) => `${p.toFixed(0)}%`"
+        />
+        <div class="install-log">
+          <div
+            v-for="(log, index) in installLogs"
+            :key="index"
+            class="install-log-line"
+          >
+            {{ log }}
+          </div>
+          <div v-if="installLogs.length === 0" class="install-log-empty">
+            等待安装服务响应...
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -868,6 +1027,41 @@ onUnmounted(() => {
 .env-desc {
   font-size: 15px;
   font-weight: 600;
+}
+
+.env-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-progress-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.install-log {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.install-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #374151;
+}
+
+.install-log-empty {
+  color: #9ca3af;
+  text-align: center;
+  padding: 20px 0;
 }
 
 @media (max-width: 768px) {

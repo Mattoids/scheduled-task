@@ -31,5 +31,11 @@ ENV API_KEY=Tn2Y*ggwolgQ5iVIt4JHl!ZzQNEelF*b
 ENV CORS_ALLOWED_ORIGINS=https://127.0.0.1:1236
 
 COPY app/app.jar app.jar
+
+# Pre-install Playwright Chromium and system dependencies during image build.
+# This keeps the runtime path fast; the manual install API remains as a fallback.
+RUN java -Dloader.main=com.microsoft.playwright.CLI -jar app.jar install chromium \
+    && java -Dloader.main=com.microsoft.playwright.CLI -jar app.jar install-deps chromium
+
 EXPOSE 1236
 ENTRYPOINT ["java", "-jar", "app.jar"]

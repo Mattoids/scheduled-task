@@ -16,11 +16,14 @@ import com.mattoid.scheduled.mapper.SysUserMapper;
 import com.mattoid.scheduled.mapper.SysUserRoleMapper;
 import com.mattoid.scheduled.service.BrowserCapabilityService;
 import com.mattoid.scheduled.service.DependencyCheckService;
+import com.mattoid.scheduled.service.DependencyInstallService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +41,7 @@ public class SystemController {
     private final PasswordEncoder passwordEncoder;
     private final BrowserCapabilityService browserCapabilityService;
     private final DependencyCheckService dependencyCheckService;
+    private final DependencyInstallService dependencyInstallService;
 
     public SystemController(SysUserMapper sysUserMapper,
                             SysRoleMapper sysRoleMapper,
@@ -45,7 +49,8 @@ public class SystemController {
                             SysUserRoleMapper sysUserRoleMapper,
                             PasswordEncoder passwordEncoder,
                             BrowserCapabilityService browserCapabilityService,
-                            DependencyCheckService dependencyCheckService) {
+                            DependencyCheckService dependencyCheckService,
+                            DependencyInstallService dependencyInstallService) {
         this.sysUserMapper = sysUserMapper;
         this.sysRoleMapper = sysRoleMapper;
         this.sysPermissionMapper = sysPermissionMapper;
@@ -53,6 +58,7 @@ public class SystemController {
         this.passwordEncoder = passwordEncoder;
         this.browserCapabilityService = browserCapabilityService;
         this.dependencyCheckService = dependencyCheckService;
+        this.dependencyInstallService = dependencyInstallService;
     }
 
     // ---- 用户 ----
@@ -152,5 +158,24 @@ public class SystemController {
     @GetMapping("/dependencies")
     public Result<List<DependencyCheckService.DependencyItem>> dependencies() {
         return Result.ok(dependencyCheckService.checkDependencies());
+    }
+
+    /**
+     * 安装指定依赖项，返回 SSE 流实时展示进度与日志。
+     * 目前仅支持 chromium。
+     */
+    @PreAuthorize("hasAuthority('system:user')")
+    @PostMapping("/dependencies/{key}/install")
+    public SseEmitter installDependency(@PathVariable String key) {
+        return dependencyInstallService.install(key);
+    }
+
+    /**
+     * 查询指定依赖项是否正在安装。
+     */
+    @GetMapping("/dependencies/{key}/install/status")
+    public ResponseEntity<Map<String, Object>> installStatus(@PathVariable String key) {
+        boolean installing = dependencyInstallService.isInstalling(key);
+        return ResponseEntity.ok(Map.of("installing", installing));
     }
 }

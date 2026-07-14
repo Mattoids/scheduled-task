@@ -51,11 +51,48 @@ export interface DependencyItem {
   key: string
   name: string
   available: boolean
+  installable: boolean
   message: string
 }
 
 export const checkDependencies = () => {
   return request.get<DependencyItem[]>('/system/dependencies')
+}
+
+import { createSse } from '@/utils/sse'
+
+export interface InstallProgressEvent {
+  phase?: string
+  message?: string
+  percentage?: number
+  level?: 'info' | 'warn' | 'error'
+}
+
+export interface InstallCompleteEvent {
+  success: boolean
+  message?: string
+  dependencies?: DependencyItem[]
+}
+
+export interface InstallSseHandlers {
+  onOpen?: () => void
+  onMessage?: (event: string, data: unknown) => void
+  onError?: (error: Error) => void
+  onClose?: () => void
+}
+
+export const installDependency = (key: string, token: string, handlers: InstallSseHandlers) => {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api'
+  const url = `${baseUrl}/system/dependencies/${encodeURIComponent(key)}/install`
+  return createSse({
+    url,
+    headers: { Authorization: `Bearer ${token}` },
+    ...handlers,
+  })
+}
+
+export const getInstallStatus = (key: string) => {
+  return request.get<{ installing: boolean }>(`/system/dependencies/${encodeURIComponent(key)}/install/status`)
 }
 
 export const listPermission = () => {
