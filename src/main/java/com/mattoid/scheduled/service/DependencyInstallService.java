@@ -80,6 +80,8 @@ public class DependencyInstallService {
             if (existing.isRunning()) {
                 SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
                 existing.addEmitter(emitter);
+                // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
+                // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
                 emitter.onCompletion(() -> existing.removeEmitter(emitter));
                 emitter.onTimeout(() -> existing.removeEmitter(emitter));
                 emitter.onError((e) -> existing.removeEmitter(emitter));
@@ -96,7 +98,8 @@ public class DependencyInstallService {
 
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
         task.addEmitter(emitter);
-
+        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
+        // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
         emitter.onCompletion(() -> task.removeEmitter(emitter));
         emitter.onTimeout(() -> task.removeEmitter(emitter));
         emitter.onError((e) -> task.removeEmitter(emitter));
@@ -117,7 +120,8 @@ public class DependencyInstallService {
                 ));
             } finally {
                 task.complete();
-                runningTasks.remove(normalizedKey);
+                // 只有本任务自己才能把自己从 runningTasks 中移除，避免旧任务在 finally 中误删新任务
+                runningTasks.remove(normalizedKey, task);
             }
         });
 
@@ -148,15 +152,15 @@ public class DependencyInstallService {
     /**
      * 查询指定依赖项的安装进度快照。
      * <p>若该依赖项从未开始安装或快照已被清理，则返回一个 {@code running=false} 的默认快照，
-     * 表示未开始或已完成。</p>
+     * 表示未开始或已完成。对不支持的 key 同样返回默认快照，避免接口抛出异常导致 HTTP 500。</p>
      *
      * @param key 依赖项 key，目前仅支持 "chromium"
      * @return 安装进度快照
-     * @throws IllegalArgumentException 如果 key 不支持
      */
     public InstallProgressSnapshot getSnapshot(String key) {
         if (!isSupportedKey(key)) {
-            throw new IllegalArgumentException("暂不支持的依赖项: " + key + "，目前仅支持 chromium 及其系统库");
+            return new InstallProgressSnapshot(
+                    key, "idle", 0.0, "idle", "暂不支持的依赖项", false, List.of());
         }
         String normalizedKey = "chromium";
         InstallProgressSnapshot snapshot = installSnapshots.get(normalizedKey);
