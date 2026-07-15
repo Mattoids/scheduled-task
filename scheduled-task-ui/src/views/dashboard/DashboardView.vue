@@ -17,7 +17,7 @@ import {
 } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { getDashboardStats, getServerTime } from "@/api/dashboard";
-import { installDependency, type InstallCompleteEvent } from "@/api/system";
+import { installDependency, getInstallStatus, type InstallCompleteEvent } from "@/api/system";
 import { useUserStore } from "@/stores/user";
 import { usePermission } from "@/composables/usePermission";
 import type { DashboardStats, RecentTaskLog } from "@/types";
@@ -157,13 +157,33 @@ const successRate = computed(() =>
     : 0,
 );
 
-const installDialogVisible = ref(false);
-const installDialogTitle = ref("安装依赖");
-const installProgress = ref(0);
-const installProgressStatus = ref("");
-const installLogs = ref<string[]>([]);
+interface DependencyRow {
+  key: string
+  name: string
+  description: string
+  available: boolean | null
+  message: string
+  installable: boolean
+  isGroupHeader: boolean
+}
+
+const dependencyDescriptionMap: Record<string, string> = {
+  chromium:
+    "Chromium 浏览器内核，用于企业微信管理后台自动化、可信 IP 同步及扫码登录。",
+};
+
+const getDependencyDescription = (key: string): string => {
+  if (key.startsWith("lib:")) {
+    return "Chromium 运行所需的系统共享库。";
+  }
+  return dependencyDescriptionMap[key] || "系统运行依赖项。";
+};
+
 const installAbortController = ref<AbortController | null>(null);
 const installingKey = ref<string | null>(null);
+const installProgress = ref(0);
+const installProgressStatus = ref<"" | "success" | "exception">("");
+const installPhaseMessage = ref("");
 
 /**
  * 将前端的依赖 key 归一化为后端任务 key。
@@ -180,145 +200,180 @@ const isInstalling = (key: string): boolean => {
   return !!installAbortController.value && installingKey.value === normalizeInstallKey(key);
 };
 
-const startInstall = (dep: DependencyStatusItem) => {
+const resetInstallState = () => {
+  installAbortController.value?.abort();
+  installAbortController.value = null;
+  installingKey.value = null;
+  installProgress.value = 0;
+  installProgressStatus.value = "";
+  installPhaseMessage.value = "";
+};
+
+const startInstall = (dep: DependencyRow) => {
   if (!dep.installable || dep.available) return;
   if (!userStore.token) {
     ElMessage.error("登录信息已过期，请重新登录");
     return;
   }
+  doInstall(dep.key, dep.name);
+};
 
-  installDialogVisible.value = true;
-  installDialogTitle.value = `安装 ${dep.name}`;
+const doInstall = (key: string, name?: string) => {
+  resetInstallState();
   installProgress.value = 0;
   installProgressStatus.value = "";
-  installLogs.value = [];
-  installingKey.value = normalizeInstallKey(dep.key);
+  installPhaseMessage.value = name ? `开始安装 ${name}...` : "开始安装...";
+  installingKey.value = normalizeInstallKey(key);
 
-  const controller = installDependency(dep.key, userStore.token, {
+  const controller = installDependency(key, userStore.token, {
     onOpen: () => {
-      installLogs.value.push("连接安装服务成功...");
+      installPhaseMessage.value = "连接安装服务成功...";
     },
     onMessage: (event, data) => {
       if (event === "message") {
-        const payload = data as { level?: string; message?: string };
-        installLogs.value.push(payload.message || String(data));
+        const payload = data as { level?: string; message?: string; phase?: string };
+        if (payload.message) {
+          installPhaseMessage.value = payload.message;
+        }
       } else if (event === "progress") {
         const payload = data as { phase?: string; percentage?: number };
         if (payload.percentage != null) {
           installProgress.value = Math.min(100, Math.max(0, payload.percentage));
-          installProgressStatus.value = payload.phase || "";
+        }
+        if (payload.phase) {
+          installPhaseMessage.value = payload.phase;
         }
       } else if (event === "phase") {
         const payload = data as { phase?: string; message?: string };
         if (payload.message) {
-          installLogs.value.push(`[阶段] ${payload.message}`);
+          installPhaseMessage.value = payload.message;
         }
-      } else if (event === "info" || event === "command") {
-        const payload = data as { message?: string; command?: string };
+      } else if (event === "info") {
+        const payload = data as { message?: string };
         if (payload.message) {
-          installLogs.value.push(payload.message);
+          installPhaseMessage.value = payload.message;
         }
+      } else if (event === "command") {
+        const payload = data as { command?: string };
         if (payload.command) {
-          installLogs.value.push(`$ ${payload.command}`);
+          installPhaseMessage.value = `执行命令: ${payload.command}`;
         }
       } else if (event === "complete") {
         const payload = data as InstallCompleteEvent;
         installProgress.value = 100;
-        installProgressStatus.value = "completed";
+        installProgressStatus.value = "success";
+        installPhaseMessage.value = payload.message || "安装完成";
         ElMessage.success(payload.message || "安装完成");
         if (payload.dependencies) {
           appStore.dependencies = payload.dependencies;
         } else {
           appStore.loadDependencies();
         }
-        closeInstallDialogSoon();
+        setTimeout(resetInstallState, 1500);
       } else if (event === "error") {
         const payload = data as { message?: string };
         installProgressStatus.value = "exception";
+        installPhaseMessage.value = payload.message || "安装失败";
         ElMessage.error(payload.message || "安装失败");
-        closeInstallDialogSoon();
+        setTimeout(resetInstallState, 1500);
       }
     },
     onError: (error) => {
       installProgressStatus.value = "exception";
-      installLogs.value.push(`[错误] ${error.message}`);
+      installPhaseMessage.value = error.message || "安装请求失败";
       ElMessage.error(error.message || "安装请求失败");
-      closeInstallDialogSoon();
+      setTimeout(resetInstallState, 1500);
     },
     onClose: () => {
-      installAbortController.value = null;
-      installingKey.value = null;
+      // 正常关闭时如果还在安装中，可能是后端任务已完成但未收到 complete 事件
+      if (installingKey.value) {
+        appStore.loadDependencies();
+        resetInstallState();
+      }
     },
   });
 
   installAbortController.value = controller;
 };
 
-const closeInstallDialogSoon = () => {
-  setTimeout(() => {
-    installDialogVisible.value = false;
-    installAbortController.value?.abort();
-    installAbortController.value = null;
-    installingKey.value = null;
-  }, 1500);
-};
-
-const closeInstallDialog = () => {
-  installAbortController.value?.abort();
-  installAbortController.value = null;
-  installingKey.value = null;
-  installDialogVisible.value = false;
-};
-
-interface DependencyStatusItem {
-  key: string
-  name: string
-  available: boolean | null
-  message: string
-  installable: boolean
-}
-
-const VISIBLE_DEP_LIMIT = 5;
-
-const dependencyStatusList = computed<DependencyStatusItem[]>(() => {
+const dependencyRows = computed<DependencyRow[]>(() => {
   if (appStore.dependenciesLoading) {
     return [
       {
-        name: "系统依赖检测中",
-        available: null as boolean | null,
-        message: "正在检测系统依赖，请稍候...",
-        installable: false,
         key: "loading",
+        name: "系统依赖检测中",
+        description: "正在检测系统依赖状态...",
+        available: null,
+        message: "请稍候",
+        installable: false,
+        isGroupHeader: true,
       },
     ];
   }
   if (appStore.dependencies.length === 0) {
     return [
       {
-        name: "系统依赖检测失败",
-        available: false,
-        message: "无法获取系统依赖状态，企业微信相关功能不可用",
-        installable: false,
         key: "error",
+        name: "系统依赖检测失败",
+        description: "无法获取系统依赖状态",
+        available: false,
+        message: "企业微信相关功能不可用",
+        installable: false,
+        isGroupHeader: true,
       },
     ];
   }
-  return appStore.dependencies.map((d) => ({
-    name: d.name,
-    available: d.available,
-    message: d.message,
-    installable: d.installable,
-    key: d.key,
-  }));
+
+  const rows: DependencyRow[] = [];
+  const chromiumIndex = Math.max(
+    0,
+    appStore.dependencies.findIndex((d) => d.key === "chromium"),
+  );
+  const chromium = appStore.dependencies[chromiumIndex];
+
+  rows.push({
+    key: chromium.key,
+    name: chromium.name,
+    description: getDependencyDescription(chromium.key),
+    available: chromium.available,
+    message: chromium.message,
+    installable: chromium.installable,
+    isGroupHeader: true,
+  });
+
+  appStore.dependencies.forEach((d, idx) => {
+    if (idx === chromiumIndex) return;
+    rows.push({
+      key: d.key,
+      name: d.name,
+      description: getDependencyDescription(d.key),
+      available: d.available,
+      message: d.message,
+      installable: d.installable,
+      isGroupHeader: !d.key.startsWith("lib:"),
+    });
+  });
+
+  return rows;
 });
 
-const visibleDependencyList = computed<DependencyStatusItem[]>(() =>
-  dependencyStatusList.value.slice(0, VISIBLE_DEP_LIMIT),
-);
+const checkOngoingInstall = async () => {
+  try {
+    const { installing } = await getInstallStatus("chromium");
+    if (installing && !installAbortController.value) {
+      const chromiumRow = dependencyRows.value.find((r) => r.key === "chromium");
+      doInstall("chromium", chromiumRow?.name || "Chromium 内核");
+    }
+  } catch {
+    // 忽略状态查询失败
+  }
+};
 
-const hiddenDependencyCount = computed(() =>
-  Math.max(0, dependencyStatusList.value.length - VISIBLE_DEP_LIMIT),
-);
+const statusColor = (dep: DependencyRow): string => {
+  if (dep.available === true) return "#10b981";
+  if (dep.available === false) return "#ef4444";
+  return "#909399";
+};
 
 const loadStats = async () => {
   loading.value = true;
@@ -442,13 +497,16 @@ const formatDuration = (row: RecentTaskLog) => {
   return `${minutes}m ${rem}s`;
 };
 
-onMounted(() => {
+onMounted(async () => {
   loadStats();
   syncServerTime();
   serverTimeTimer = window.setInterval(tickServerTime, 1000);
+  await appStore.loadDependencies();
+  checkOngoingInstall();
 });
 
 onUnmounted(() => {
+  resetInstallState();
   if (serverTimeTimer) {
     window.clearInterval(serverTimeTimer);
     serverTimeTimer = undefined;
@@ -523,80 +581,90 @@ onUnmounted(() => {
     <div class="section-title" style="margin-top: 28px">系统环境</div>
     <el-row :gutter="20">
       <el-col :span="24">
-        <el-card
-          class="env-card env-card-large"
-          shadow="never"
-          :body-style="{ padding: '20px', height: '100%' }"
-        >
-          <div
-            class="env-panel"
-            :style="{
-              minHeight: visibleDependencyList.length >= 3 ? '270px' : 'auto',
-            }"
-          >
+        <el-card class="dependency-card" shadow="never">
+          <div class="dependency-list">
             <div
-              v-for="dep in visibleDependencyList"
+              v-for="dep in dependencyRows"
               :key="dep.key"
-              class="env-panel-item"
+              class="dependency-row"
+              :class="{ 'sub-row': !dep.isGroupHeader }"
             >
-              <div
-                class="env-dot"
-                :style="{
-                  backgroundColor:
-                    (dep.available === true
-                      ? '#10b981'
-                      : dep.available === false
-                        ? '#ef4444'
-                        : '#909399') + '20',
-                  color:
-                    dep.available === true
-                      ? '#10b981'
-                      : dep.available === false
-                        ? '#ef4444'
-                        : '#909399',
-                }"
-              >
-                <el-icon :size="24">
-                  <component
-                    :is="
-                      dep.available === true
-                        ? CircleCheck
-                        : dep.available === false
-                          ? CircleClose
-                          : Loading
-                    "
-                  />
-                </el-icon>
-              </div>
-              <div class="env-info">
-                <div class="env-title">{{ dep.name }}</div>
+              <div class="dependency-main">
                 <div
-                  class="env-desc"
+                  class="dependency-status-icon"
                   :style="{
-                    color:
-                      dep.available === true
-                        ? '#10b981'
-                        : dep.available === false
-                          ? '#ef4444'
-                          : '#909399',
+                    backgroundColor: statusColor(dep) + '20',
+                    color: statusColor(dep),
                   }"
                 >
-                  {{ dep.message }}
+                  <el-icon :size="dep.isGroupHeader ? 22 : 18">
+                    <component
+                      :is="
+                        dep.available === true
+                          ? CircleCheck
+                          : dep.available === false
+                            ? CircleClose
+                            : Loading
+                      "
+                    />
+                  </el-icon>
                 </div>
+                <div class="dependency-info">
+                  <div class="dependency-name">
+                    {{ dep.name }}
+                    <el-icon
+                      v-if="dep.available === true && dep.installable"
+                      class="dependency-inline-check"
+                      :size="16"
+                      color="#10b981"
+                    >
+                      <CircleCheck />
+                    </el-icon>
+                  </div>
+                  <div class="dependency-desc">{{ dep.description }}</div>
+                  <div
+                    v-if="isInstalling(dep.key)"
+                    class="dependency-progress"
+                  >
+                    <el-progress
+                      :percentage="installProgress"
+                      :status="installProgressStatus"
+                      :stroke-width="10"
+                      :show-text="true"
+                    />
+                    <div class="dependency-progress-message">
+                      {{ installPhaseMessage }}
+                    </div>
+                  </div>
+                  <div
+                    v-else-if="dep.message && !dep.available"
+                    class="dependency-message"
+                    :style="{ color: statusColor(dep) }"
+                  >
+                    {{ dep.message }}
+                  </div>
+                </div>                <el-button
+                  v-if="
+                    dep.installable &&
+                    !dep.available &&
+                    hasPermission('system:user') &&
+                    !isInstalling(dep.key)
+                  "
+                  type="primary"
+                  size="small"
+                  @click="startInstall(dep)"
+                >
+                  安装依赖
+                </el-button>
+                <el-icon
+                  v-else-if="dep.available === true && dep.installable"
+                  class="dependency-done-check"
+                  :size="22"
+                  color="#10b981"
+                >
+                  <CircleCheck />
+                </el-icon>
               </div>
-              <el-button
-                v-if="dep.installable && !dep.available && hasPermission('system:user')"
-                type="primary"
-                size="small"
-                :loading="isInstalling(dep.key)"
-                :disabled="isInstalling(dep.key)"
-                @click="startInstall(dep)"
-              >
-                安装依赖
-              </el-button>
-            </div>
-            <div v-if="hiddenDependencyCount > 0" class="env-more">
-              还有 {{ hiddenDependencyCount }} 个依赖项未显示
             </div>
           </div>
         </el-card>
@@ -801,35 +869,6 @@ onUnmounted(() => {
         description="暂无执行记录"
       />
     </el-card>
-    <el-dialog
-      v-model="installDialogVisible"
-      :title="installDialogTitle"
-      width="600px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      @close="closeInstallDialog"
-    >
-      <div class="install-progress-body">
-        <el-progress
-          :percentage="installProgress"
-          :status="installProgressStatus as any"
-          :stroke-width="16"
-          :format="(p: number) => `${p.toFixed(0)}%`"
-        />
-        <div class="install-log">
-          <div
-            v-for="(log, index) in installLogs"
-            :key="index"
-            class="install-log-line"
-          >
-            {{ log }}
-          </div>
-          <div v-if="installLogs.length === 0" class="install-log-empty">
-            等待安装服务响应...
-          </div>
-        </div>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
@@ -1025,132 +1064,111 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-.env-card {
+.dependency-card {
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
   margin-bottom: 20px;
 }
 
-.env-card :deep(.el-card__body) {
-  padding: 18px 20px;
+.dependency-card :deep(.el-card__body) {
+  padding: 0;
 }
 
-.env-content {
+.dependency-list {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  flex-direction: column;
 }
 
-.env-dot {
-  width: 44px;
-  height: 44px;
+.dependency-row {
+  padding: 18px 24px;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.2s ease;
+}
+
+.dependency-row:last-child {
+  border-bottom: none;
+}
+
+.dependency-row:hover {
+  background-color: #fafafa;
+}
+
+.dependency-row.sub-row {
+  padding: 12px 24px 12px 64px;
+  background-color: #fafbfc;
+}
+
+.dependency-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.dependency-status-icon {
+  width: 42px;
+  height: 42px;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
-.env-title {
-  font-size: 14px;
-  color: #6b7280;
-  margin-bottom: 4px;
+.dependency-row.sub-row .dependency-status-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
 }
 
-.env-desc {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.env-info {
+.dependency-info {
   flex: 1;
   min-width: 0;
 }
 
-.env-card-large {
-  margin-bottom: 20px;
-}
-
-.env-card-large :deep(.el-card__body) {
-  height: 100%;
-}
-
-.env-panel {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 16px;
-  height: 100%;
-}
-
-.env-panel-item {
-  flex: 1 1 calc(33.333% - 16px);
-  min-width: 240px;
+.dependency-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
-  border: 1px solid #e5e7eb;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
-.env-more {
-  width: 100%;
-  text-align: center;
-  color: #9ca3af;
+.dependency-inline-check {
+  display: inline-flex;
+}
+
+.dependency-desc {
   font-size: 13px;
-  padding: 8px 0;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-bottom: 8px;
 }
 
-@media (max-width: 768px) {
-  .dashboard-welcome {
-    flex-direction: column;
-  }
-
-  .stat-card {
-    margin-bottom: 16px;
-  }
-
-  .distribution-detail {
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  .env-panel-item {
-    flex: 1 1 100%;
-  }
+.dependency-message {
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.install-progress-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.dependency-progress {
+  margin-top: 10px;
+  max-width: 520px;
 }
 
-.install-log {
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 12px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+.dependency-progress-message {
+  margin-top: 6px;
   font-size: 12px;
-  line-height: 1.6;
+  color: #6b7280;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
-.install-log-line {
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: #374151;
-}
-
-.install-log-empty {
-  color: #9ca3af;
-  text-align: center;
-  padding: 20px 0;
+.dependency-done-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  margin-top: 4px;
 }
 
 @media (max-width: 768px) {
@@ -1165,6 +1183,27 @@ onUnmounted(() => {
   .distribution-detail {
     gap: 12px;
     flex-wrap: wrap;
+  }
+
+  .dependency-row {
+    padding: 14px 16px;
+  }
+
+  .dependency-row.sub-row {
+    padding: 10px 16px 10px 48px;
+  }
+
+  .dependency-main {
+    gap: 12px;
+  }
+
+  .dependency-status-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .dependency-progress {
+    max-width: 100%;
   }
 }
 </style>
