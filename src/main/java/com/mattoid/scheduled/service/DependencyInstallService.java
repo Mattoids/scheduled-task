@@ -7,6 +7,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.JarURLConnection;
 import java.net.URL;
@@ -14,12 +16,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 系统依赖项手动安装服务。
@@ -148,7 +154,9 @@ public class DependencyInstallService {
 
     /**
      * 构造调用 Playwright CLI 的命令。
-     * 生产环境（Spring Boot fat jar）通过 loader.main 启动 CLI；
+     * 生产环境（Spring Boot fat jar）通过解压 BOOT-INF/lib 中的依赖，
+     * 直接用 -cp 运行 com.microsoft.playwright.CLI，避免 Spring Boot Launcher
+     * 再次启动应用上下文（导致 Flyway/HikariCP 等初始化并连接数据库失败）。
      * 开发环境（target/classes）使用 java.class.path。
      */
     private List<String> buildPlaywrightCliCommand(String... args) throws Exception {
@@ -161,18 +169,86 @@ public class DependencyInstallService {
         cmd.add(javaBin);
 
         if (codeFile.isFile() && codeFile.getName().endsWith(".jar")) {
-            // Spring Boot fat jar: 通过 loader.main 指定 Playwright CLI 入口
+            List<File> cliJars = extractCliClasspath(codeFile);
+            if (!cliJars.isEmpty()) {
+                String cp = cliJars.stream()
+                        .map(File::getAbsolutePath)
+                        .collect(Collectors.joining(File.pathSeparator));
+                cmd.add("-cp");
+                cmd.add(cp);
+                cmd.add("com.microsoft.playwright.CLI");
+                cmd.addAll(Arrays.asList(args));
+                return cmd;
+            }
+            // 未识别到 Spring Boot 依赖目录时，回退到 loader.main 方式
             cmd.add("-Dloader.main=com.microsoft.playwright.CLI");
             cmd.add("-jar");
             cmd.add(codeFile.getAbsolutePath());
         } else {
-            // IDE / exploded: 使用完整 classpath
             cmd.add("-cp");
             cmd.add(System.getProperty("java.class.path"));
             cmd.add("com.microsoft.playwright.CLI");
         }
         cmd.addAll(Arrays.asList(args));
         return cmd;
+    }
+
+    /**
+     * 从 Spring Boot fat jar 中提取 Playwright CLI 运行所需的全部 BOOT-INF/lib 依赖。
+     * 结果按 fat jar 的最后修改时间缓存，避免每次安装都重复解压。
+     */
+    private List<File> extractCliClasspath(File fatJar) throws IOException {
+        Path cacheDir = Paths.get(System.getProperty("user.home"), ".cache", "scheduled-task", "playwright-cli");
+        Files.createDirectories(cacheDir);
+        Path marker = cacheDir.resolve(".marker");
+
+        long jarLastModified = fatJar.lastModified();
+        boolean needExtract = true;
+        if (Files.exists(marker)) {
+            try {
+                long markerTime = Long.parseLong(Files.readString(marker, StandardCharsets.UTF_8).trim());
+                needExtract = markerTime != jarLastModified;
+            } catch (Exception ignored) {
+            }
+        }
+
+        List<File> jars = new ArrayList<>();
+        if (!needExtract) {
+            try (var stream = Files.list(cacheDir)) {
+                stream.filter(p -> p.toString().endsWith(".jar"))
+                        .forEach(p -> jars.add(p.toFile()));
+            }
+            if (!jars.isEmpty()) {
+                return jars;
+            }
+        }
+
+        try (var stream = Files.list(cacheDir)) {
+            stream.forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (Exception ignored) {
+                }
+            });
+        }
+
+        try (JarFile jarFile = new JarFile(fatJar)) {
+            Enumeration<JarEntry> entries = jarFile.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (name.startsWith("BOOT-INF/lib/") && name.endsWith(".jar")) {
+                    Path target = cacheDir.resolve(Paths.get(name).getFileName().toString());
+                    try (InputStream is = jarFile.getInputStream(entry)) {
+                        Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    jars.add(target.toFile());
+                }
+            }
+        }
+
+        Files.writeString(marker, String.valueOf(jarLastModified), StandardCharsets.UTF_8);
+        return jars;
     }
 
     /**
