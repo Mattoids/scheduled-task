@@ -1,5 +1,6 @@
 export interface SseOptions {
   url: string
+  method?: 'GET' | 'POST'
   headers?: Record<string, string>
   onOpen?: () => void
   onMessage?: (event: string, data: unknown) => void
@@ -15,7 +16,7 @@ export function createSse(options: SseOptions): AbortController {
   const controller = new AbortController()
 
   fetch(options.url, {
-    method: 'GET',
+    method: options.method || 'GET',
     headers: {
       Accept: 'text/event-stream',
       ...options.headers,

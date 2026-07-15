@@ -165,7 +165,20 @@ const installLogs = ref<string[]>([]);
 const installAbortController = ref<AbortController | null>(null);
 const installingKey = ref<string | null>(null);
 
-const isInstalling = computed(() => !!installAbortController.value);
+/**
+ * 将前端的依赖 key 归一化为后端任务 key。
+ * 缺失的系统共享库项（lib:*）与 chromium 共用同一次安装任务，统一按 chromium 处理。
+ */
+const normalizeInstallKey = (key: string): string => {
+  if (key.startsWith("lib:")) {
+    return "chromium";
+  }
+  return key;
+};
+
+const isInstalling = (key: string): boolean => {
+  return !!installAbortController.value && installingKey.value === normalizeInstallKey(key);
+};
 
 const startInstall = (dep: DependencyStatusItem) => {
   if (!dep.installable || dep.available) return;
@@ -179,7 +192,7 @@ const startInstall = (dep: DependencyStatusItem) => {
   installProgress.value = 0;
   installProgressStatus.value = "";
   installLogs.value = [];
-  installingKey.value = dep.key;
+  installingKey.value = normalizeInstallKey(dep.key);
 
   const controller = installDependency(dep.key, userStore.token, {
     onOpen: () => {
@@ -575,8 +588,8 @@ onUnmounted(() => {
                 v-if="dep.installable && !dep.available && hasPermission('system:user')"
                 type="primary"
                 size="small"
-                :loading="installingKey === dep.key"
-                :disabled="isInstalling"
+                :loading="isInstalling(dep.key)"
+                :disabled="isInstalling(dep.key)"
                 @click="startInstall(dep)"
               >
                 安装依赖

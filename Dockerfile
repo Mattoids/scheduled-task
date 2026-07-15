@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jre
+FROM docker.1ms.run/eclipse-temurin:17-jre
 WORKDIR /app
 
 # Install Playwright browser system dependencies + Chinese fonts
@@ -30,7 +30,7 @@ ENV API_KEY=Tn2Y*ggwolgQ5iVIt4JHl!ZzQNEelF*b
 # CORS (application-prod.yml)
 ENV CORS_ALLOWED_ORIGINS=https://127.0.0.1:1236
 
-COPY app/app.jar app.jar
+COPY target/scheduled-task-1.0.0-SNAPSHOT.jar app.jar
 
 # Pre-install Playwright Chromium and system dependencies during image build.
 # This keeps the runtime path fast; the manual install API remains as a fallback.
