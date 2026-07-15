@@ -21,6 +21,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -46,6 +47,7 @@ public class DependencyInstallService {
 
     private static final long EMITTER_TIMEOUT_MS = 0L;
     private static final int PROCESS_TIMEOUT_MINUTES = 30;
+    private static final int MAX_LOG_LINES = 500;
 
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)%");
 
@@ -59,10 +61,11 @@ public class DependencyInstallService {
 
     /**
      * 启动指定依赖项的安装流程，返回 SSE 流用于接收进度。
+     * <p>若同一依赖项正在安装中，则新连接的 SSE 会被加入到当前任务的多播列表，
+     * 并立即收到当前安装快照，支持刷新页面后的进度恢复与重连。</p>
      *
      * @param key 依赖项 key，目前仅支持 "chromium"
      * @return SSE 流
-     * @throws IllegalStateException    如果该依赖项正在安装中
      * @throws IllegalArgumentException 如果 key 不支持
      */
     public SseEmitter install(String key) {
@@ -74,15 +77,29 @@ public class DependencyInstallService {
         InstallTask task = new InstallTask(normalizedKey);
         InstallTask existing = runningTasks.putIfAbsent(normalizedKey, task);
         if (existing != null) {
-            throw new IllegalStateException("chromium 正在安装中，请勿重复操作");
+            if (existing.isRunning()) {
+                SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
+                existing.addEmitter(emitter);
+                emitter.onCompletion(() -> existing.removeEmitter(emitter));
+                emitter.onTimeout(() -> existing.removeEmitter(emitter));
+                emitter.onError((e) -> existing.removeEmitter(emitter));
+                sendSnapshotToEmitter(existing, emitter);
+                return emitter;
+            }
+            // 旧任务已结束但尚未清理，替换为新任务继续
+            runningTasks.remove(normalizedKey, existing);
+            runningTasks.put(normalizedKey, task);
         }
 
-        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
-        task.setEmitter(emitter);
+        installSnapshots.put(normalizedKey, new InstallProgressSnapshot(
+                normalizedKey, "prepare", 0.0, "running", "准备开始安装...", true, List.of()));
 
-        emitter.onCompletion(() -> cleanup(normalizedKey, task));
-        emitter.onTimeout(() -> cleanup(normalizedKey, task));
-        emitter.onError((e) -> cleanup(normalizedKey, task));
+        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
+        task.addEmitter(emitter);
+
+        emitter.onCompletion(() -> task.removeEmitter(emitter));
+        emitter.onTimeout(() -> task.removeEmitter(emitter));
+        emitter.onError((e) -> task.removeEmitter(emitter));
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -107,6 +124,18 @@ public class DependencyInstallService {
         return emitter;
     }
 
+    private void sendSnapshotToEmitter(InstallTask task, SseEmitter emitter) {
+        try {
+            SseEmitter.SseEventBuilder builder = SseEmitter.event()
+                    .name("info")
+                    .data(task.getSnapshot(), MediaType.APPLICATION_JSON);
+            emitter.send(builder);
+        } catch (Exception ex) {
+            log.debug("[DependencyInstall] 重连时发送快照失败: {}", ex.getMessage());
+            task.removeEmitter(emitter);
+        }
+    }
+
     /**
      * 查询指定依赖项是否正在安装。
      */
@@ -116,9 +145,26 @@ public class DependencyInstallService {
         return task != null && task.isRunning();
     }
 
-    private void cleanup(String key, InstallTask task) {
-        task.destroyProcess();
-        runningTasks.remove(key, task);
+    /**
+     * 查询指定依赖项的安装进度快照。
+     * <p>若该依赖项从未开始安装或快照已被清理，则返回一个 {@code running=false} 的默认快照，
+     * 表示未开始或已完成。</p>
+     *
+     * @param key 依赖项 key，目前仅支持 "chromium"
+     * @return 安装进度快照
+     * @throws IllegalArgumentException 如果 key 不支持
+     */
+    public InstallProgressSnapshot getSnapshot(String key) {
+        if (!isSupportedKey(key)) {
+            throw new IllegalArgumentException("暂不支持的依赖项: " + key + "，目前仅支持 chromium 及其系统库");
+        }
+        String normalizedKey = "chromium";
+        InstallProgressSnapshot snapshot = installSnapshots.get(normalizedKey);
+        if (snapshot != null) {
+            return snapshot;
+        }
+        return new InstallProgressSnapshot(
+                normalizedKey, "idle", 0.0, "idle", "安装未开始", false, List.of());
     }
 
     private void doInstall(InstallTask task) throws Exception {
@@ -548,20 +594,30 @@ public class DependencyInstallService {
     }
 
     /**
-     * 单次安装任务，封装 SSE 发送与进程管理。
+     * 单次安装任务，封装 SSE 发送、进程管理与快照持久化。
+     * <p>支持多个 SSE 客户端同时订阅同一安装过程，以满足刷新/重连场景。</p>
      */
-    private static class InstallTask {
+    private class InstallTask {
         private final String key;
-        private volatile SseEmitter emitter;
+        private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
         private volatile Process process;
         private volatile boolean running = true;
+        private volatile String phase = "prepare";
+        private volatile double percentage = 0.0;
+        private volatile String status = "running";
+        private volatile String message = "";
+        private final Deque<String> logs = new ArrayDeque<>();
 
         InstallTask(String key) {
             this.key = key;
         }
 
-        void setEmitter(SseEmitter emitter) {
-            this.emitter = emitter;
+        void addEmitter(SseEmitter emitter) {
+            this.emitters.add(emitter);
+        }
+
+        void removeEmitter(SseEmitter emitter) {
+            this.emitters.remove(emitter);
         }
 
         void setProcess(Process process) {
@@ -572,31 +628,127 @@ public class DependencyInstallService {
             return running;
         }
 
+        InstallProgressSnapshot getSnapshot() {
+            List<String> snapshotLogs;
+            synchronized (logs) {
+                snapshotLogs = List.copyOf(logs);
+            }
+            return new InstallProgressSnapshot(
+                    key, phase, percentage, status, message, running, snapshotLogs);
+        }
+
         void sendEvent(String eventName, Object data) {
-            SseEmitter e = this.emitter;
-            if (e == null) {
+            for (SseEmitter e : emitters) {
+                try {
+                    SseEmitter.SseEventBuilder builder = SseEmitter.event()
+                            .name(eventName)
+                            .data(data, MediaType.APPLICATION_JSON);
+                    e.send(builder);
+                } catch (Exception ex) {
+                    log.debug("[DependencyInstall] 发送 SSE 事件失败: {}", ex.getMessage());
+                    emitters.remove(e);
+                }
+            }
+            persistEvent(eventName, data);
+        }
+
+        @SuppressWarnings("unchecked")
+        private void persistEvent(String eventName, Object data) {
+            if (!(data instanceof Map<?, ?> raw)) {
+                updateSnapshot();
                 return;
             }
-            try {
-                SseEmitter.SseEventBuilder builder = SseEmitter.event()
-                        .name(eventName)
-                        .data(data, MediaType.APPLICATION_JSON);
-                e.send(builder);
-            } catch (Exception ex) {
-                log.debug("[DependencyInstall] 发送 SSE 事件失败: {}", ex.getMessage());
+            Map<String, Object> payload = (Map<String, Object>) raw;
+            switch (eventName) {
+                case "phase" -> {
+                    Object p = payload.get("phase");
+                    if (p instanceof String s) {
+                        this.phase = s;
+                    }
+                    Object m = payload.get("message");
+                    if (m instanceof String s) {
+                        this.message = s;
+                        appendLog(s);
+                    }
+                }
+                case "progress" -> {
+                    Object p = payload.get("phase");
+                    if (p instanceof String s) {
+                        this.phase = s;
+                    }
+                    Object pct = payload.get("percentage");
+                    if (pct instanceof Number n) {
+                        this.percentage = n.doubleValue();
+                    }
+                }
+                case "message" -> {
+                    Object m = payload.get("message");
+                    String text = (m instanceof String s) ? s : "";
+                    Object level = payload.get("level");
+                    String levelStr = (level instanceof String s) ? s : "info";
+                    this.message = text;
+                    appendLog("[" + levelStr + "] " + text);
+                }
+                case "command" -> {
+                    Object cmd = payload.get("command");
+                    if (cmd instanceof String s) {
+                        appendLog("$ " + s);
+                    }
+                }
+                case "info" -> {
+                    Object m = payload.get("message");
+                    if (m instanceof String s) {
+                        this.message = s;
+                        appendLog(s);
+                    }
+                }
+                case "complete" -> {
+                    this.status = "complete";
+                    Object m = payload.get("message");
+                    if (m instanceof String s) {
+                        this.message = s;
+                        appendLog(s);
+                    }
+                }
+                case "error" -> {
+                    this.status = "error";
+                    Object m = payload.get("message");
+                    if (m instanceof String s) {
+                        this.message = s;
+                        appendLog("[error] " + s);
+                    }
+                }
+                default -> {
+                    // no-op
+                }
             }
+            updateSnapshot();
+        }
+
+        private void appendLog(String line) {
+            synchronized (logs) {
+                if (logs.size() >= MAX_LOG_LINES) {
+                    logs.pollFirst();
+                }
+                logs.offerLast(line);
+            }
+        }
+
+        private void updateSnapshot() {
+            installSnapshots.put(key, getSnapshot());
         }
 
         void complete() {
             this.running = false;
+            updateSnapshot();
             destroyProcess();
-            SseEmitter e = this.emitter;
-            if (e != null) {
+            for (SseEmitter e : emitters) {
                 try {
                     e.complete();
                 } catch (Exception ignored) {
                 }
             }
+            emitters.clear();
         }
 
         void destroyProcess() {

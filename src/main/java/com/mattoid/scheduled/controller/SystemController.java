@@ -14,6 +14,7 @@ import com.mattoid.scheduled.mapper.SysPermissionMapper;
 import com.mattoid.scheduled.mapper.SysRoleMapper;
 import com.mattoid.scheduled.mapper.SysUserMapper;
 import com.mattoid.scheduled.mapper.SysUserRoleMapper;
+import com.mattoid.scheduled.model.InstallProgressSnapshot;
 import com.mattoid.scheduled.service.BrowserCapabilityService;
 import com.mattoid.scheduled.service.DependencyCheckService;
 import com.mattoid.scheduled.service.DependencyInstallService;
@@ -177,5 +178,13 @@ public class SystemController {
     public ResponseEntity<Map<String, Object>> installStatus(@PathVariable String key) {
         boolean installing = dependencyInstallService.isInstalling(key);
         return ResponseEntity.ok(Map.of("installing", installing));
+    }
+
+    /**
+     * 查询指定依赖项的安装进度快照，用于页面刷新后恢复进度与日志。
+     */
+    @GetMapping("/dependencies/{key}/install/progress")
+    public Result<InstallProgressSnapshot> installProgress(@PathVariable String key) {
+        return Result.ok(dependencyInstallService.getSnapshot(key));
     }
 }
