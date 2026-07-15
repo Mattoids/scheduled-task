@@ -74,25 +74,26 @@ public class DependencyInstallService {
         }
         String normalizedKey = "chromium";
 
-        InstallTask task = new InstallTask(normalizedKey);
-        InstallTask existing = runningTasks.putIfAbsent(normalizedKey, task);
-        if (existing != null) {
-            if (existing.isRunning()) {
-                SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
-                existing.addEmitter(emitter);
-                // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
-                // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
-                emitter.onCompletion(() -> existing.removeEmitter(emitter));
-                emitter.onTimeout(() -> existing.removeEmitter(emitter));
-                emitter.onError((e) -> existing.removeEmitter(emitter));
-                sendSnapshotToEmitter(existing, emitter);
-                return emitter;
+        while (true) {
+            InstallTask task = new InstallTask(normalizedKey);
+            InstallTask existing = runningTasks.putIfAbsent(normalizedKey, task);
+            if (existing == null) {
+                // 没有正在运行的任务，启动新安装
+                return startNewInstall(task, normalizedKey);
             }
-            // 旧任务已结束但尚未清理，替换为新任务继续
-            runningTasks.remove(normalizedKey, existing);
-            runningTasks.put(normalizedKey, task);
+            if (existing.isRunning()) {
+                // 已有运行中任务，加入 SSE 多播
+                return attachEmitter(existing);
+            }
+            // 旧任务已结束但尚未清理，尝试原子替换
+            if (runningTasks.replace(normalizedKey, existing, task)) {
+                return startNewInstall(task, normalizedKey);
+            }
+            // 替换失败说明并发冲突，重试
         }
+    }
 
+    private SseEmitter startNewInstall(InstallTask task, String normalizedKey) {
         installSnapshots.put(normalizedKey, new InstallProgressSnapshot(
                 normalizedKey, "prepare", 0.0, "running", "准备开始安装...", true, List.of()));
 
@@ -125,6 +126,18 @@ public class DependencyInstallService {
             }
         });
 
+        return emitter;
+    }
+
+    private SseEmitter attachEmitter(InstallTask existing) {
+        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
+        existing.addEmitter(emitter);
+        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
+        // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
+        emitter.onCompletion(() -> existing.removeEmitter(emitter));
+        emitter.onTimeout(() -> existing.removeEmitter(emitter));
+        emitter.onError((e) -> existing.removeEmitter(emitter));
+        sendSnapshotToEmitter(existing, emitter);
         return emitter;
     }
 
