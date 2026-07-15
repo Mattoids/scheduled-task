@@ -1,5 +1,6 @@
 package com.mattoid.scheduled.service;
 
+import com.mattoid.scheduled.model.InstallProgressSnapshot;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -50,6 +51,7 @@ public class DependencyInstallService {
 
     private final DependencyCheckService dependencyCheckService;
     private final Map<String, InstallTask> runningTasks = new ConcurrentHashMap<>();
+    private final Map<String, InstallProgressSnapshot> installSnapshots = new ConcurrentHashMap<>();
 
     public DependencyInstallService(DependencyCheckService dependencyCheckService) {
         this.dependencyCheckService = dependencyCheckService;
