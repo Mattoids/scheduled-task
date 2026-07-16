@@ -35,7 +35,6 @@ services:
       - ./target/scheduled-task-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
       - ./uploads:/app/uploads
     working_dir: /app
-    command: ["java", "-jar", "app.jar"]
     depends_on:
       mysql:
         condition: service_healthy

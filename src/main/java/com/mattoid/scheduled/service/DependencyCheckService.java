@@ -76,14 +76,8 @@ public class DependencyCheckService {
 
     private List<DependencyItem> checkLinuxDependencies() {
         List<DependencyItem> items = new ArrayList<>();
-        boolean available = browserCapabilityService.isChromiumAvailable();
 
-        if (available) {
-            items.add(new DependencyItem("chromium", "Chromium 内核", true, false,
-                    "Chromium 内核已安装且可启动"));
-            return items;
-        }
-
+        // Linux 下文件存在并不保证可运行，必须执行 ldd 检查共享库。
         String executablePath = resolveChromiumExecutablePath();
         if (executablePath == null) {
             items.add(new DependencyItem("chromium", "Chromium 内核", false, true,
@@ -93,8 +87,8 @@ public class DependencyCheckService {
 
         List<String> missingLibs = listMissingSharedLibraries(executablePath);
         if (missingLibs.isEmpty()) {
-            items.add(new DependencyItem("chromium", "Chromium 内核", false, true,
-                    "Chromium 内核无法启动，请查看后端日志定位具体原因"));
+            items.add(new DependencyItem("chromium", "Chromium 内核", true, false,
+                    "Chromium 内核已安装且可启动"));
         } else {
             items.add(new DependencyItem("chromium", "Chromium 内核", false, true,
                     "Chromium 内核无法启动，缺少以下系统共享库"));
@@ -116,7 +110,6 @@ public class DependencyCheckService {
     }
 
     private List<String> listMissingSharedLibraries(String executablePath) {
-        List<String> missing = new ArrayList<>();
         try {
             ProcessBuilder pb = new ProcessBuilder("ldd", executablePath);
             pb.redirectErrorStream(true);
@@ -125,23 +118,35 @@ public class DependencyCheckService {
             if (!finished) {
                 process.destroyForcibly();
                 log.warn("[DependencyCheck] ldd 执行超时");
-                return missing;
+                return new ArrayList<>();
             }
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (output.contains("not a dynamic executable")) {
-                log.warn("[DependencyCheck] ldd: 不是动态可执行文件");
-                return missing;
-            }
-            for (String line : output.lines().toList()) {
-                if (line.contains("not found")) {
-                    String lib = line.split("=>")[0].trim();
-                    if (!lib.isEmpty() && !missing.contains(lib)) {
-                        missing.add(lib);
-                    }
-                }
-            }
+            return parseMissingLibsFromLddOutput(output);
         } catch (Exception e) {
             log.warn("[DependencyCheck] ldd 检测失败: {}", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 从 ldd 输出中解析缺失的共享库，便于单元测试覆盖。
+     */
+    static List<String> parseMissingLibsFromLddOutput(String output) {
+        List<String> missing = new ArrayList<>();
+        if (output == null) {
+            return missing;
+        }
+        if (output.contains("not a dynamic executable")) {
+            log.warn("[DependencyCheck] ldd: 不是动态可执行文件");
+            return missing;
+        }
+        for (String line : output.lines().toList()) {
+            if (line.contains("not found")) {
+                String lib = line.split("=>")[0].trim();
+                if (!lib.isEmpty() && !missing.contains(lib)) {
+                    missing.add(lib);
+                }
+            }
         }
         return missing;
     }

@@ -233,6 +233,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!-- 使用 PropertiesLauncher，使 -Dloader.main 可在 fat jar 中启动 Playwright CLI -->
+                    <layout>ZIP</layout>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

@@ -86,6 +86,7 @@ export const installDependency = (key: string, token: string, handlers: InstallS
   const url = `${baseUrl}/system/dependencies/${encodeURIComponent(key)}/install`
   return createSse({
     url,
+    method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     ...handlers,
   })

@@ -59,10 +59,20 @@ public class PlaywrightBrowserLocator {
         } else {
             executable = chromiumDir.resolve("chrome-linux/chrome");
         }
-        return Files.isExecutable(executable) ? executable : null;
+        return isExecutable(executable, os) ? executable : null;
     }
 
-    private Path getPlaywrightCacheDir() {
+    private boolean isExecutable(Path executable, String os) {
+        if (Files.isExecutable(executable)) {
+            return true;
+        }
+        if (os.contains("win")) {
+            return Files.exists(executable) && executable.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".exe");
+        }
+        return false;
+    }
+
+    Path getPlaywrightCacheDir() {
         String home = System.getProperty("user.home");
         if (home == null) {
             return null;

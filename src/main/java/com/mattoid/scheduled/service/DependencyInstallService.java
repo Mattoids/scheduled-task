@@ -19,10 +19,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
@@ -46,8 +46,9 @@ public class DependencyInstallService {
     }
 
     private static final long EMITTER_TIMEOUT_MS = 0L;
-    private static final int PROCESS_TIMEOUT_MINUTES = 30;
     private static final int MAX_LOG_LINES = 500;
+
+    private int processTimeoutMinutes = 30;
 
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("(\\d+(?:\\.\\d+)?)%");
 
@@ -60,9 +61,25 @@ public class DependencyInstallService {
     }
 
     /**
+     * 测试用途：设置命令执行超时时间（分钟）。
+     */
+    void setProcessTimeoutMinutesForTesting(int minutes) {
+        this.processTimeoutMinutes = minutes;
+    }
+
+    /**
+     * 测试用途：创建 SSE 发射器，子类可覆盖以记录事件。
+     * <p>实现支持注册多个 completion/timeout/error 回调，避免业务注册清理回调时
+     * 覆盖测试或外部注册的回调。</p>
+     */
+    SseEmitter createEmitter() {
+        return new ChainingSseEmitter(EMITTER_TIMEOUT_MS);
+    }
+
+    /**
      * 启动指定依赖项的安装流程，返回 SSE 流用于接收进度。
      * <p>若同一依赖项正在安装中，则新连接的 SSE 会被加入到当前任务的多播列表，
-     * 并立即收到当前安装快照，支持刷新页面后的进度恢复与重连。</p>
+     * 并立即收到当前安装快照，支持刷新页面后的进度恢复与重连（P003）。</p>
      *
      * @param key 依赖项 key，目前仅支持 "chromium"
      * @return SSE 流
@@ -75,7 +92,7 @@ public class DependencyInstallService {
         String normalizedKey = "chromium";
 
         while (true) {
-            InstallTask task = new InstallTask(normalizedKey);
+            InstallTask task = new InstallTask(normalizedKey, installSnapshots);
             InstallTask existing = runningTasks.putIfAbsent(normalizedKey, task);
             if (existing == null) {
                 // 没有正在运行的任务，启动新安装
@@ -97,10 +114,9 @@ public class DependencyInstallService {
         installSnapshots.put(normalizedKey, new InstallProgressSnapshot(
                 normalizedKey, "prepare", 0.0, "running", "准备开始安装...", true, List.of()));
 
-        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
-        task.addEmitter(emitter);
-        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
-        // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
+        SseEmitter emitter = createEmitter();
+        task.setEmitter(emitter);
+        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（P003）。
         emitter.onCompletion(() -> task.removeEmitter(emitter));
         emitter.onTimeout(() -> task.removeEmitter(emitter));
         emitter.onError((e) -> task.removeEmitter(emitter));
@@ -130,10 +146,9 @@ public class DependencyInstallService {
     }
 
     private SseEmitter attachEmitter(InstallTask existing) {
-        SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
+        SseEmitter emitter = createEmitter();
         existing.addEmitter(emitter);
-        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（Task P003）。
-        // 若需要“最后一个客户端断开即取消”，可在 removeEmitter() 中 list 为空时调用 destroyProcess() + complete()。
+        // 任务即使所有客户端都断开也会继续运行，以便重连/刷新页面后能恢复进度（P003）。
         emitter.onCompletion(() -> existing.removeEmitter(emitter));
         emitter.onTimeout(() -> existing.removeEmitter(emitter));
         emitter.onError((e) -> existing.removeEmitter(emitter));
@@ -184,7 +199,7 @@ public class DependencyInstallService {
                 normalizedKey, "idle", 0.0, "idle", "安装未开始", false, List.of());
     }
 
-    private void doInstall(InstallTask task) throws Exception {
+    void doInstall(InstallTask task) throws Exception {
         OsInfo os = detectOs();
         task.sendEvent("info", Map.of(
                 "osFamily", os.family(),
@@ -195,7 +210,10 @@ public class DependencyInstallService {
 
         // 1. 安装 Chromium 浏览器（Playwright 自动匹配当前平台）
         task.sendEvent("phase", Map.of("phase", "browser", "message", "开始下载 Chromium 浏览器..."));
-        runPlaywrightCli(task, "install", "chromium");
+        int browserExit = runPlaywrightCli(task, "install", "chromium");
+        if (browserExit != 0) {
+            throw new RuntimeException("Chromium 浏览器下载失败（退出码 " + browserExit + "），请检查网络连接、磁盘空间及代理配置");
+        }
 
         // 2. 安装系统依赖（Playwright 在支持的 Linux 发行版上可自动安装）
         task.sendEvent("phase", Map.of("phase", "deps", "message", "开始安装系统依赖..."));
@@ -206,7 +224,7 @@ public class DependencyInstallService {
             task.sendEvent("phase", Map.of("phase", "fallback", "message", "Playwright 自动依赖安装失败，尝试使用系统包管理器..."));
             boolean fallbackOk = tryFallbackSystemDepsInstall(os, task);
             if (!fallbackOk) {
-                throw new RuntimeException("系统依赖安装失败，请根据日志手动安装缺失的库");
+                throw new RuntimeException("系统依赖安装失败（Playwright 退出码 " + depsExit + "，系统包管理器兜底也失败），请根据日志手动安装缺失的库");
             }
         }
     }
@@ -359,13 +377,7 @@ public class DependencyInstallService {
         }
 
         List<String> packages = switch (pm) {
-            case "apt" -> List.of(
-                    "libglib2.0-0", "libnss3", "libnspr4", "libdbus-1-3",
-                    "libatk1.0-0", "libatk-bridge2.0-0", "libatspi2.0-0",
-                    "libx11-6", "libxcomposite1", "libxdamage1", "libxext6", "libxfixes3",
-                    "libxrandr2", "libgbm1", "libdrm2", "libxcb1", "libxkbcommon0", "libasound2",
-                    "libcairo2", "libcups2", "libpango-1.0-0", "fonts-noto-cjk"
-            );
+            case "apt" -> buildAptPackageList(os);
             case "dnf", "yum" -> List.of(
                     "glib2", "nss", "nspr", "dbus", "atk", "at-spi2-atk", "at-spi2-core",
                     "libX11", "libXcomposite", "libXdamage", "libXext", "libXfixes",
@@ -405,7 +417,7 @@ public class DependencyInstallService {
         }
     }
 
-    private List<String> buildPackageManagerCommand(String pm, List<String> packages) {
+    List<String> buildPackageManagerCommand(String pm, List<String> packages) {
         String joined = String.join(" ", packages);
         return switch (pm) {
             case "apt" -> {
@@ -448,9 +460,90 @@ public class DependencyInstallService {
     }
 
     /**
-     * 执行外部命令并流式输出日志与进度。
+     * 构造 apt 系发行版的依赖包列表。
+     * <p>Ubuntu 24.04 (noble) 及 Debian 13 (trixie) 起，部分 C 库过渡到 64-bit time_t，
+     * 包名后缀变为 -t64（如 libglib2.0-0t64）。旧版本仍使用原始包名。</p>
      */
-    private int execute(List<String> command, InstallTask task, String phase) throws Exception {
+    List<String> buildAptPackageList(OsInfo os) {
+        boolean t64 = isTime64TransitionDistro(os);
+        return List.of(
+                t64 ? "libglib2.0-0t64" : "libglib2.0-0",
+                "libnss3",
+                "libnspr4",
+                "libdbus-1-3",
+                t64 ? "libatk1.0-0t64" : "libatk1.0-0",
+                t64 ? "libatk-bridge2.0-0t64" : "libatk-bridge2.0-0",
+                t64 ? "libatspi2.0-0t64" : "libatspi2.0-0",
+                "libx11-6",
+                "libxcomposite1",
+                "libxdamage1",
+                "libxext6",
+                "libxfixes3",
+                "libxrandr2",
+                "libgbm1",
+                "libdrm2",
+                "libxcb1",
+                "libxkbcommon0",
+                t64 ? "libasound2t64" : "libasound2",
+                "libcairo2",
+                t64 ? "libcups2t64" : "libcups2",
+                "libpango-1.0-0",
+                "fonts-noto-cjk"
+        );
+    }
+
+    /**
+     * 判断当前 apt 系发行版是否已过渡到 64-bit time_t（t64）包名。
+     */
+    private boolean isTime64TransitionDistro(OsInfo os) {
+        if (!"apt".equals(os.packageManager())) {
+            return false;
+        }
+        String distro = os.distro().toLowerCase(Locale.ROOT);
+        String version = os.version().toLowerCase(Locale.ROOT);
+        String codename = os.codename().toLowerCase(Locale.ROOT);
+
+        return switch (distro) {
+            case "ubuntu" -> isUbuntuTime64(version, codename);
+            case "debian" -> isDebianTime64(version, codename);
+            default -> false;
+        };
+    }
+
+    private boolean isUbuntuTime64(String version, String codename) {
+        Set<String> time64Codenames = Set.of("noble", "oracular", "plucky");
+        if (time64Codenames.contains(codename)) {
+            return true;
+        }
+        try {
+            int dot = version.indexOf('.');
+            int major = Integer.parseInt(dot > 0 ? version.substring(0, dot) : version);
+            int minor = dot > 0 ? Integer.parseInt(version.substring(dot + 1)) : 0;
+            return major > 24 || (major == 24 && minor >= 4);
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private boolean isDebianTime64(String version, String codename) {
+        Set<String> time64Codenames = Set.of("trixie", "sid", "experimental");
+        if (time64Codenames.contains(codename)) {
+            return true;
+        }
+        try {
+            int major = Integer.parseInt(version.split("/")[0]);
+            return major >= 13;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * 执行外部命令并流式输出日志与进度。
+     * 整个命令受 {@link #processTimeoutMinutes} 分钟超时保护，包括输出读取阶段，
+     * 防止子进程挂起导致安装任务卡死。
+     */
+    int execute(List<String> command, InstallTask task, String phase) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         // 将 HOME 透传给子进程，避免 Playwright 找不到缓存目录
@@ -458,34 +551,58 @@ public class DependencyInstallService {
         Process process = pb.start();
         task.setProcess(process);
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                task.sendEvent("message", Map.of("level", "info", "phase", phase, "message", line));
-                Matcher m = PROGRESS_PATTERN.matcher(line);
-                if (m.find()) {
-                    try {
-                        double pct = Double.parseDouble(m.group(1));
-                        task.sendEvent("progress", Map.of("phase", phase, "percentage", pct));
-                    } catch (NumberFormatException ignored) {
+        BlockingQueue<String> outputQueue = new LinkedBlockingQueue<>();
+        AtomicReference<Exception> readerError = new AtomicReference<>();
+        Thread readerThread = new Thread(() -> {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    outputQueue.put(line);
+                }
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                readerError.set(e);
+            }
+        }, "dependency-install-reader");
+        readerThread.start();
+
+        long deadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(processTimeoutMinutes);
+        try {
+            while (process.isAlive() || !outputQueue.isEmpty()) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    throw new RuntimeException("安装进程执行超时（" + processTimeoutMinutes + " 分钟）");
+                }
+                String line = outputQueue.poll(remaining, TimeUnit.MILLISECONDS);
+                if (line != null) {
+                    task.sendEvent("message", Map.of("level", "info", "phase", phase, "message", line));
+                    Matcher m = PROGRESS_PATTERN.matcher(line);
+                    if (m.find()) {
+                        try {
+                            double pct = Double.parseDouble(m.group(1));
+                            task.sendEvent("progress", Map.of("phase", phase, "percentage", pct));
+                        } catch (NumberFormatException ignored) {
+                        }
                     }
                 }
+                Exception err = readerError.getAndSet(null);
+                if (err != null) {
+                    throw new RuntimeException("读取安装进程输出失败: " + err.getMessage(), err);
+                }
             }
-        }
-
-        boolean finished = process.waitFor(PROCESS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-        if (!finished) {
+            return process.exitValue();
+        } finally {
+            readerThread.interrupt();
             process.destroyForcibly();
-            throw new RuntimeException("安装进程执行超时（" + PROCESS_TIMEOUT_MINUTES + " 分钟）");
         }
-        return process.exitValue();
     }
 
     /**
      * 检测当前操作系统与包管理器信息。
      */
-    private OsInfo detectOs() {
+    OsInfo detectOs() {
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String family;
         if (osName.contains("win")) {
@@ -501,11 +618,13 @@ public class DependencyInstallService {
         String distro = "unknown";
         String packageManager = "unknown";
         String version = "";
+        String codename = "";
 
         if ("linux".equals(family)) {
             Map<String, String> osRelease = readOsRelease();
             distro = osRelease.getOrDefault("ID", "unknown").toLowerCase(Locale.ROOT);
             version = osRelease.getOrDefault("VERSION_ID", "");
+            codename = osRelease.getOrDefault("VERSION_CODENAME", "").toLowerCase(Locale.ROOT);
             packageManager = detectLinuxPackageManager(distro);
         } else if ("macos".equals(family)) {
             packageManager = commandExists("brew") ? "brew" : "unknown";
@@ -517,7 +636,7 @@ public class DependencyInstallService {
             }
         }
 
-        return new OsInfo(family, distro, packageManager, version);
+        return new OsInfo(family, distro, packageManager, version, codename);
     }
 
     private Map<String, String> readOsRelease() {
@@ -603,10 +722,54 @@ public class DependencyInstallService {
         return false;
     }
 
-    private record OsInfo(String family, String distro, String packageManager, String version) {
+    record OsInfo(String family, String distro, String packageManager, String version, String codename) {
         String description() {
             return family + ("unknown".equals(distro) ? "" : " / " + distro) +
-                    (version.isBlank() ? "" : " " + version);
+                    (version.isBlank() ? "" : " " + version) +
+                    (codename.isBlank() ? "" : " (" + codename + ")");
+        }
+    }
+
+    /**
+     * 支持多回调链式调用的 SSE 发射器包装。
+     *
+     * <p>Spring 原生的 {@link SseEmitter} 对 completion/timeout/error 回调只保留最后注册的一个，
+     * 这里在内部维护回调列表，并在第一次注册时把列表触发器挂到原生回调上。
+     */
+    static class ChainingSseEmitter extends SseEmitter {
+        private final List<Runnable> completionHandlers = new CopyOnWriteArrayList<>();
+        private final List<Runnable> timeoutHandlers = new CopyOnWriteArrayList<>();
+        private final List<Consumer<Throwable>> errorHandlers = new CopyOnWriteArrayList<>();
+        private final AtomicBoolean completionRegistered = new AtomicBoolean();
+        private final AtomicBoolean timeoutRegistered = new AtomicBoolean();
+        private final AtomicBoolean errorRegistered = new AtomicBoolean();
+
+        ChainingSseEmitter(long timeout) {
+            super(timeout);
+        }
+
+        @Override
+        public void onCompletion(Runnable callback) {
+            if (completionRegistered.compareAndSet(false, true)) {
+                super.onCompletion(() -> completionHandlers.forEach(Runnable::run));
+            }
+            completionHandlers.add(callback);
+        }
+
+        @Override
+        public void onTimeout(Runnable callback) {
+            if (timeoutRegistered.compareAndSet(false, true)) {
+                super.onTimeout(() -> timeoutHandlers.forEach(Runnable::run));
+            }
+            timeoutHandlers.add(callback);
+        }
+
+        @Override
+        public void onError(Consumer<Throwable> callback) {
+            if (errorRegistered.compareAndSet(false, true)) {
+                super.onError(e -> errorHandlers.forEach(h -> h.accept(e)));
+            }
+            errorHandlers.add(callback);
         }
     }
 
@@ -614,7 +777,7 @@ public class DependencyInstallService {
      * 单次安装任务，封装 SSE 发送、进程管理与快照持久化。
      * <p>支持多个 SSE 客户端同时订阅同一安装过程，以满足刷新/重连场景。</p>
      */
-    private class InstallTask {
+    static class InstallTask {
         private final String key;
         private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
         private volatile Process process;
@@ -624,9 +787,16 @@ public class DependencyInstallService {
         private volatile String status = "running";
         private volatile String message = "";
         private final Deque<String> logs = new ArrayDeque<>();
+        private final AtomicReference<Boolean> completed = new AtomicReference<>();
+        private final Map<String, InstallProgressSnapshot> installSnapshots;
 
-        InstallTask(String key) {
+        InstallTask(String key, Map<String, InstallProgressSnapshot> installSnapshots) {
             this.key = key;
+            this.installSnapshots = installSnapshots;
+        }
+
+        void setEmitter(SseEmitter emitter) {
+            this.emitters.add(emitter);
         }
 
         void addEmitter(SseEmitter emitter) {
@@ -756,6 +926,9 @@ public class DependencyInstallService {
         }
 
         void complete() {
+            if (!markCompleted()) {
+                return;
+            }
             this.running = false;
             updateSnapshot();
             destroyProcess();
@@ -766,6 +939,25 @@ public class DependencyInstallService {
                 }
             }
             emitters.clear();
+        }
+
+        void completeWithError(Throwable error) {
+            if (!markCompleted()) {
+                return;
+            }
+            this.running = false;
+            destroyProcess();
+            for (SseEmitter e : emitters) {
+                try {
+                    e.completeWithError(error);
+                } catch (Exception ignored) {
+                }
+            }
+            emitters.clear();
+        }
+
+        private boolean markCompleted() {
+            return completed.compareAndSet(null, Boolean.TRUE);
         }
 
         void destroyProcess() {
