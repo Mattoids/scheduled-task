@@ -41,16 +41,16 @@ public class DatasourceConfigService extends ServiceImpl<DatasourceConfigMapper,
             config.setPassword(existing.getPassword());
         }
         applySshAuthType(config, existing);
-        if (StringUtils.hasText(config.getPassword()) && !config.getPassword().startsWith("ENC(")) {
+        if (StringUtils.hasText(config.getPassword()) && !CryptoUtil.isEncrypted(config.getPassword())) {
             config.setPassword(CryptoUtil.encrypt(config.getPassword()));
         }
-        if (StringUtils.hasText(config.getSshPassword()) && !config.getSshPassword().startsWith("ENC(")) {
+        if (StringUtils.hasText(config.getSshPassword()) && !CryptoUtil.isEncrypted(config.getSshPassword())) {
             config.setSshPassword(CryptoUtil.encrypt(config.getSshPassword()));
         }
-        if (StringUtils.hasText(config.getSshPrivateKey()) && !config.getSshPrivateKey().startsWith("ENC(")) {
+        if (StringUtils.hasText(config.getSshPrivateKey()) && !CryptoUtil.isEncrypted(config.getSshPrivateKey())) {
             config.setSshPrivateKey(CryptoUtil.encrypt(config.getSshPrivateKey()));
         }
-        if (StringUtils.hasText(config.getSshPassphrase()) && !config.getSshPassphrase().startsWith("ENC(")) {
+        if (StringUtils.hasText(config.getSshPassphrase()) && !CryptoUtil.isEncrypted(config.getSshPassphrase())) {
             config.setSshPassphrase(CryptoUtil.encrypt(config.getSshPassphrase()));
         }
         if (!StringUtils.hasText(config.getDriverClass())) {

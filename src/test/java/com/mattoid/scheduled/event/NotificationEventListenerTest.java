@@ -1,27 +1,27 @@
 package com.mattoid.scheduled.event;
 
-import com.mattoid.scheduled.entity.*;
-import com.mattoid.scheduled.service.*;
-import com.mattoid.scheduled.service.wecom.WeComAppManager;
-import com.mattoid.scheduled.service.wecom.WeComBotClient;
-import com.mattoid.scheduled.service.wecom.WeComIntelligentBotClient;
-import com.mattoid.scheduled.service.notify.DingTalkClient;
-import com.mattoid.scheduled.service.notify.FeishuClient;
-import com.mattoid.scheduled.service.notify.SlackClient;
-import com.mattoid.scheduled.service.notify.WebhookClient;
-import com.mattoid.scheduled.storage.service.StorageConfigService;
+import com.mattoid.scheduled.entity.NotificationConfig;
+import com.mattoid.scheduled.entity.NotificationRule;
+import com.mattoid.scheduled.entity.TaskConfig;
+import com.mattoid.scheduled.entity.TaskLog;
+import com.mattoid.scheduled.notification.NotificationChannel;
+import com.mattoid.scheduled.notification.NotificationContext;
+import com.mattoid.scheduled.service.AiAssistantService;
+import com.mattoid.scheduled.service.NotificationConfigService;
+import com.mattoid.scheduled.service.NotificationLogService;
+import com.mattoid.scheduled.service.NotificationRuleService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.io.File;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -35,30 +35,25 @@ class NotificationEventListenerTest {
     @Mock
     private NotificationLogService notificationLogService;
     @Mock
-    private EmailRecipientService emailRecipientService;
-    @Mock
-    private EmailSenderService emailSenderService;
-    @Mock
-    private WeComAppManager weComAppManager;
-    @Mock
-    private WeComBotClient weComBotClient;
-    @Mock
-    private WeComIntelligentBotClient weComIntelligentBotClient;
-    @Mock
-    private DingTalkClient dingTalkClient;
-    @Mock
-    private FeishuClient feishuClient;
-    @Mock
-    private SlackClient slackClient;
-    @Mock
-    private WebhookClient webhookClient;
-    @Mock
     private AiAssistantService aiAssistantService;
     @Mock
-    private StorageConfigService storageConfigService;
+    private NotificationChannel emailChannel;
+    @Mock
+    private NotificationChannel wecomAppChannel;
 
-    @InjectMocks
     private NotificationEventListener listener;
+
+    @BeforeEach
+    void setUp() {
+        when(emailChannel.channelType()).thenReturn("EMAIL");
+        when(wecomAppChannel.channelType()).thenReturn("WECOM_APP");
+        listener = new NotificationEventListener(
+                notificationRuleService,
+                notificationConfigService,
+                notificationLogService,
+                aiAssistantService,
+                List.of(emailChannel, wecomAppChannel));
+    }
 
     private TaskExecutionEvent event(TaskExecutionEvent.EventType eventType) {
         TaskConfig task = new TaskConfig();
@@ -86,7 +81,7 @@ class NotificationEventListenerTest {
     }
 
     @Test
-    void emailRuleShouldSendEmail() throws Exception {
+    void emailRuleShouldDispatchToEmailChannel() throws Exception {
         NotificationRule rule = new NotificationRule();
         rule.setId(1L);
         rule.setEventType("TASK_COMPLETED");
@@ -97,30 +92,24 @@ class NotificationEventListenerTest {
 
         when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
-
-        String configJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
         when(notificationConfigService.getById(1L))
-                .thenReturn(config(1L, "EMAIL", configJson));
-
-        EmailConfig emailConfig = new EmailConfig();
-        emailConfig.setSmtpHost("smtp.example.com");
-        emailConfig.setSmtpPort(587);
-        emailConfig.setUsername("user");
-        emailConfig.setFromAddress("from@example.com");
-        when(notificationConfigService.parseConfigJson(configJson, EmailConfig.class))
-                .thenReturn(emailConfig);
-
-        EmailRecipient recipient = new EmailRecipient();
-        recipient.setEmail("test@example.com");
-        when(emailRecipientService.listByIds("1")).thenReturn(List.of(recipient));
+                .thenReturn(config(1L, "EMAIL", "{}"));
+        when(emailChannel.resolveRecipient(any(NotificationContext.class)))
+                .thenReturn("1");
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(emailSenderService, times(1)).sendEmail(eq(emailConfig), anyList(), anyString(), anyString(), anyList(), anyMap());
+        ArgumentCaptor<NotificationContext> captor = ArgumentCaptor.forClass(NotificationContext.class);
+        verify(emailChannel, times(1)).send(captor.capture());
+        NotificationContext ctx = captor.getValue();
+        assertEquals("EMAIL", ctx.getRule().getChannel());
+        assertEquals(1L, ctx.getConfig().getId());
+        assertNull(ctx.getSubject());
+        assertNull(ctx.getBody());
     }
 
     @Test
-    void wecomAppRuleShouldSendMessage() throws Exception {
+    void wecomAppRuleShouldDispatchToWecomAppChannel() throws Exception {
         NotificationRule rule = new NotificationRule();
         rule.setId(2L);
         rule.setEventType("TASK_COMPLETED");
@@ -131,56 +120,23 @@ class NotificationEventListenerTest {
 
         when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
-
-        String configJson = "{\"corpId\":\"corp\",\"agentId\":1}";
         when(notificationConfigService.getById(2L))
-                .thenReturn(config(2L, "WECOM_APP", configJson));
+                .thenReturn(config(2L, "WECOM_APP", "{}"));
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verify(weComAppManager, times(1)).sendText(eq(2L), eq("user1"), anyString());
+        verify(wecomAppChannel, times(1)).send(any(NotificationContext.class));
     }
 
     @Test
-    void wecomBotRuleShouldSendMessage() throws Exception {
-        NotificationRule rule = new NotificationRule();
-        rule.setId(3L);
-        rule.setEventType("TASK_COMPLETED");
-        rule.setChannel("WECOM_BOT");
-        rule.setConfigId(3L);
-        rule.setEnabled(1);
-
-        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
-                .thenReturn(List.of(rule));
-
-        String configJson = "{\"webhookKey\":\"key123\"}";
-        when(notificationConfigService.getById(3L))
-                .thenReturn(config(3L, "WECOM_BOT", configJson));
-
-        WeComBotConfig botConfig = new WeComBotConfig();
-        botConfig.setWebhookKey("key123");
-        when(notificationConfigService.parseConfigJson(configJson, WeComBotConfig.class))
-                .thenReturn(botConfig);
-
-        listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
-
-        verify(weComBotClient, times(1)).sendMarkdown(eq("key123"), anyString());
-    }
-
-    @Test
-    void disabledRuleShouldBeSkipped() {
-        NotificationRule rule = new NotificationRule();
-        rule.setId(4L);
-        rule.setEventType("TASK_COMPLETED");
-        rule.setChannel("EMAIL");
-        rule.setEnabled(0);
-
+    void disabledRuleShouldBeSkipped() throws Exception {
         when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(Collections.emptyList());
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        verifyNoInteractions(emailSenderService);
+        verify(emailChannel, never()).send(any(NotificationContext.class));
+        verify(wecomAppChannel, never()).send(any(NotificationContext.class));
     }
 
     @Test
@@ -193,90 +149,78 @@ class NotificationEventListenerTest {
         emailRule.setRecipientIds("1");
         emailRule.setEnabled(1);
 
-        NotificationRule botRule = new NotificationRule();
-        botRule.setId(6L);
-        botRule.setEventType("TASK_SUCCESS");
-        botRule.setChannel("WECOM_BOT");
-        botRule.setConfigId(3L);
-        botRule.setEnabled(1);
+        NotificationRule appRule = new NotificationRule();
+        appRule.setId(6L);
+        appRule.setEventType("TASK_SUCCESS");
+        appRule.setChannel("WECOM_APP");
+        appRule.setConfigId(2L);
+        appRule.setEnabled(1);
 
         when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_SUCCESS", "TEST_TASK"))
-                .thenReturn(List.of(emailRule, botRule));
-
-        String emailJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
+                .thenReturn(List.of(emailRule, appRule));
         when(notificationConfigService.getById(1L))
-                .thenReturn(config(1L, "EMAIL", emailJson));
-        EmailConfig emailConfig = new EmailConfig();
-        emailConfig.setSmtpHost("smtp.example.com");
-        emailConfig.setSmtpPort(587);
-        emailConfig.setUsername("user");
-        emailConfig.setFromAddress("from@example.com");
-        when(notificationConfigService.parseConfigJson(emailJson, EmailConfig.class))
-                .thenReturn(emailConfig);
-
-        EmailRecipient recipient = new EmailRecipient();
-        recipient.setEmail("test@example.com");
-        when(emailRecipientService.listByIds("1")).thenReturn(List.of(recipient));
-
-        String botJson = "{\"webhookKey\":\"key123\"}";
-        when(notificationConfigService.getById(3L))
-                .thenReturn(config(3L, "WECOM_BOT", botJson));
-        WeComBotConfig botConfig = new WeComBotConfig();
-        botConfig.setWebhookKey("key123");
-        when(notificationConfigService.parseConfigJson(botJson, WeComBotConfig.class))
-                .thenReturn(botConfig);
+                .thenReturn(config(1L, "EMAIL", "{}"));
+        when(notificationConfigService.getById(2L))
+                .thenReturn(config(2L, "WECOM_APP", "{}"));
 
         listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_SUCCESS));
 
-        verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(), anyString(), anyList(), anyMap());
-        verify(weComBotClient, times(1)).sendMarkdown(eq("key123"), anyString());
+        verify(emailChannel, times(1)).send(any(NotificationContext.class));
+        verify(wecomAppChannel, times(1)).send(any(NotificationContext.class));
     }
 
     @Test
-    void emailRuleWithInlineResults_doesNotAppendTable() throws Exception {
+    void failedChannelShouldRetryAndThenSucceed() throws Exception {
         NotificationRule rule = new NotificationRule();
         rule.setId(7L);
         rule.setEventType("TASK_COMPLETED");
         rule.setChannel("EMAIL");
         rule.setConfigId(1L);
-        rule.setRecipientIds("1");
         rule.setEnabled(1);
 
         when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
                 .thenReturn(List.of(rule));
-
-        String configJson = "{\"smtpHost\":\"smtp.example.com\",\"smtpPort\":587,\"username\":\"user\",\"fromAddress\":\"from@example.com\"}";
         when(notificationConfigService.getById(1L))
-                .thenReturn(config(1L, "EMAIL", configJson));
-        EmailConfig emailConfig = new EmailConfig();
-        emailConfig.setSmtpHost("smtp.example.com");
-        emailConfig.setSmtpPort(587);
-        emailConfig.setUsername("user");
-        emailConfig.setFromAddress("from@example.com");
-        when(notificationConfigService.parseConfigJson(configJson, EmailConfig.class))
-                .thenReturn(emailConfig);
+                .thenReturn(config(1L, "EMAIL", "{}"));
+        when(emailChannel.resolveRecipient(any(NotificationContext.class)))
+                .thenReturn("1");
+        doThrow(new RuntimeException("网络异常"))
+                .doNothing()
+                .when(emailChannel).send(any(NotificationContext.class));
 
-        EmailRecipient recipient = new EmailRecipient();
-        recipient.setEmail("test@example.com");
-        when(emailRecipientService.listByIds("1")).thenReturn(List.of(recipient));
+        listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
 
-        TaskConfig task = new TaskConfig();
-        task.setId(1L);
-        task.setTaskName("测试任务");
-        task.setTaskCode("TEST_TASK");
-        task.setTriggerType("CRON");
-        TaskLog log = new TaskLog();
-        log.setStatus("SUCCESS");
-        log.setStartTime(LocalDateTime.now());
-        log.setEndTime(LocalDateTime.now());
-        InlineSqlResult inlineResult = new InlineSqlResult("测试SQL", "test_sql",
-                List.of(Map.of("name", "Alice", "value", 100)));
-        TaskExecutionEvent event = new TaskExecutionEvent(this, task, log, Collections.emptyList(),
-                List.of(inlineResult), TaskExecutionEvent.EventType.TASK_COMPLETED);
+        verify(emailChannel, times(2)).send(any(NotificationContext.class));
+        verify(notificationLogService, times(2)).save(any());
+    }
 
-        listener.onTaskExecutionEvent(event);
+    @Test
+    void aiOptimizeFlagShouldWrapChannelAndOptimizeContent() throws Exception {
+        NotificationRule rule = new NotificationRule();
+        rule.setId(8L);
+        rule.setEventType("TASK_COMPLETED");
+        rule.setChannel("EMAIL");
+        rule.setConfigId(1L);
+        rule.setSubject("原始标题");
+        rule.setBody("原始正文");
+        rule.setAiOptimizeNotify(1);
+        rule.setEnabled(1);
 
-        verify(emailSenderService, times(1)).sendEmail(any(), anyList(), anyString(),
-                argThat((String body) -> !body.contains("<table")), anyList(), anyMap());
+        when(notificationRuleService.findEnabledByEventTypeAndTask("TASK_COMPLETED", "TEST_TASK"))
+                .thenReturn(List.of(rule));
+        when(notificationConfigService.getById(1L))
+                .thenReturn(config(1L, "EMAIL", "{}"));
+        when(emailChannel.resolveRecipient(any(NotificationContext.class)))
+                .thenReturn("1");
+        when(aiAssistantService.optimizeNotification(anyString(), anyString(), anyString(), isNull()))
+                .thenReturn(new AiAssistantService.NotificationContent("优化标题", "优化正文"));
+
+        listener.onTaskExecutionEvent(event(TaskExecutionEvent.EventType.TASK_COMPLETED));
+
+        ArgumentCaptor<NotificationContext> captor = ArgumentCaptor.forClass(NotificationContext.class);
+        verify(emailChannel, times(1)).send(captor.capture());
+        NotificationContext ctx = captor.getValue();
+        assertEquals("优化标题", ctx.getSubject());
+        assertEquals("优化正文", ctx.getBody());
     }
 }

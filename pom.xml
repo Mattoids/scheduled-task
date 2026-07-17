@@ -218,6 +218,12 @@
             <version>1.49.0</version>
         </dependency>
 
+        <!-- Apache HttpClient 5 connection pool for shared RestTemplate -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
+
         <!-- Markdown to HTML conversion for email body -->
         <!-- Test -->
         <dependency>

@@ -1,29 +1,27 @@
 package com.mattoid.scheduled.task;
 
-import com.mattoid.scheduled.entity.DatasourceConfig;
 import com.mattoid.scheduled.service.DatasourceConfigService;
-import com.mattoid.scheduled.util.CryptoUtil;
-import com.mattoid.scheduled.util.PlaceholderUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.support.JdbcUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
-import java.sql.Statement;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -42,7 +40,7 @@ public class SqlExecutor {
             Pattern.CASE_INSENSITIVE);
 
     public static void validateReadOnlySql(String sql) {
-        if (!org.springframework.util.StringUtils.hasText(sql)) {
+        if (!StringUtils.hasText(sql)) {
             throw new IllegalArgumentException("SQL 内容为空");
         }
         String stripped = SQL_COMMENT_PATTERN.matcher(sql).replaceAll(" ");
@@ -56,110 +54,92 @@ public class SqlExecutor {
     }
 
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql) throws Exception {
-        return executeQuery(datasourceId, sql, java.util.Collections.emptyMap());
+        return executeQuery(datasourceId, sql, Collections.emptyMap());
     }
 
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql, Map<String, Object> params) throws Exception {
-        if (!org.springframework.util.StringUtils.hasText(sql)) {
+        if (!StringUtils.hasText(sql)) {
             throw new IllegalArgumentException("SQL 内容为空, datasourceId=" + datasourceId);
         }
-        Map<String, Object> safeParams = params != null ? params : java.util.Collections.emptyMap();
-        String processedSql = processSqlVariables(sql, safeParams);
-        log.info("执行查询 SQL: datasourceId={}, sql={}", datasourceId, processedSql);
-        if (!processedSql.equals(sql)) {
+        Map<String, Object> safeParams = params != null ? params : Collections.emptyMap();
+        SqlWithParameters processed = processSqlVariables(sql, safeParams);
+        log.info("执行查询 SQL: datasourceId={}, sql={}", datasourceId, processed.sql());
+        if (!processed.sql().equals(sql)) {
             log.debug("SQL 变量替换前: {}", sql);
         }
         DataSource dataSource = datasourceConfigService.getDataSource(datasourceId);
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(processedSql)) {
-
-            ResultSetMetaData metaData = rs.getMetaData();
-            int columnCount = metaData.getColumnCount();
-            List<Map<String, Object>> rows = new ArrayList<>();
-            while (rs.next()) {
-                // 使用 LinkedHashMap 保持与 SQL 查询结果列一致的顺序
-                Map<String, Object> row = new LinkedHashMap<>();
-                for (int i = 1; i <= columnCount; i++) {
-                    row.put(metaData.getColumnLabel(i), rs.getObject(i));
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setReadOnly(true);
+            try (PreparedStatement stmt = conn.prepareStatement(processed.sql())) {
+                List<Object> parameters = processed.parameters();
+                for (int i = 0; i < parameters.size(); i++) {
+                    stmt.setObject(i + 1, parameters.get(i));
                 }
-                rows.add(row);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    ResultSetMetaData metaData = rs.getMetaData();
+                    int columnCount = metaData.getColumnCount();
+                    List<Map<String, Object>> rows = new ArrayList<>();
+                    while (rs.next()) {
+                        // 使用 LinkedHashMap 保持与 SQL 查询结果列一致的顺序
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        for (int i = 1; i <= columnCount; i++) {
+                            row.put(metaData.getColumnLabel(i), rs.getObject(i));
+                        }
+                        rows.add(row);
+                    }
+                    return rows;
+                }
             }
-            return rows;
         }
     }
 
     /**
-     * 处理 SQL 中的 ${var} / ${var:format} 变量。
-     * 支持的变量：
-     *   month / currentMonth -> 当前月份（默认 M）
-     *   lastMonth            -> 上月（默认 M）
-     *   nextMonth            -> 下月（默认 M）
-     *   lastM / nextM        -> 上月/下月数字（M）
-     *   year / currentYear   -> 当前年份（默认 yyyy）
-     *   lastYear             -> 去年（默认 yyyy）
-     *   nextYear             -> 明年（默认 yyyy）
-     *   now / date           -> 当前时间（默认 yyyy-MM-dd）
-     *   today                -> 当前日期（默认 yyyy-MM-dd）
-     *   firstDayOfThisWeek   -> 本周第一天（周一，默认 yyyy-MM-dd）
-     *   lastDayOfThisWeek    -> 本周最后一天（周日，默认 yyyy-MM-dd）
-     *   firstDayOfLastWeek   -> 上周第一天（周一，默认 yyyy-MM-dd）
-     *   lastDayOfLastWeek    -> 上周最后一天（周日，默认 yyyy-MM-dd）
-     *   firstDayOfThisMonth  -> 本月第一天（默认 yyyy-MM-dd）
-     *   lastDayOfThisMonth   -> 本月最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfLastMonth  -> 上月第一天（默认 yyyy-MM-dd）
-     *   lastDayOfLastMonth   -> 上月最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfThisYear   -> 今年第一天（默认 yyyy-MM-dd）
-     *   lastDayOfThisYear    -> 今年最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfLastYear   -> 去年第一天（默认 yyyy-MM-dd）
-     *   lastDayOfLastYear    -> 去年最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfNextYear   -> 明年第一天（默认 yyyy-MM-dd）
-     *   lastDayOfNextYear    -> 明年最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfThisQuarter-> 本季度第一天（默认 yyyy-MM-dd）
-     *   lastDayOfThisQuarter -> 本季度最后一天（默认 yyyy-MM-dd）
-     *   firstDayOfLastQuarter-> 上季度第一天（默认 yyyy-MM-dd）
-     *   lastDayOfLastQuarter -> 上季度最后一天（默认 yyyy-MM-dd）
-     *   yesterday            -> 昨天（默认 yyyy-MM-dd）
-     *   tomorrow             -> 明天（默认 yyyy-MM-dd）
-     * 也可通过 ${var:format} 自定义格式，如 ${lastMonth:MM}、${year:yy}、${firstDayOfLastMonth:yyyy-MM-dd}。
+     * 处理 SQL 中的 ${var} / ${var:format} 变量，将其转换为 PreparedStatement 参数占位符。
+     * 所有可解析的变量（自定义参数与内置日期变量）均替换为 ?，对应的值按顺序存入 parameters。
+     * 无法解析的占位符保持原样，最终通过 PreparedStatement 设置参数，避免字符串拼接导致 SQL 注入。
+     *
+     * 支持的变量详见 {@link #resolvePlaceholder(String, Map)}。
      */
-    String processSqlVariables(String sql, Map<String, Object> params) {
+    SqlWithParameters processSqlVariables(String sql, Map<String, Object> params) {
         if (sql == null || !sql.contains("${")) {
-            return sql;
+            return new SqlWithParameters(sql, Collections.emptyList());
         }
-        // 先替换自定义参数，再替换内置变量，避免内置变量名与参数值冲突
-        String afterParams = replaceParamPlaceholders(sql, params);
-        return replaceBuiltInPlaceholders(afterParams);
+        List<Object> parameters = new ArrayList<>();
+        String processedSql = replacePlaceholders(sql, params, parameters);
+        return new SqlWithParameters(processedSql, Collections.unmodifiableList(parameters));
     }
 
-    String processSqlVariables(String sql) {
-        return processSqlVariables(sql, java.util.Collections.emptyMap());
+    SqlWithParameters processSqlVariables(String sql) {
+        return processSqlVariables(sql, Collections.emptyMap());
     }
 
-    private String replaceParamPlaceholders(String sql, Map<String, Object> params) {
+    private String replacePlaceholders(String sql, Map<String, Object> params, List<Object> parameters) {
         Matcher matcher = SQL_PLACEHOLDER_PATTERN.matcher(sql);
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
+        int lastEnd = 0;
         while (matcher.find()) {
+            sb.append(sql, lastEnd, matcher.start());
             String placeholder = matcher.group(1);
-            ParamResolution resolved = resolveParamPlaceholder(placeholder, params);
-            if (resolved == null) {
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
-                continue;
-            }
-            // 模板若已用单引号包住占位符（如 '${startTime}'），只转义不再加引号，
-            // 否则会拼成 ''2026-06-01'' 触发语法错误；未包住的字符串仍自动加引号。
-            String escaped = resolved.value().replace("'", "''");
-            String replacement;
-            if (isSingleQuoted(sql, matcher.start(), matcher.end())) {
-                replacement = escaped;
-            } else if (resolved.stringLike()) {
-                replacement = "'" + escaped + "'";
+            Object value = resolvePlaceholder(placeholder, params);
+            if (value == null) {
+                sb.append(matcher.group(0));
+                lastEnd = matcher.end();
             } else {
-                replacement = escaped;
+                parameters.add(value);
+                boolean quoted = isSingleQuoted(sql, matcher.start(), matcher.end());
+                if (quoted) {
+                    // 移除已追加到 sb 中的前导单引号，避免生成 ''?'' 类语法错误
+                    if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '\'') {
+                        sb.setLength(sb.length() - 1);
+                    }
+                    lastEnd = matcher.end() + 1;
+                } else {
+                    lastEnd = matcher.end();
+                }
+                sb.append('?');
             }
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
-        matcher.appendTail(sb);
+        sb.append(sql, lastEnd, sql.length());
         return sb.toString();
     }
 
@@ -167,71 +147,7 @@ public class SqlExecutor {
         return start > 0 && end < sql.length() && sql.charAt(start - 1) == '\'' && sql.charAt(end) == '\'';
     }
 
-    private ParamResolution resolveParamPlaceholder(String placeholder, Map<String, Object> params) {
-        String variable;
-        String format;
-        int colonIndex = placeholder.indexOf(':');
-        if (colonIndex >= 0) {
-            variable = placeholder.substring(0, colonIndex);
-            format = placeholder.substring(colonIndex + 1);
-        } else {
-            variable = placeholder;
-            format = null;
-        }
-        if (!params.containsKey(variable)) {
-            return null;
-        }
-        Object value = params.get(variable);
-        if (value == null) {
-            return null;
-        }
-        boolean stringLike = value instanceof String || value instanceof Character;
-        if (format != null && !format.isEmpty()) {
-            String formatted = PlaceholderUtils.formatValue(value, format);
-            if (formatted != null) {
-                return new ParamResolution(formatted, stringLike);
-            }
-        }
-        return new ParamResolution(value.toString(), stringLike);
-    }
-
-    private record ParamResolution(String value, boolean stringLike) {
-    }
-
-    private String replaceBuiltInPlaceholders(String sql) {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDate today = LocalDate.now();
-        YearMonth currentMonth = YearMonth.now();
-        YearMonth lastMonth = currentMonth.minusMonths(1);
-        YearMonth nextMonth = currentMonth.plusMonths(1);
-        Year currentYear = Year.now();
-        Year lastYear = currentYear.minusYears(1);
-        Year nextYear = currentYear.plusYears(1);
-
-        Matcher matcher = SQL_PLACEHOLDER_PATTERN.matcher(sql);
-        StringBuffer sb = new StringBuffer();
-        while (matcher.find()) {
-            String placeholder = matcher.group(1);
-            String replacement = resolveBuiltInPlaceholder(placeholder, now, today, currentMonth, lastMonth, nextMonth, currentYear, lastYear, nextYear);
-            if (replacement == null) {
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
-            } else {
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-            }
-        }
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    private String resolveBuiltInPlaceholder(String placeholder,
-                                             LocalDateTime now,
-                                             LocalDate today,
-                                             YearMonth currentMonth,
-                                             YearMonth lastMonth,
-                                             YearMonth nextMonth,
-                                             Year currentYear,
-                                             Year lastYear,
-                                             Year nextYear) {
+    private Object resolvePlaceholder(String placeholder, Map<String, Object> params) {
         String variable;
         String format;
         int colonIndex = placeholder.indexOf(':');
@@ -243,17 +159,43 @@ public class SqlExecutor {
             format = null;
         }
 
+        // 自定义参数优先级高于内置变量，与历史行为保持一致
+        if (params.containsKey(variable)) {
+            Object value = params.get(variable);
+            if (value == null) {
+                return null;
+            }
+            if (format != null && !format.isEmpty()) {
+                String formatted = formatValue(value, format);
+                if (formatted != null) {
+                    return formatted;
+                }
+            }
+            return value;
+        }
+
+        Object builtIn = resolveBuiltInVariable(variable);
+        if (builtIn != null) {
+            String pattern = (format == null || format.isEmpty()) ? defaultFormat(builtIn) : format;
+            if (pattern == null) {
+                return String.valueOf(builtIn);
+            }
+            String formatted = formatValue(builtIn, pattern);
+            return formatted != null ? formatted : String.valueOf(builtIn);
+        }
+        return null;
+    }
+
+    private Object resolveBuiltInVariable(String variable) {
         return switch (variable) {
-            case "month", "currentMonth" -> format(currentMonth, format, "M");
-            case "lastMonth" -> format(lastMonth, format, "M");
-            case "nextMonth" -> format(nextMonth, format, "M");
-            case "lastM" -> format(lastMonth, format, "M");
-            case "nextM" -> format(nextMonth, format, "M");
-            case "year", "currentYear" -> format(currentYear, format, "yyyy");
-            case "lastYear" -> format(lastYear, format, "yyyy");
-            case "nextYear" -> format(nextYear, format, "yyyy");
-            case "now", "date" -> format(now, format, "yyyy-MM-dd");
-            case "today" -> format(today, format, "yyyy-MM-dd");
+            case "month", "currentMonth" -> YearMonth.now();
+            case "lastMonth", "lastM" -> YearMonth.now().minusMonths(1);
+            case "nextMonth", "nextM" -> YearMonth.now().plusMonths(1);
+            case "year", "currentYear" -> Year.now();
+            case "lastYear" -> Year.now().minusYears(1);
+            case "nextYear" -> Year.now().plusYears(1);
+            case "now", "date" -> LocalDateTime.now();
+            case "today" -> LocalDate.now();
             case "firstDayOfThisWeek", "lastDayOfThisWeek",
                     "firstDayOfLastWeek", "lastDayOfLastWeek",
                     "firstDayOfThisMonth", "lastDayOfThisMonth",
@@ -263,30 +205,59 @@ public class SqlExecutor {
                     "firstDayOfNextYear", "lastDayOfNextYear",
                     "firstDayOfThisQuarter", "lastDayOfThisQuarter",
                     "firstDayOfLastQuarter", "lastDayOfLastQuarter",
-                    "yesterday", "tomorrow" -> {
-                Object builtIn = PlaceholderUtils.resolveBuiltInVariable(variable);
-                yield builtIn != null ? format(builtIn, format, "yyyy-MM-dd") : null;
-            }
+                    "yesterday", "tomorrow" -> com.mattoid.scheduled.util.PlaceholderUtils.resolveBuiltInVariable(variable);
             default -> null;
         };
     }
 
-    private String format(Object temporal, String format, String defaultFormat) {
-        String pattern = (format == null || format.isEmpty()) ? defaultFormat : format;
+    private String defaultFormat(Object value) {
+        if (value instanceof LocalDateTime || value instanceof LocalDate) {
+            return "yyyy-MM-dd";
+        } else if (value instanceof YearMonth) {
+            return "M";
+        } else if (value instanceof Year) {
+            return "yyyy";
+        }
+        return null;
+    }
+
+    private String formatValue(Object value, String pattern) {
         try {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern(pattern);
-            if (temporal instanceof YearMonth ym) {
+            if (value instanceof YearMonth ym) {
                 return ym.format(formatter);
-            } else if (temporal instanceof Year y) {
+            } else if (value instanceof Year y) {
                 return y.format(formatter);
-            } else if (temporal instanceof LocalDateTime ldt) {
+            } else if (value instanceof LocalDateTime ldt) {
                 return ldt.format(formatter);
-            } else if (temporal instanceof LocalDate ld) {
+            } else if (value instanceof LocalDate ld) {
                 return ld.format(formatter);
+            } else if (value instanceof String str) {
+                return formatStringDate(str, formatter);
             }
+            return null;
         } catch (Exception e) {
             log.warn("SQL 变量格式 '{}' 不合法: {}", pattern, e.getMessage());
         }
         return null;
+    }
+
+    private String formatStringDate(String value, DateTimeFormatter formatter) {
+        try {
+            return formatter.format(LocalDateTime.parse(value));
+        } catch (Exception ignored) {
+        }
+        try {
+            return formatter.format(LocalDate.parse(value));
+        } catch (Exception ignored) {
+        }
+        try {
+            return formatter.format(YearMonth.parse(value));
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    record SqlWithParameters(String sql, List<Object> parameters) {
     }
 }

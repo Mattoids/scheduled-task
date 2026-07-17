@@ -1,12 +1,10 @@
 package com.mattoid.scheduled.ai;
 
-import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.mattoid.scheduled.util.JsonResponseParser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
@@ -20,7 +18,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class OpenAiCompatibleClient implements AiClient {
 
-    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
     /** 瞬态错误（5xx/429/超时）的最大尝试次数：首次 + 1 次重试 */
     private static final int MAX_ATTEMPTS = 2;
     private static final long RETRY_BACKOFF_MS = 1500L;
@@ -28,20 +25,13 @@ public class OpenAiCompatibleClient implements AiClient {
     private final String baseUrl;
     private final String apiKey;
     private final String defaultModel;
-    private final Integer timeoutSeconds;
     private final RestTemplate restTemplate;
 
-    public OpenAiCompatibleClient(String baseUrl, String apiKey, String defaultModel, Integer timeoutSeconds) {
+    public OpenAiCompatibleClient(String baseUrl, String apiKey, String defaultModel, RestTemplate restTemplate) {
         this.baseUrl = baseUrl != null ? baseUrl.replaceAll("/+$", "") : "https://api.openai.com/v1";
         this.apiKey = apiKey;
         this.defaultModel = defaultModel;
-        int timeout = timeoutSeconds != null && timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
-        this.timeoutSeconds = timeout;
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(timeout * 1000);
-        requestFactory.setReadTimeout(timeout * 1000);
-        this.restTemplate = new RestTemplate(requestFactory);
-        this.restTemplate.getMessageConverters().add(new StringHttpMessageConverter());
+        this.restTemplate = restTemplate;
     }
 
     @Override
@@ -115,48 +105,36 @@ public class OpenAiCompatibleClient implements AiClient {
     }
 
     private AiChatResponse parseResponse(String json) {
-        try {
-            JSONObject root = JSON.parseObject(json);
-            if (root == null) {
-                log.warn("AI 响应为空或非 JSON，原始响应: {}", truncate(json));
-                return AiChatResponse.error("AI 响应解析失败");
-            }
-            if (root.containsKey("error")) {
-                JSONObject error = root.getJSONObject("error");
-                return AiChatResponse.error(error != null ? error.getString("message") : "AI 返回错误");
-            }
-            JSONArray choices = root.getJSONArray("choices");
-            if (choices == null || choices.isEmpty()) {
-                log.warn("AI 响应缺少 choices，原始响应: {}", truncate(json));
-                return AiChatResponse.error("AI 未返回有效结果");
-            }
-            JSONObject message = choices.getJSONObject(0).getJSONObject("message");
-            String content = message != null ? message.getString("content") : null;
-            if (!StringUtils.hasText(content)) {
-                // 便于排查兼容厂商（如 SenseNova）返回结构差异或 content 为空的情况
-                log.warn("AI 响应 message.content 为空，原始响应: {}", truncate(json));
-            }
-
-            AiChatResponse response = new AiChatResponse();
-            response.setContent(content);
-
-            JSONObject usage = root.getJSONObject("usage");
-            if (usage != null) {
-                response.setPromptTokens(usage.getInteger("prompt_tokens"));
-                response.setCompletionTokens(usage.getInteger("completion_tokens"));
-                response.setTotalTokens(usage.getInteger("total_tokens"));
-            }
-            return response;
-        } catch (Exception e) {
-            log.error("Parse AI response failed: {}", truncate(json), e);
-            return AiChatResponse.error("解析 AI 响应失败");
+        JSONObject root = JsonResponseParser.parseObject(json);
+        if (root == null) {
+            log.warn("AI 响应为空或非 JSON，原始响应: {}", JsonResponseParser.truncate(json));
+            return AiChatResponse.error("AI 响应解析失败");
         }
-    }
-
-    private String truncate(String value) {
-        if (value == null) {
-            return null;
+        if (root.containsKey("error")) {
+            String errorMessage = JsonResponseParser.pathString(root, "error.message");
+            return AiChatResponse.error(StringUtils.hasText(errorMessage) ? errorMessage : "AI 返回错误");
         }
-        return value.length() <= 2000 ? value : value.substring(0, 2000) + "...(truncated)";
+        JSONArray choices = JsonResponseParser.pathArray(root, "choices");
+        if (choices == null || choices.isEmpty()) {
+            log.warn("AI 响应缺少 choices，原始响应: {}", JsonResponseParser.truncate(json));
+            return AiChatResponse.error("AI 未返回有效结果");
+        }
+        JSONObject message = choices.getJSONObject(0).getJSONObject("message");
+        String content = message != null ? message.getString("content") : null;
+        if (!StringUtils.hasText(content)) {
+            // 便于排查兼容厂商（如 SenseNova）返回结构差异或 content 为空的情况
+            log.warn("AI 响应 message.content 为空，原始响应: {}", JsonResponseParser.truncate(json));
+        }
+
+        AiChatResponse response = new AiChatResponse();
+        response.setContent(content);
+
+        JSONObject usage = root.getJSONObject("usage");
+        if (usage != null) {
+            response.setPromptTokens(usage.getInteger("prompt_tokens"));
+            response.setCompletionTokens(usage.getInteger("completion_tokens"));
+            response.setTotalTokens(usage.getInteger("total_tokens"));
+        }
+        return response;
     }
 }

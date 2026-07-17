@@ -58,20 +58,7 @@ public class WebCrawlExecutor {
     private static final String ENC_PREFIX = "ENC(";
     private static final int DEFAULT_TIMEOUT_MS = 30_000;
 
-    private static final HostnameVerifier DEFAULT_HOSTNAME_VERIFIER;
-    private static final ThreadLocal<String> EXPECTED_REMOTE_HOST = new ThreadLocal<>();
     private static volatile SSLSocketFactory trustAllSslSocketFactory;
-
-    static {
-        DEFAULT_HOSTNAME_VERIFIER = HttpsURLConnection.getDefaultHostnameVerifier();
-        HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> {
-            String expected = EXPECTED_REMOTE_HOST.get();
-            if (expected != null && DEFAULT_HOSTNAME_VERIFIER.verify(expected, session)) {
-                return true;
-            }
-            return DEFAULT_HOSTNAME_VERIFIER.verify(hostname, session);
-        });
-    }
 
     private final ObjectMapper objectMapper;
     private final WebCrawlMediaDownloader mediaDownloader;
@@ -270,13 +257,8 @@ public class WebCrawlExecutor {
 
             String actualUrl = applySshTunnelToUrl(targetUrl, tunnel);
             Connection connection = buildPreviewConnection(config, actualUrl, mergedParams, tunnel);
-            try {
-                EXPECTED_REMOTE_HOST.set(resolveExpectedRemoteHost(config));
-                Connection.Response response = connection.execute();
-                return new ResourceResponse(response.contentType(), response.bodyAsBytes());
-            } finally {
-                EXPECTED_REMOTE_HOST.remove();
-            }
+            Connection.Response response = connection.execute();
+            return new ResourceResponse(response.contentType(), response.bodyAsBytes());
         } finally {
             clearJsonResponse();
             WebCrawlProxyHelper.unbindAuth();
@@ -300,22 +282,17 @@ public class WebCrawlExecutor {
             return new PreviewFetchResult(document, 200, "页面可访问");
         }
         Connection connection = buildPreviewConnection(config, actualUrl, params, tunnel);
-        try {
-            EXPECTED_REMOTE_HOST.set(resolveExpectedRemoteHost(config));
-            Connection.Response response = connection.execute();
-            String body = safeResponseBody(response);
-            Document document = response.parse();
-            if (!StringUtils.hasText(body)) {
-                body = document.text();
-            }
-            tryParseJsonResponse(body, response.contentType());
-            int statusCode = response.statusCode();
-            String message = (statusCode >= 200 && statusCode < 400)
-                    ? "页面可访问" : "请求返回非成功状态码: " + statusCode;
-            return new PreviewFetchResult(document, statusCode, message);
-        } finally {
-            EXPECTED_REMOTE_HOST.remove();
+        Connection.Response response = connection.execute();
+        String body = safeResponseBody(response);
+        Document document = response.parse();
+        if (!StringUtils.hasText(body)) {
+            body = document.text();
         }
+        tryParseJsonResponse(body, response.contentType());
+        int statusCode = response.statusCode();
+        String message = (statusCode >= 200 && statusCode < 400)
+                ? "页面可访问" : "请求返回非成功状态码: " + statusCode;
+        return new PreviewFetchResult(document, statusCode, message);
     }
 
     private void tryParseJsonResponse(String body, String contentType) {
@@ -376,7 +353,16 @@ public class WebCrawlExecutor {
         return trustAllSslSocketFactory;
     }
 
-    private static void applyTunnelSslSocketFactory(Connection connection, String url, SshTunnel tunnel) {
+    private static HostnameVerifier createExpectedHostVerifier(String expectedHost) {
+        if (!StringUtils.hasText(expectedHost)) {
+            return (hostname, session) -> true;
+        }
+        HostnameVerifier defaultVerifier = HttpsURLConnection.getDefaultHostnameVerifier();
+        return (hostname, session) -> defaultVerifier.verify(expectedHost, session);
+    }
+
+    private static void applyTunnelSslSettings(Connection connection, String url, SshTunnel tunnel,
+                                                String expectedHost) {
         if (tunnel == null || url == null || !url.toLowerCase().startsWith("https")) {
             return;
         }
@@ -592,26 +578,21 @@ public class WebCrawlExecutor {
             return document;
         }
         Connection connection = buildConnection(config, actualUrl, params, tunnel);
-        try {
-            EXPECTED_REMOTE_HOST.set(resolveExpectedRemoteHost(config));
-            Connection.Response response = connection.execute();
-            int statusCode = response.statusCode();
-            if (statusCode < 200 || statusCode >= 400) {
-                log.warn("爬取请求返回非成功状态码: statusCode={}, url={}", statusCode, actualUrl);
-            }
-            String body = safeResponseBody(response);
-            Document document = response.parse();
-            if (!StringUtils.hasText(body)) {
-                body = document.text();
-            }
-            tryParseJsonResponse(body, response.contentType());
-            if (tunnel != null) {
-                document.setBaseUri(url);
-            }
-            return document;
-        } finally {
-            EXPECTED_REMOTE_HOST.remove();
+        Connection.Response response = connection.execute();
+        int statusCode = response.statusCode();
+        if (statusCode < 200 || statusCode >= 400) {
+            log.warn("爬取请求返回非成功状态码: statusCode={}, url={}", statusCode, actualUrl);
         }
+        String body = safeResponseBody(response);
+        Document document = response.parse();
+        if (!StringUtils.hasText(body)) {
+            body = document.text();
+        }
+        tryParseJsonResponse(body, response.contentType());
+        if (tunnel != null) {
+            document.setBaseUri(url);
+        }
+        return document;
     }
 
     private Connection buildConnection(TaskWebCrawlConfig config, String url,
@@ -625,7 +606,7 @@ public class WebCrawlExecutor {
                 .ignoreHttpErrors(true)
                 .ignoreContentType(true);
 
-        applyTunnelSslSocketFactory(connection, url, tunnel);
+        applyTunnelSslSettings(connection, url, tunnel, resolveExpectedRemoteHost(config));
 
         Proxy proxy = WebCrawlProxyHelper.createProxy(config);
         if (proxy != null) {
@@ -675,7 +656,7 @@ public class WebCrawlExecutor {
                 .ignoreHttpErrors(true)
                 .ignoreContentType(true);
 
-        applyTunnelSslSocketFactory(connection, url, tunnel);
+        applyTunnelSslSettings(connection, url, tunnel, resolveExpectedRemoteHost(config));
 
         Proxy proxy = WebCrawlProxyHelper.createProxy(config);
         if (proxy != null) {

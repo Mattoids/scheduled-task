@@ -31,8 +31,6 @@ import java.util.stream.Collectors;
 @Service
 public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMapper, TaskWebCrawlConfig> {
 
-    private static final String ENC_PREFIX = "ENC(";
-
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final TaskWebCrawlRelationService taskWebCrawlRelationService;
@@ -205,22 +203,22 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
     }
 
     private void encryptSensitiveFields(TaskWebCrawlConfig config) {
-        if (StringUtils.hasText(config.getCookies()) && !config.getCookies().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getCookies()) && !CryptoUtil.isEncrypted(config.getCookies())) {
             config.setCookies(CryptoUtil.encrypt(config.getCookies()));
         }
-        if (StringUtils.hasText(config.getAuthConfig()) && !config.getAuthConfig().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getAuthConfig()) && !CryptoUtil.isEncrypted(config.getAuthConfig())) {
             config.setAuthConfig(CryptoUtil.encrypt(config.getAuthConfig()));
         }
-        if (StringUtils.hasText(config.getSshPassword()) && !config.getSshPassword().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getSshPassword()) && !CryptoUtil.isEncrypted(config.getSshPassword())) {
             config.setSshPassword(CryptoUtil.encrypt(config.getSshPassword()));
         }
-        if (StringUtils.hasText(config.getSshPrivateKey()) && !config.getSshPrivateKey().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getSshPrivateKey()) && !CryptoUtil.isEncrypted(config.getSshPrivateKey())) {
             config.setSshPrivateKey(CryptoUtil.encrypt(config.getSshPrivateKey()));
         }
-        if (StringUtils.hasText(config.getSshPassphrase()) && !config.getSshPassphrase().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getSshPassphrase()) && !CryptoUtil.isEncrypted(config.getSshPassphrase())) {
             config.setSshPassphrase(CryptoUtil.encrypt(config.getSshPassphrase()));
         }
-        if (StringUtils.hasText(config.getProxyPassword()) && !config.getProxyPassword().startsWith(ENC_PREFIX)) {
+        if (StringUtils.hasText(config.getProxyPassword()) && !CryptoUtil.isEncrypted(config.getProxyPassword())) {
             config.setProxyPassword(CryptoUtil.encrypt(config.getProxyPassword()));
         }
         encryptSshHops(config.getSshHops());
@@ -253,13 +251,13 @@ public class TaskWebCrawlConfigService extends ServiceImpl<TaskWebCrawlConfigMap
             return;
         }
         for (SshHopConfig hop : hops) {
-            if (StringUtils.hasText(hop.getPassword()) && !hop.getPassword().startsWith(ENC_PREFIX)) {
+            if (StringUtils.hasText(hop.getPassword()) && !CryptoUtil.isEncrypted(hop.getPassword())) {
                 hop.setPassword(CryptoUtil.encrypt(hop.getPassword()));
             }
-            if (StringUtils.hasText(hop.getPrivateKey()) && !hop.getPrivateKey().startsWith(ENC_PREFIX)) {
+            if (StringUtils.hasText(hop.getPrivateKey()) && !CryptoUtil.isEncrypted(hop.getPrivateKey())) {
                 hop.setPrivateKey(CryptoUtil.encrypt(hop.getPrivateKey()));
             }
-            if (StringUtils.hasText(hop.getPassphrase()) && !hop.getPassphrase().startsWith(ENC_PREFIX)) {
+            if (StringUtils.hasText(hop.getPassphrase()) && !CryptoUtil.isEncrypted(hop.getPassphrase())) {
                 hop.setPassphrase(CryptoUtil.encrypt(hop.getPassphrase()));
             }
         }

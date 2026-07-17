@@ -250,7 +250,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
                         for (String key : headers.keySet()) {
                             if (isSensitiveHeader(key)) {
                                 Object value = headers.get(key);
-                                if (value instanceof String s && StringUtils.hasText(s) && !s.startsWith("ENC(")) {
+                                if (value instanceof String s && StringUtils.hasText(s) && !CryptoUtil.isEncrypted(s)) {
                                     headers.put(key, CryptoUtil.encrypt(s));
                                 }
                             }
@@ -266,7 +266,7 @@ public class NotificationConfigService extends ServiceImpl<NotificationConfigMap
 
     private void encryptField(Map<String, Object> map, String field) {
         Object value = map.get(field);
-        if (value instanceof String s && StringUtils.hasText(s) && !s.startsWith("ENC(")) {
+        if (value instanceof String s && StringUtils.hasText(s) && !CryptoUtil.isEncrypted(s)) {
             map.put(field, CryptoUtil.encrypt(s));
         }
     }
