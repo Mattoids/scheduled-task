@@ -17,7 +17,7 @@ import {
 } from "@element-plus/icons-vue";
 import { useAppStore } from "@/stores/app";
 import { getDashboardStats, getServerTime } from "@/api/dashboard";
-import { installDependency, getInstallStatus, type InstallCompleteEvent } from "@/api/system";
+import { installDependency, getInstallProgress, type InstallCompleteEvent } from "@/api/system";
 import { useUserStore } from "@/stores/user";
 import { usePermission } from "@/composables/usePermission";
 import type { DashboardStats, RecentTaskLog } from "@/types";
@@ -218,11 +218,11 @@ const startInstall = (dep: DependencyRow) => {
   doInstall(dep.key, dep.name);
 };
 
-const doInstall = (key: string, name?: string) => {
+const doInstall = (key: string, name?: string, restored?: { percentage: number; message: string }) => {
   resetInstallState();
-  installProgress.value = 0;
+  installProgress.value = restored?.percentage ?? 0;
   installProgressStatus.value = "";
-  installPhaseMessage.value = name ? `开始安装 ${name}...` : "开始安装...";
+  installPhaseMessage.value = restored?.message ?? (name ? `开始安装 ${name}...` : "开始安装...");
   installingKey.value = normalizeInstallKey(key);
 
   const controller = installDependency(key, userStore.token, {
@@ -359,10 +359,13 @@ const dependencyRows = computed<DependencyRow[]>(() => {
 
 const checkOngoingInstall = async () => {
   try {
-    const { installing } = await getInstallStatus("chromium");
-    if (installing && !installAbortController.value) {
+    const snapshot = await getInstallProgress("chromium");
+    if (snapshot.running && !installAbortController.value) {
       const chromiumRow = dependencyRows.value.find((r) => r.key === "chromium");
-      doInstall("chromium", chromiumRow?.name || "Chromium 内核");
+      doInstall("chromium", chromiumRow?.name || "Chromium 内核", {
+        percentage: snapshot.percentage ?? 0,
+        message: snapshot.message || "安装进行中...",
+      });
     }
   } catch {
     // 忽略状态查询失败
@@ -379,6 +382,8 @@ const loadStats = async () => {
   loading.value = true;
   try {
     stats.value = await getDashboardStats();
+  } catch (err) {
+    console.error("[Dashboard] 加载统计数据失败:", err);
   } finally {
     loading.value = false;
   }

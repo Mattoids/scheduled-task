@@ -33,8 +33,10 @@ instance.interceptors.response.use(
     }
     const res = response.data
     if (res.code !== 200) {
-      ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message || '请求失败'))
+      const msg = res.message || `请求失败 (HTTP ${response.status}, code ${res.code})`
+      console.error('[request] 业务错误:', { url: response.config.url, status: response.status, code: res.code, message: res.message, data: res })
+      ElMessage.error(msg)
+      return Promise.reject(new Error(msg))
     }
     return res.data
   },

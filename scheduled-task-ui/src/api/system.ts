@@ -92,6 +92,20 @@ export const installDependency = (key: string, token: string, handlers: InstallS
   })
 }
 
+export interface InstallProgressSnapshot {
+  key: string
+  phase: string
+  percentage: number
+  status: string
+  message: string
+  running: boolean
+  logs: string[]
+}
+
+export const getInstallProgress = (key: string) => {
+  return request.get<InstallProgressSnapshot>(`/system/dependencies/${encodeURIComponent(key)}/install/progress`)
+}
+
 export const getInstallStatus = (key: string) => {
   return request.get<{ installing: boolean }>(`/system/dependencies/${encodeURIComponent(key)}/install/status`)
 }
