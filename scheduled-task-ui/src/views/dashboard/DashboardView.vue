@@ -233,7 +233,10 @@ const doInstall = (key: string, name?: string, restored?: { percentage: number; 
       if (event === "message") {
         const payload = data as { level?: string; message?: string; phase?: string };
         if (payload.message) {
-          installPhaseMessage.value = payload.message;
+          const msg = payload.message;
+          if (msg.startsWith("at ")) return;
+          if (/^\d+%$/.test(msg.trim())) return;
+          installPhaseMessage.value = msg;
         }
       } else if (event === "progress") {
         const payload = data as { phase?: string; percentage?: number };
@@ -251,7 +254,13 @@ const doInstall = (key: string, name?: string, restored?: { percentage: number; 
       } else if (event === "info") {
         const payload = data as { message?: string };
         if (payload.message) {
-          installPhaseMessage.value = payload.message;
+          const msg = payload.message;
+          // 过滤无用的刷屏行：
+          // - 堆栈跟踪行（以 "at " 开头，含括号路径）
+          // - 仅含百分比的行（如 "100%"）
+          if (msg.startsWith("at ")) return;
+          if (/^\d+%$/.test(msg.trim())) return;
+          installPhaseMessage.value = msg;
         }
       } else if (event === "command") {
         const payload = data as { command?: string };
