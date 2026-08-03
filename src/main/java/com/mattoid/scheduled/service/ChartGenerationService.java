@@ -10,6 +10,7 @@ import org.knowm.xchart.internal.chartpart.Chart;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -57,7 +58,12 @@ public class ChartGenerationService {
      */
     public File generateChart(List<Map<String, Object>> data, String chartType, String title,
                               boolean autoMerge, String labelRotation) {
-        return generateChart(data, chartType, title, autoMerge, labelRotation, null);
+        return generateChart(data, chartType, title, autoMerge, labelRotation, null, null, null);
+    }
+
+    public File generateChart(List<Map<String, Object>> data, String chartType, String title,
+                              boolean autoMerge, String labelRotation, String backgroundColor) {
+        return generateChart(data, chartType, title, autoMerge, labelRotation, backgroundColor, null, null);
     }
 
     /**
@@ -70,10 +76,13 @@ public class ChartGenerationService {
      * @param labelRotation    X 轴标签旋转角度：AUTO / 0 / 45 / 90
      * @param backgroundColor  图表背景色，支持 #RRGGBB / #RRGGBBAA / rgb() / rgba() / transparent；
      *                         留空或解析失败时默认白色；显式 transparent 或 alpha=0 表示透明背景
+     * @param fontFamily       图表字体，留空使用默认字体
+     * @param fontSize         图表字号，留空使用默认字号
      * @return 生成的 PNG 文件，若数据不满足要求则返回 null
      */
     public File generateChart(List<Map<String, Object>> data, String chartType, String title,
-                              boolean autoMerge, String labelRotation, String backgroundColor) {
+                              boolean autoMerge, String labelRotation, String backgroundColor,
+                              String fontFamily, Integer fontSize) {
         if (data == null || data.isEmpty()) {
             return null;
         }
@@ -117,19 +126,21 @@ public class ChartGenerationService {
             String chartTitle = StringUtils.hasText(title) ? title : "数据图表";
             List<Map<String, Object>> chartData = autoMerge ? maybeMergeData(data, categoryColumn) : data;
             Color background = parseColor(backgroundColor);
+            Font font = buildFont(fontFamily, fontSize);
+            log.info("生成图表: type={}, fontFamily={}, fontSize={}, font={}", type, fontFamily, fontSize, font);
             switch (type) {
-                case "PIE" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, false, background);
-                case "DOUGHNUT" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, true, background);
+                case "PIE" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, false, background, font);
+                case "DOUGHNUT" -> generatePieChart(chartData, categoryColumn, valueColumns.get(0), chartTitle, tempFile, true, background, font);
                 case "LINE" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Line, false, labelRotation, background);
+                        CategorySeries.CategorySeriesRenderStyle.Line, false, labelRotation, background, font);
                 case "AREA" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Area, false, labelRotation, background);
+                        CategorySeries.CategorySeriesRenderStyle.Area, false, labelRotation, background, font);
                 case "SCATTER" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Scatter, false, labelRotation, background);
+                        CategorySeries.CategorySeriesRenderStyle.Scatter, false, labelRotation, background, font);
                 case "STACKED_BAR" -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Bar, true, labelRotation, background);
+                        CategorySeries.CategorySeriesRenderStyle.Bar, true, labelRotation, background, font);
                 default -> generateCategoryChart(chartData, categoryColumn, valueColumns, chartTitle, tempFile,
-                        CategorySeries.CategorySeriesRenderStyle.Bar, false, labelRotation, background);
+                        CategorySeries.CategorySeriesRenderStyle.Bar, false, labelRotation, background, font);
             }
             log.info("生成图表成功: type={}, title={}, file={}", type, chartTitle, tempFile.getAbsolutePath());
             return tempFile;
@@ -140,7 +151,8 @@ public class ChartGenerationService {
     }
 
     private void generatePieChart(List<Map<String, Object>> data, String categoryColumn, String valueColumn,
-                                  String title, File outputFile, boolean donut, Color backgroundColor) throws Exception {
+                                  String title, File outputFile, boolean donut, Color backgroundColor,
+                                  Font font) throws Exception {
         PieChart chart = new PieChartBuilder().width(800).height(600).title(title).build();
         chart.getStyler().setLegendVisible(true);
         chart.getStyler().setChartTitleVisible(true);
@@ -148,6 +160,7 @@ public class ChartGenerationService {
         chart.getStyler().setPlotBackgroundColor(backgroundColor);
         chart.getStyler().setPlotBorderColor(backgroundColor);
         chart.getStyler().setLegendBackgroundColor(backgroundColor);
+        applyFont(chart.getStyler(), font);
         if (donut) {
             chart.getStyler().setDefaultSeriesRenderStyle(PieSeries.PieSeriesRenderStyle.Donut);
             chart.getStyler().setDonutThickness(0.4);
@@ -174,7 +187,8 @@ public class ChartGenerationService {
 
     private void generateCategoryChart(List<Map<String, Object>> data, String categoryColumn, List<String> valueColumns,
                                        String title, File outputFile, CategorySeries.CategorySeriesRenderStyle renderStyle,
-                                       boolean stacked, String labelRotation, Color backgroundColor) throws Exception {
+                                       boolean stacked, String labelRotation, Color backgroundColor,
+                                       Font font) throws Exception {
         CategoryChart chart = new CategoryChartBuilder()
                 .width(900).height(600).title(title)
                 .xAxisTitle(categoryColumn != null ? categoryColumn : "")
@@ -187,6 +201,7 @@ public class ChartGenerationService {
         chart.getStyler().setPlotBackgroundColor(backgroundColor);
         chart.getStyler().setPlotBorderColor(backgroundColor);
         chart.getStyler().setLegendBackgroundColor(backgroundColor);
+        applyFont(chart.getStyler(), font);
         if (stacked) {
             chart.getStyler().setStacked(true);
         }
@@ -362,6 +377,51 @@ public class ChartGenerationService {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    /**
+     * 根据字体族和字号构造 Font 对象。
+     * fontSize 为 null/≤0 → 返回 null，不设置字体，保持 XChart 默认；
+     * fontFamily 为空但 fontSize 有值 → 使用系统默认字体（LOGICAL，运行时解析）。
+     */
+    private Font buildFont(String fontFamily, Integer fontSize) {
+        if (fontSize == null || fontSize <= 0) {
+            return null;
+        }
+        String family = StringUtils.hasText(fontFamily) ? fontFamily.trim() : Font.SANS_SERIF;
+        return new Font(family, Font.PLAIN, fontSize);
+    }
+
+    /**
+     * 将 Font 应用到 Styler 的各字体配置项。
+     * 仅当 font 不为 null 时才设置，否则保持 XChart 默认。
+     * <p>
+     * 注意：XChart 3.8.8 基类 Styler 不提供 setAxisTitleFont / setAxisTickLabelsFont，
+     * 坐标轴字体通过 setBaseFont 全局统一生效；setLabelsFont / setSumFont 仅在 PieStyler 上可用。
+     */
+    private void applyFont(Styler styler, Font font) {
+        if (font == null) {
+            return;
+        }
+        Font titleFont = font.deriveFont(Font.BOLD, font.getSize() + 2);
+        styler.setBaseFont(font);
+        styler.setChartTitleFont(titleFont);
+        styler.setLegendFont(font);
+
+        // 坐标轴标题/刻度标签字体 - 仅 AxesChartStyler（CategoryChart 的 styler 基类）提供独立 API
+        if (styler instanceof org.knowm.xchart.style.AxesChartStyler axesStyler) {
+            axesStyler.setAxisTitleFont(font);
+            axesStyler.setAxisTickLabelsFont(font);
+        }
+
+        // 饼图标签
+        if (styler instanceof org.knowm.xchart.style.PieStyler pieStyler) {
+            pieStyler.setLabelsFont(font);
+            pieStyler.setSumFont(font);
+        } else if (styler instanceof org.knowm.xchart.style.CategoryStyler catStyler) {
+            // CategoryStyler.setLabelsFont 控制 X 轴刻度标签字体
+            catStyler.setLabelsFont(font);
+        }
     }
 
     private Color parseHexColor(String hex) {

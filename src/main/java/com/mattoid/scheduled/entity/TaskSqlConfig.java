@@ -63,6 +63,16 @@ public class TaskSqlConfig extends BaseEntity {
     private String chartBackgroundColor;
 
     /**
+     * 图表字体，留空使用系统默认字体
+     */
+    private String chartFontFamily;
+
+    /**
+     * 图表字号，留空使用默认字号
+     */
+    private Integer chartFontSize;
+
+    /**
      * Excel 合并组名，相同组名的 SQL 结果会合并到同一个 Excel 文件
      */
     private String excelMergeGroup;

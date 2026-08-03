@@ -287,6 +287,8 @@ public class SqlTaskHandler implements TaskHandler {
         context.put("chartType", sql.getChartType());
         context.put("chartTitle", sql.getChartTitle());
         context.put("chartBackgroundColor", sql.getChartBackgroundColor());
+        context.put("chartFontFamily", sql.getChartFontFamily());
+        context.put("chartFontSize", sql.getChartFontSize());
         context.put("chartFile", chartFile);
         return context;
     }
@@ -302,7 +304,8 @@ public class SqlTaskHandler implements TaskHandler {
         String title = StringUtils.hasText(sqlConfig.getChartTitle()) ? sqlConfig.getChartTitle() : sqlConfig.getSqlName();
         boolean autoMerge = sqlConfig.getChartAutoMerge() == null || sqlConfig.getChartAutoMerge() == 1;
         String labelRotation = StringUtils.hasText(sqlConfig.getChartLabelRotation()) ? sqlConfig.getChartLabelRotation() : "AUTO";
-        return chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation, sqlConfig.getChartBackgroundColor());
+        return chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation,
+                sqlConfig.getChartBackgroundColor(), sqlConfig.getChartFontFamily(), sqlConfig.getChartFontSize());
     }
 
     private GeneratedFile generateSqlOutputFile(TaskConfig task, TaskSqlConfig sqlConfig, List<Map<String, Object>> data) throws Exception {

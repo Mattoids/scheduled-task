@@ -125,6 +125,8 @@ const form = reactive<TaskWebCrawlConfig>({
   chartAutoMerge: 1,
   chartLabelRotation: 'AUTO',
   chartBackgroundColor: '',
+  chartFontFamily: '',
+  chartFontSize: undefined as any,
   selectors: [],
 })
 
@@ -144,6 +146,18 @@ const authTypeOptions = [
 const renderTypeOptions = [
   { label: '静态 HTML', value: 'STATIC' },
   { label: '动态渲染（Selenium）', value: 'DYNAMIC' },
+]
+
+const chartFontFamilyOptions = [
+  { label: '默认', value: '' },
+  { label: '微软雅黑', value: 'Microsoft YaHei' },
+  { label: '宋体', value: 'SimSun' },
+  { label: '黑体', value: 'SimHei' },
+  { label: '楷体', value: 'KaiTi' },
+  { label: '仿宋', value: 'FangSong' },
+  { label: '无衬线', value: 'SansSerif' },
+  { label: '衬线', value: 'Serif' },
+  { label: '等宽', value: 'Monospaced' },
 ]
 
 const selectorTypeOptions = [
@@ -385,6 +399,8 @@ const resetForm = () => {
     chartAutoMerge: 1,
     chartLabelRotation: 'AUTO',
     chartBackgroundColor: '',
+    chartFontFamily: '',
+    chartFontSize: undefined as any,
     selectors: [defaultSelector()],
   })
   formRef.value?.resetFields()
@@ -855,6 +871,20 @@ watch(
               <el-col :span="16">
                 <el-form-item label="图表标题">
                   <el-input v-model="form.chartTitle" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="字体">
+                  <el-select v-model="form.chartFontFamily" placeholder="默认字体" clearable style="width: 100%">
+                    <el-option v-for="item in chartFontFamilyOptions" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="字号">
+                  <el-input-number v-model="form.chartFontSize" :min="8" :max="72" placeholder="默认" style="width: 100%" controls-position="right" />
                 </el-form-item>
               </el-col>
             </el-row>

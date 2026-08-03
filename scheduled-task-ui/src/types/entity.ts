@@ -30,6 +30,8 @@ export interface TaskSqlConfig {
   chartAutoMerge?: number
   chartLabelRotation?: string
   chartBackgroundColor?: string
+  chartFontFamily?: string
+  chartFontSize?: number
   excelMergeGroup?: string
   excelSheetName?: string
   excelLoopEnabled?: number
@@ -153,6 +155,8 @@ export interface TaskWebCrawlConfig {
   chartAutoMerge?: number
   chartLabelRotation?: string
   chartBackgroundColor?: string
+  chartFontFamily?: string
+  chartFontSize?: number
   previewSelectorEnabled?: number
   selectors?: TaskWebCrawlSelector[]
   sortOrder?: number

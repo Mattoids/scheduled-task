@@ -63,7 +63,8 @@ public class SqlExecutor {
         }
         Map<String, Object> safeParams = params != null ? params : Collections.emptyMap();
         SqlWithParameters processed = processSqlVariables(sql, safeParams);
-        log.info("执行查询 SQL: datasourceId={}, sql={}", datasourceId, processed.sql());
+        String fullSql = reconstructFullSql(processed.sql(), processed.parameters());
+        log.info("执行查询 SQL: datasourceId={}, sql={}", datasourceId, fullSql);
         if (!processed.sql().equals(sql)) {
             log.debug("SQL 变量替换前: {}", sql);
         }
@@ -143,8 +144,82 @@ public class SqlExecutor {
         return sb.toString();
     }
 
+    /**
+     * 递归解析字符串中的 ${占位符}，直到所有占位符都被解析为非占位符值。
+     * 返回不带单引号包裹的裸值（引号由外层 resolvePlaceholder / replacePlaceholders 统一处理）。
+     */
+    private String resolveNestedPlaceholder(String value, Map<String, Object> params) {
+        Matcher matcher = SQL_PLACEHOLDER_PATTERN.matcher(value);
+        if (!matcher.find()) {
+            return value;
+        }
+        matcher.reset();
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String inner = matcher.group(1);
+            String innerVar = inner.contains(":") ? inner.substring(0, inner.indexOf(':')) : inner;
+            String innerFormat = inner.contains(":") ? inner.substring(inner.indexOf(':') + 1) : null;
+            Object resolved = params.containsKey(innerVar) ? params.get(innerVar) : resolveBuiltInVariable(innerVar);
+            if (resolved == null) {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
+                continue;
+            }
+            // 如果解析出来的值本身还是占位符，递归解析
+            if (resolved instanceof String s && s.contains("${")) {
+                resolved = resolveNestedPlaceholder(s, params);
+            }
+            if (resolved != null && innerFormat != null && !innerFormat.isEmpty()) {
+                resolved = formatValue(resolved, innerFormat);
+            }
+            String replacement;
+            if (resolved == null) {
+                replacement = matcher.group(0);
+            } else if (resolved instanceof Number) {
+                replacement = resolved.toString();
+            } else {
+                replacement = "'" + resolved.toString().replace("'", "''") + "'";
+            }
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        String result = sb.toString();
+        // 剥掉首尾的单引号包裹（引号统一由 replacePlaceholders 处理）
+        if (result.length() >= 2 && result.startsWith("'") && result.endsWith("'")) {
+            return result.substring(1, result.length() - 1);
+        }
+        return result;
+    }
+
     private boolean isSingleQuoted(String sql, int start, int end) {
         return start > 0 && end < sql.length() && sql.charAt(start - 1) == '\'' && sql.charAt(end) == '\'';
+    }
+
+    /**
+     * 将带 ? 占位符的 SQL 和参数列表拼接回完整 SQL，用于日志输出。
+     */
+    private String reconstructFullSql(String sqlWithPlaceholders, List<Object> params) {
+        StringBuilder sb = new StringBuilder();
+        int paramIndex = 0;
+        for (int i = 0; i < sqlWithPlaceholders.length(); i++) {
+            char c = sqlWithPlaceholders.charAt(i);
+            if (c == '?' && paramIndex < params.size()) {
+                Object val = params.get(paramIndex++);
+                sb.append(formatParam(val));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private String formatParam(Object val) {
+        if (val == null) {
+            return "NULL";
+        }
+        if (val instanceof Number) {
+            return val.toString();
+        }
+        return "'" + val.toString().replace("'", "''") + "'";
     }
 
     private Object resolvePlaceholder(String placeholder, Map<String, Object> params) {
@@ -164,6 +239,10 @@ public class SqlExecutor {
             Object value = params.get(variable);
             if (value == null) {
                 return null;
+            }
+            // 如果参数值本身还是占位符，递归解析（例如 ${startTime} = "${firstDayOfLastMonth}"）
+            if (value instanceof String str && str.contains("${")) {
+                value = resolveNestedPlaceholder(str, params);
             }
             if (format != null && !format.isEmpty()) {
                 String formatted = formatValue(value, format);

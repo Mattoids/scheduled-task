@@ -270,7 +270,8 @@ public class CrawlTaskHandler implements TaskHandler {
         String title = StringUtils.hasText(crawlConfig.getChartTitle()) ? crawlConfig.getChartTitle() : crawlConfig.getCrawlName();
         boolean autoMerge = crawlConfig.getChartAutoMerge() == null || crawlConfig.getChartAutoMerge() == 1;
         String labelRotation = StringUtils.hasText(crawlConfig.getChartLabelRotation()) ? crawlConfig.getChartLabelRotation() : "AUTO";
-        File chartFile = chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation, crawlConfig.getChartBackgroundColor());
+        File chartFile = chartGenerationService.generateChart(data, chartType, title, autoMerge, labelRotation,
+                crawlConfig.getChartBackgroundColor(), crawlConfig.getChartFontFamily(), crawlConfig.getChartFontSize());
         if (chartFile == null) {
             log.warn("爬取 {} 图表生成失败", crawlConfig.getCrawlCode());
         } else {
@@ -289,6 +290,8 @@ public class CrawlTaskHandler implements TaskHandler {
         context.put("chartType", crawl.getChartType());
         context.put("chartTitle", crawl.getChartTitle());
         context.put("chartBackgroundColor", crawl.getChartBackgroundColor());
+        context.put("chartFontFamily", crawl.getChartFontFamily());
+        context.put("chartFontSize", crawl.getChartFontSize());
         context.put("chartFile", chartFile);
         return context;
     }

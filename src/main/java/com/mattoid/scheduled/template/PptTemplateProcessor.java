@@ -95,6 +95,8 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
         String chartType = context.get("chartType") == null ? null : context.get("chartType").toString();
         String chartTitle = context.get("chartTitle") == null ? null : context.get("chartTitle").toString();
         String chartBackgroundColor = context.get("chartBackgroundColor") == null ? null : context.get("chartBackgroundColor").toString();
+        String chartFontFamily = context.get("chartFontFamily") == null ? null : context.get("chartFontFamily").toString();
+        Integer chartFontSize = context.get("chartFontSize") == null ? null : (Integer) context.get("chartFontSize");
         if (!StringUtils.hasText(chartTitle)) {
             Object sqlName = context.get("sqlName");
             chartTitle = sqlName == null ? "数据图表" : sqlName.toString();
@@ -102,7 +104,8 @@ public class PptTemplateProcessor extends AbstractPoiTemplateProcessor {
 
         File chartFile = (File) context.get("chartFile");
         if (chartFile == null || !chartFile.exists()) {
-            chartFile = chartGenerationService.generateChart(data, chartType, chartTitle, true, "AUTO", chartBackgroundColor);
+            chartFile = chartGenerationService.generateChart(data, chartType, chartTitle, true, "AUTO",
+                    chartBackgroundColor, chartFontFamily, chartFontSize);
         }
         if (chartFile == null || !chartFile.exists()) {
             log.warn("PPT 图表生成失败，跳过插入: sqlCode={}", sqlCode);

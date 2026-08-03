@@ -150,6 +150,10 @@ public class TaskWebCrawlConfig extends BaseEntity {
 
     private String chartBackgroundColor;
 
+    private String chartFontFamily;
+
+    private Integer chartFontSize;
+
     /**
      * 非数据库字段：预览时是否启用选择器，1 启用，0 禁用
      */
