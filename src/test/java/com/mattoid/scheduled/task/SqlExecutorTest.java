@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -166,5 +167,34 @@ class SqlExecutorTest {
         SqlExecutor.SqlWithParameters result = executor.processSqlVariables(sql, params);
         assertEquals("SELECT * FROM users WHERE id = ?", result.sql());
         assertEquals("1; DROP TABLE users; --", result.parameters().get(0));
+    }
+
+    @Test
+    void previewSqlFillsCustomParamsAndBuiltInVariables() {
+        String sql = "SELECT * FROM t WHERE date >= '${startTime}' AND date <= '${endTime}' AND month = '${lastMonth:MM}'";
+        Map<String, Object> params = Map.of(
+                "startTime", "2026-07-01 00:00:00",
+                "endTime", "2026-07-31 23:59:59"
+        );
+        String previewSql = executor.previewSql(sql, params);
+        String expectedLastMonth = YearMonth.now().minusMonths(1).format(DateTimeFormatter.ofPattern("MM"));
+        assertEquals("SELECT * FROM t WHERE date >= '2026-07-01 00:00:00' AND date <= '2026-07-31 23:59:59' AND month = '" + expectedLastMonth + "'", previewSql);
+    }
+
+    @Test
+    void previewSqlKeepsUnknownPlaceholders() {
+        String sql = "SELECT * FROM t WHERE id = ${unknown}";
+        String previewSql = executor.previewSql(sql, Collections.emptyMap());
+        assertEquals(sql, previewSql);
+    }
+
+    @Test
+    void previewSqlThrowsWhenSqlContentEmpty() {
+        try {
+            executor.previewSql("", Collections.emptyMap());
+            org.junit.jupiter.api.Assertions.fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertEquals("SQL 内容为空", e.getMessage());
+        }
     }
 }

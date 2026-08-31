@@ -57,6 +57,18 @@ public class SqlExecutor {
         return executeQuery(datasourceId, sql, Collections.emptyMap());
     }
 
+    /**
+     * 预览 SQL：将变量填充为具体值并返回完整 SQL 文本，不连接数据库执行。
+     */
+    public String previewSql(String sql, Map<String, Object> params) {
+        if (!StringUtils.hasText(sql)) {
+            throw new IllegalArgumentException("SQL 内容为空");
+        }
+        Map<String, Object> safeParams = params != null ? params : Collections.emptyMap();
+        SqlWithParameters processed = processSqlVariables(sql, safeParams);
+        return reconstructFullSql(processed.sql(), processed.parameters());
+    }
+
     public List<Map<String, Object>> executeQuery(Long datasourceId, String sql, Map<String, Object> params) throws Exception {
         if (!StringUtils.hasText(sql)) {
             throw new IllegalArgumentException("SQL 内容为空, datasourceId=" + datasourceId);

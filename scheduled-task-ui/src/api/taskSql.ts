@@ -25,3 +25,11 @@ export const updateTaskSql = (id: number, data: TaskSqlConfig) => {
 export const deleteTaskSql = (id: number) => {
   return request.delete<void>(`/task-sql/${id}`)
 }
+
+export interface SqlPreviewResult {
+  sql: string
+}
+
+export const previewTaskSql = (data: TaskSqlConfig) => {
+  return request.post<SqlPreviewResult>('/task-sql/preview', data)
+}

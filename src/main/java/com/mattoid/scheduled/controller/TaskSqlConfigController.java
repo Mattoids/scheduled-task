@@ -2,21 +2,26 @@ package com.mattoid.scheduled.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mattoid.scheduled.audit.OperationAudit;
 import com.mattoid.scheduled.common.PageResult;
 import com.mattoid.scheduled.common.PageUtil;
 import com.mattoid.scheduled.common.Result;
 import com.mattoid.scheduled.dto.PageQuery;
+import com.mattoid.scheduled.dto.SqlPreviewResult;
 import com.mattoid.scheduled.entity.ReportTemplate;
 import com.mattoid.scheduled.entity.TaskSqlConfig;
 import com.mattoid.scheduled.entity.TaskSqlGroup;
 import com.mattoid.scheduled.service.ReportTemplateService;
 import com.mattoid.scheduled.service.TaskSqlConfigService;
 import com.mattoid.scheduled.service.TaskSqlGroupService;
+import com.mattoid.scheduled.task.SqlExecutor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -28,13 +33,16 @@ public class TaskSqlConfigController {
     private final TaskSqlConfigService taskSqlConfigService;
     private final TaskSqlGroupService taskSqlGroupService;
     private final ReportTemplateService reportTemplateService;
+    private final SqlExecutor sqlExecutor;
 
     public TaskSqlConfigController(TaskSqlConfigService taskSqlConfigService,
                                    TaskSqlGroupService taskSqlGroupService,
-                                   ReportTemplateService reportTemplateService) {
+                                   ReportTemplateService reportTemplateService,
+                                   SqlExecutor sqlExecutor) {
         this.taskSqlConfigService = taskSqlConfigService;
         this.taskSqlGroupService = taskSqlGroupService;
         this.reportTemplateService = reportTemplateService;
+        this.sqlExecutor = sqlExecutor;
     }
 
     @PreAuthorize("hasAuthority('task:view')")
@@ -84,6 +92,20 @@ public class TaskSqlConfigController {
             }
         }
         return Result.ok(config);
+    }
+
+    @PreAuthorize("hasAuthority('task:view')")
+    @PostMapping("/preview")
+    public Result<SqlPreviewResult> preview(@RequestBody TaskSqlConfig config) {
+        String sqlContent = config.getSqlContent();
+        if (!StringUtils.hasText(sqlContent)) {
+            throw new IllegalArgumentException("SQL 内容为空");
+        }
+        Map<String, Object> params = parseCustomParams(config.getCustomParams());
+        String previewSql = sqlExecutor.previewSql(sqlContent, params);
+        SqlPreviewResult result = new SqlPreviewResult();
+        result.setSql(previewSql);
+        return Result.ok(result);
     }
 
     @OperationAudit(operationType = "CREATE", resourceType = "SQL_CONFIG")
@@ -152,6 +174,17 @@ public class TaskSqlConfigController {
                 config.setTaskSqlGroup(group);
                 config.setGroupName(group.getGroupName());
             }
+        }
+    }
+
+    private Map<String, Object> parseCustomParams(String customParams) {
+        if (!StringUtils.hasText(customParams)) {
+            return Collections.emptyMap();
+        }
+        try {
+            return new ObjectMapper().readValue(customParams, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            throw new IllegalArgumentException("自定义参数必须是合法的 JSON 对象: " + e.getMessage());
         }
     }
 }

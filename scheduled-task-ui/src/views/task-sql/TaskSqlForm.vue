@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from "vue";
 import { ElMessage } from "element-plus";
-import { createTaskSql, getTaskSql, updateTaskSql } from "@/api/taskSql";
+import { DocumentCopy } from "@element-plus/icons-vue";
+import { createTaskSql, getTaskSql, updateTaskSql, previewTaskSql } from "@/api/taskSql";
+import { format as formatSql } from "sql-formatter";
 import type { TaskSqlConfig } from "@/types/entity";
 
 interface Props {
@@ -25,6 +27,10 @@ const dialogVisible = computed({
 });
 
 const loading = ref(false);
+const previewVisible = ref(false);
+const previewLoading = ref(false);
+const previewSql = ref("");
+const previewError = ref("");
 const formRef = ref();
 const form = ref<TaskSqlConfig>({
   sqlName: "",
@@ -464,6 +470,76 @@ const handleSubmit = async () => {
 
 const handleClose = () => {
   emit("update:visible", false);
+};
+
+const handlePreview = async () => {
+  const sql = form.value.sqlContent?.trim();
+  if (!sql) {
+    ElMessage.warning("请输入 SQL 内容");
+    return;
+  }
+
+  const raw = form.value.customParams?.trim();
+  if (raw) {
+    try {
+      JSON.parse(raw);
+    } catch {
+      ElMessage.error("自定义参数必须是合法的 JSON 对象");
+      return;
+    }
+  }
+
+  previewLoading.value = true;
+  previewVisible.value = true;
+  previewSql.value = "";
+  previewError.value = "";
+  try {
+    const res = await previewTaskSql({
+      sqlContent: sql,
+      customParams: raw,
+    } as TaskSqlConfig);
+    let formatted = res.sql || "";
+    try {
+      formatted = formatSql(formatted, {
+        language: "mysql",
+        keywordCase: "upper",
+        tabWidth: 2,
+        linesBetweenQueries: 1,
+      });
+    } catch {
+      // 格式化失败时回退到原始文本
+    }
+    previewSql.value = formatted;
+  } catch (e: any) {
+    previewError.value = e?.message || "预览失败";
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+const handleCopyPreview = async () => {
+  const text = previewSql.value;
+  if (!text) {
+    ElMessage.warning("暂无可复制内容");
+    return;
+  }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    ElMessage.success("复制成功");
+  } catch (e: any) {
+    ElMessage.error(`复制失败：${e?.message || "未知错误"}`);
+  }
 };
 </script>
 
@@ -933,10 +1009,69 @@ const handleClose = () => {
     </el-form>
 
     <template #footer>
+      <el-button :loading="previewLoading" @click="handlePreview">预览</el-button>
       <el-button @click="handleClose">取消</el-button>
       <el-button type="primary" :loading="loading" @click="handleSubmit"
         >确定</el-button
       >
     </template>
   </el-dialog>
+
+  <el-dialog
+    v-model="previewVisible"
+    title="SQL 预览（变量替换后）"
+    width="780px"
+    destroy-on-close
+  >
+    <div v-loading="previewLoading">
+      <el-alert
+        v-if="previewError"
+        :title="previewError"
+        type="error"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <div v-else class="sql-preview-wrapper">
+        <el-input
+          v-model="previewSql"
+          type="textarea"
+          :rows="14"
+          readonly
+          class="sql-preview-textarea"
+        />
+        <el-tooltip content="复制" placement="top">
+          <el-button
+            class="sql-preview-copy"
+            type="primary"
+            size="small"
+            circle
+            :icon="DocumentCopy"
+            @click="handleCopyPreview"
+          />
+        </el-tooltip>
+      </div>
+      <div class="form-tip" style="margin-top: 8px">
+        仅展示变量替换后的 SQL 文本，不会实际执行查询。
+      </div>
+    </div>
+  </el-dialog>
 </template>
+
+<style scoped>
+.sql-preview-wrapper {
+  position: relative;
+}
+.sql-preview-textarea :deep(textarea) {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding-right: 40px;
+}
+.sql-preview-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+</style>

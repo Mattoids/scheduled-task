@@ -1,0 +1,1 @@
+import{_ as e}from"./index-D-CexsfR.js";var t=t=>e.get(`/task-sql/page`,{params:t}),n=()=>e.get(`/task-sql/list`),r=t=>e.get(`/task-sql/${t}`),i=t=>e.post(`/task-sql`,t),a=(t,n)=>e.put(`/task-sql/${t}`,n),o=t=>e.delete(`/task-sql/${t}`),s=t=>e.post(`/task-sql/preview`,t);export{t as a,n as i,o as n,s as o,r,a as s,i as t};
