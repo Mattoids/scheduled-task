@@ -208,13 +208,23 @@ public class SqlExecutor {
 
     /**
      * 将带 ? 占位符的 SQL 和参数列表拼接回完整 SQL，用于日志输出。
+     * 仅替换字符串字面量外的 ?，避免 URL 等场景中的 ? 被误替换。
      */
     private String reconstructFullSql(String sqlWithPlaceholders, List<Object> params) {
         StringBuilder sb = new StringBuilder();
         int paramIndex = 0;
+        boolean inString = false;
         for (int i = 0; i < sqlWithPlaceholders.length(); i++) {
             char c = sqlWithPlaceholders.charAt(i);
-            if (c == '?' && paramIndex < params.size()) {
+            if (c == '\'') {
+                if (inString && i + 1 < sqlWithPlaceholders.length() && sqlWithPlaceholders.charAt(i + 1) == '\'') {
+                    sb.append('\'').append('\'');
+                    i++;
+                } else {
+                    inString = !inString;
+                    sb.append(c);
+                }
+            } else if (c == '?' && !inString && paramIndex < params.size()) {
                 Object val = params.get(paramIndex++);
                 sb.append(formatParam(val));
             } else {
@@ -336,6 +346,10 @@ public class SqlExecutor {
     private String formatStringDate(String value, DateTimeFormatter formatter) {
         try {
             return formatter.format(LocalDateTime.parse(value));
+        } catch (Exception ignored) {
+        }
+        try {
+            return formatter.format(LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         } catch (Exception ignored) {
         }
         try {

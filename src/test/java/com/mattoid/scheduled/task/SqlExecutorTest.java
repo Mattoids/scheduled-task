@@ -197,4 +197,42 @@ class SqlExecutorTest {
             assertEquals("SQL 内容为空", e.getMessage());
         }
     }
+
+    @Test
+    void previewSqlDoesNotReplaceQuestionMarkInStringLiteral() {
+        String sql = "SELECT CONCAT('https://example.com?channel=', t.channel) AS link, name FROM t WHERE id = ${id}";
+        Map<String, Object> params = Map.of("id", 42);
+        String previewSql = executor.previewSql(sql, params);
+        assertEquals("SELECT CONCAT('https://example.com?channel=', t.channel) AS link, name FROM t WHERE id = 42", previewSql);
+    }
+
+    @Test
+    void formatsDateTimeStringWithSpaceSeparator() {
+        String sql = "SELECT * FROM t WHERE date >= '${startTime:yyyy-MM-dd}' AND date <= '${endTime:yyyy-MM-dd}'";
+        Map<String, Object> params = Map.of(
+                "startTime", "2026-08-01 00:00:00",
+                "endTime", "2026-08-31 23:59:59"
+        );
+        String previewSql = executor.previewSql(sql, params);
+        assertEquals("SELECT * FROM t WHERE date >= '2026-08-01' AND date <= '2026-08-31'", previewSql);
+    }
+
+    @Test
+    void previewSqlHandlesUrlWithDateVariables() {
+        String sql = "SELECT '${startTime:yyyy-MM-dd}' AS start, LEFT('${endTime:yyyy-MM-dd}',10) AS end, " +
+                "CONCAT('https://h5.example.com?channel=', t.channel) AS link " +
+                "FROM t WHERE create_time >= '${startTime}' AND create_time <= '${endTime}'";
+        Map<String, Object> params = Map.of(
+                "startTime", "${firstDayOfLastMonth:yyyy-MM-dd}",
+                "endTime", "${lastDayOfLastMonth:yyyy-MM-dd 23:59:59}"
+        );
+        String previewSql = executor.previewSql(sql, params);
+        LocalDate today = LocalDate.now();
+        LocalDate firstDay = today.minusMonths(1).withDayOfMonth(1);
+        LocalDate lastDay = today.minusMonths(1).with(java.time.temporal.TemporalAdjusters.lastDayOfMonth());
+        String expected = "SELECT '" + firstDay + "' AS start, LEFT('" + lastDay + "',10) AS end, " +
+                "CONCAT('https://h5.example.com?channel=', t.channel) AS link " +
+                "FROM t WHERE create_time >= '" + firstDay + "' AND create_time <= '" + lastDay + " 23:59:59'";
+        assertEquals(expected, previewSql);
+    }
 }
